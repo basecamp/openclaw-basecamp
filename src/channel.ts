@@ -11,6 +11,11 @@ import {
 import { getBasecampRuntime } from "./runtime.js";
 import { sendBasecampText } from "./outbound/send.js";
 import { dispatchBasecampEvent } from "./dispatch.js";
+import { bcqAuthStatus } from "./bcq.js";
+import { basecampOnboardingAdapter } from "./adapters/onboarding.js";
+import { basecampSetupAdapter } from "./adapters/setup.js";
+import { basecampStatusAdapter } from "./adapters/status.js";
+import { basecampPairingAdapter } from "./adapters/pairing.js";
 
 export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount> = {
   id: "basecamp",
@@ -34,6 +39,14 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount> = {
     blockStreaming: false,
   },
 
+  onboarding: basecampOnboardingAdapter,
+
+  pairing: basecampPairingAdapter,
+
+  setup: basecampSetupAdapter,
+
+  status: basecampStatusAdapter,
+
   reload: { configPrefixes: ["channels.basecamp"] },
 
   configSchema: buildChannelConfigSchema(BasecampConfigSchema),
@@ -42,13 +55,14 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount> = {
     listAccountIds: (cfg) => listBasecampAccountIds(cfg),
     resolveAccount: (cfg, accountId) => resolveBasecampAccount(cfg, accountId),
     defaultAccountId: (cfg) => resolveDefaultBasecampAccountId(cfg),
-    isConfigured: (account) => Boolean(account.token?.trim() || account.config.tokenFile),
+    isConfigured: (account) => Boolean(account.token?.trim() || account.config.tokenFile || account.config.bcqProfile),
     describeAccount: (account) => ({
       accountId: account.accountId,
       name: account.displayName,
       enabled: account.enabled,
-      configured: Boolean(account.token?.trim() || account.config.tokenFile),
+      configured: Boolean(account.token?.trim() || account.config.tokenFile || account.config.bcqProfile),
       tokenSource: account.tokenSource,
+      bcqProfile: account.config.bcqProfile,
     }),
   },
 
@@ -83,9 +97,28 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount> = {
   gateway: {
     startAccount: async (ctx) => {
       const account = await resolveBasecampAccountAsync(ctx.cfg, ctx.account.accountId);
-      if (!account.token) {
+
+      // If bcqProfile is configured, verify bcq auth status before proceeding
+      if (account.config.bcqProfile) {
+        try {
+          const authResult = await bcqAuthStatus({ profile: account.config.bcqProfile });
+          if (!authResult.data.authenticated) {
+            ctx.log?.error(
+              `[${account.accountId}] cannot start: bcq profile "${account.config.bcqProfile}" is not authenticated`,
+            );
+            return;
+          }
+        } catch (err) {
+          ctx.log?.error(
+            `[${account.accountId}] cannot start: bcq auth check failed for profile "${account.config.bcqProfile}": ${String(err)}`,
+          );
+          return;
+        }
+      }
+
+      if (!account.token && !account.config.bcqProfile) {
         ctx.log?.error(
-          `[${account.accountId}] cannot start: no token (check tokenFile or token config)`,
+          `[${account.accountId}] cannot start: no token (check tokenFile or token config) and no bcqProfile`,
         );
         return;
       }

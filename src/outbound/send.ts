@@ -28,13 +28,14 @@ export async function postCampfireLine(params: {
   content: string;
   accountId?: string;
   host?: string;
+  profile?: string;
 }): Promise<{ ok: boolean; recordingId?: string; error?: string }> {
-  const { bucketId, transcriptId, content, accountId, host } = params;
+  const { bucketId, transcriptId, content, accountId, host, profile } = params;
   const path = `/buckets/${bucketId}/chats/${transcriptId}/lines.json`;
   const body = JSON.stringify({ content });
 
   try {
-    const result = await bcqApiPost(path, body, accountId, host);
+    const result = await bcqApiPost(path, body, accountId, host, profile);
     const parsed = typeof result === "string" ? JSON.parse(result) : result;
     return { ok: true, recordingId: String(parsed?.id ?? "") };
   } catch (err) {
@@ -52,13 +53,14 @@ export async function postComment(params: {
   content: string;
   accountId?: string;
   host?: string;
+  profile?: string;
 }): Promise<{ ok: boolean; commentId?: string; error?: string }> {
-  const { bucketId, recordingId, content, accountId, host } = params;
+  const { bucketId, recordingId, content, accountId, host, profile } = params;
   const path = `/buckets/${bucketId}/recordings/${recordingId}/comments.json`;
   const body = JSON.stringify({ content });
 
   try {
-    const result = await bcqApiPost(path, body, accountId, host);
+    const result = await bcqApiPost(path, body, accountId, host, profile);
     const parsed = typeof result === "string" ? JSON.parse(result) : result;
     return { ok: true, commentId: String(parsed?.id ?? "") };
   } catch (err) {
@@ -94,8 +96,9 @@ export async function postReplyToEvent(params: {
   content: string;
   accountId?: string;
   host?: string;
+  profile?: string;
 }): Promise<{ ok: boolean; messageId?: string; error?: string }> {
-  const { bucketId, recordingId, recordableType, peerId, content, accountId, host } = params;
+  const { bucketId, recordingId, recordableType, peerId, content, accountId, host, profile } = params;
   const parsed = parsePeerId(peerId);
 
   // Chat lines go to the transcript
@@ -116,6 +119,7 @@ export async function postReplyToEvent(params: {
       content,
       accountId,
       host,
+      profile,
     });
     return { ok: result.ok, messageId: result.recordingId, error: result.error };
   }
@@ -127,6 +131,7 @@ export async function postReplyToEvent(params: {
     content,
     accountId,
     host,
+    profile,
   });
   return { ok: result.ok, messageId: result.commentId, error: result.error };
 }

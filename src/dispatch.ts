@@ -13,7 +13,7 @@
 
 import type { BasecampInboundMessage, ResolvedBasecampAccount } from "./types.js";
 import { getBasecampRuntime } from "./runtime.js";
-import { resolvePersonaAccountId } from "./config.js";
+import { resolvePersonaAccountId, resolveBasecampAccount } from "./config.js";
 import { postReplyToEvent } from "./outbound/send.js";
 import { markdownToBasecampHtml } from "./outbound/format.js";
 
@@ -68,6 +68,11 @@ export async function dispatchBasecampEvent(
   // The agent may have a dedicated Basecamp persona (service account).
   const personaAccountId = resolvePersonaAccountId(cfg, route.agentId);
   const outboundAccountId = personaAccountId ?? account.accountId;
+  // Resolve the outbound account's bcqProfile (persona may have its own profile)
+  const outboundAccount = personaAccountId
+    ? resolveBasecampAccount(cfg, personaAccountId)
+    : account;
+  const outboundProfile = outboundAccount.config.bcqProfile;
 
   // ----- Build MsgContext -----
   // OpenClaw expects ChatType "direct" | "group" — NOT "dm"
@@ -115,6 +120,7 @@ export async function dispatchBasecampEvent(
           content: htmlContent,
           accountId: outboundAccountId,
           host: account.host,
+          profile: outboundProfile,
         });
       },
       onError: (err) => {
