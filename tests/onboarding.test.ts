@@ -99,7 +99,6 @@ vi.mock("../src/config.js", () => ({
       token: acct.token ?? "",
       tokenSource,
       bcqProfile: acct.bcqProfile,
-      host: acct.host,
       config: acct,
     };
   },
@@ -509,7 +508,6 @@ describe("basecampStatusAdapter", () => {
       const account = {
         accountId: "test",
         bcqProfile: "dev",
-        host: undefined,
         config: {},
       } as any;
       const result = await basecampStatusAdapter.probeAccount!({
@@ -546,12 +544,11 @@ describe("basecampStatusAdapter", () => {
       expect(result.error).toContain("bcq not found");
     });
 
-    it("passes bcqProfile and host to bcqAuthStatus", async () => {
+    it("passes bcqProfile to bcqAuthStatus", async () => {
       mockBcqAuthStatus.mockResolvedValue({ data: { authenticated: true } });
       const account = {
         accountId: "test",
         bcqProfile: "prod",
-        host: "custom.host",
         config: {},
       } as any;
       await basecampStatusAdapter.probeAccount!({
@@ -561,7 +558,6 @@ describe("basecampStatusAdapter", () => {
       });
       expect(mockBcqAuthStatus).toHaveBeenCalledWith({
         profile: "prod",
-        host: "custom.host",
       });
     });
   });

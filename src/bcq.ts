@@ -19,8 +19,6 @@ export interface BcqOptions {
   accountId?: string;
   /** bcq profile name for --profile flag (selects credential/config profile). */
   profile?: string;
-  /** Basecamp host override (e.g., "3.basecampapi.localhost:3001" for local dev). */
-  host?: string;
   /** Request timeout in milliseconds. */
   timeoutMs?: number;
   /** Extra CLI flags to append. */
@@ -59,10 +57,6 @@ function execBcq<T = unknown>(
 
   if (opts.profile) {
     fullArgs.push("--profile", opts.profile);
-  }
-
-  if (opts.host) {
-    fullArgs.push("--host", opts.host);
   }
 
   if (opts.extraFlags) {
@@ -288,10 +282,9 @@ export async function bcqProfileList(
 export async function bcqApiGet<T = unknown>(
   path: string,
   accountId?: string,
-  host?: string,
   profile?: string,
 ): Promise<T> {
-  const result = await bcqGet<T>(path, { accountId, host, profile });
+  const result = await bcqGet<T>(path, { accountId, profile });
   return result.data;
 }
 
@@ -303,10 +296,9 @@ export async function bcqApiPost<T = unknown>(
   path: string,
   body?: string,
   accountId?: string,
-  host?: string,
   profile?: string,
 ): Promise<T> {
-  const opts: BcqOptions = { accountId, host, profile };
+  const opts: BcqOptions = { accountId, profile };
   if (body) {
     opts.extraFlags = ["-d", body];
   }

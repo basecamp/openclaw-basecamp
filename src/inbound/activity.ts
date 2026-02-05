@@ -45,7 +45,6 @@ export async function pollActivityFeed(
 
   const result = await bcqTimeline<BasecampActivityEvent[]>({
     accountId: account.accountId,
-    host: account.host,
     profile: account.bcqProfile,
   });
 

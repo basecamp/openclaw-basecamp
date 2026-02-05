@@ -160,7 +160,6 @@ export function resolveBasecampAccount(
     token,
     tokenSource,
     bcqProfile: accountCfg.bcqProfile,
-    host: accountCfg.host,
     config: accountCfg,
   };
 }

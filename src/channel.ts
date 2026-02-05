@@ -101,7 +101,7 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount> = {
       // If bcqProfile is configured, verify bcq auth status before proceeding
       if (account.bcqProfile) {
         try {
-          const authResult = await bcqAuthStatus({ profile: account.bcqProfile, host: account.host });
+          const authResult = await bcqAuthStatus({ profile: account.bcqProfile });
           if (!authResult.data.authenticated) {
             ctx.log?.error(
               `[${account.accountId}] cannot start: bcq profile "${account.bcqProfile}" is not authenticated`,

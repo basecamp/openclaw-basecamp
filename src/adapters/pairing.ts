@@ -22,10 +22,9 @@ export const basecampPairingAdapter: ChannelPairingAdapter = {
   },
 
   notifyApproval: async ({ cfg, id }) => {
-    // Resolve the default account to get the bcq profile and host
+    // Resolve the default account to get the bcq profile
     const account = resolveBasecampAccount(cfg);
     const profile = account.bcqProfile;
-    const host = account.host;
 
     // Send a Ping message to the person via bcq
     // bcq campfire dm sends a DM (Ping) to a person by ID
@@ -34,7 +33,6 @@ export const basecampPairingAdapter: ChannelPairingAdapter = {
         `/circles/people/${id}/lines.json`,
         JSON.stringify({ content: `<p>${PAIRING_APPROVED_MESSAGE}</p>` }),
         account.config.bcqAccountId ?? account.accountId,
-        host,
         profile,
       );
     } catch {

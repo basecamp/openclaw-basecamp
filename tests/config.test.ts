@@ -198,20 +198,6 @@ describe("resolveBasecampAccount", () => {
     expect(result.tokenSource).toBe("config");
   });
 
-  it("threads through the host field", () => {
-    const result = resolveBasecampAccount(
-      cfgWithAccounts({
-        dev: {
-          personId: "1",
-          token: "t",
-          host: "3.basecampapi.localhost:3001",
-        },
-      }),
-      "dev",
-    );
-    expect(result.host).toBe("3.basecampapi.localhost:3001");
-  });
-
   it("threads through bcqProfile field", () => {
     const result = resolveBasecampAccount(
       cfgWithAccounts({

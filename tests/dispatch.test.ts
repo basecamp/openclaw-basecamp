@@ -75,7 +75,6 @@ const mockAccount: ResolvedBasecampAccount = {
   personId: "999",
   token: "tok-abc",
   tokenSource: "config",
-  host: "3.basecampapi.com",
   config: { personId: "999" },
 };
 
@@ -160,7 +159,6 @@ describe("dispatchBasecampEvent", () => {
       personId: "888",
       token: "tok-persona",
       tokenSource: "config",
-      host: "3.basecampapi.com",
       bcqProfile: "persona-profile",
       config: { personId: "888", bcqProfile: "persona-profile" },
     } as any);
@@ -200,7 +198,6 @@ describe("dispatchBasecampEvent", () => {
       peerId: "recording:123",
       content: "<p>Agent reply</p>",
       accountId: "test-acct",
-      host: "3.basecampapi.com",
       profile: undefined,
     });
   });

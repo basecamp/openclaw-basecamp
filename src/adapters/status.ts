@@ -31,9 +31,6 @@ export const basecampStatusAdapter: ChannelStatusAdapter<ResolvedBasecampAccount
     if (account.bcqProfile) {
       bcqOpts.profile = account.bcqProfile;
     }
-    if (account.host) {
-      bcqOpts.host = account.host;
-    }
 
     try {
       const result = await bcqAuthStatus(bcqOpts);

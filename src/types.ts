@@ -314,12 +314,6 @@ export type BasecampAccountConfig = {
    * from the bcq-level account identifier.
    */
   bcqAccountId?: string;
-  /**
-   * Basecamp host for this account (e.g., "3.basecampapi.localhost:3001").
-   * Omit for production (defaults to bcq's configured host).
-   * Supports local dev, staging, and self-hosted Basecamp instances.
-   */
-  host?: string;
 };
 
 /**
@@ -366,8 +360,6 @@ export type ResolvedBasecampAccount = {
   tokenSource: "tokenFile" | "config" | "bcq" | "none";
   /** bcq profile name (for --profile flag). */
   bcqProfile?: string;
-  /** Basecamp host override (for dev/staging/self-hosted). */
-  host?: string;
   config: BasecampAccountConfig;
 };
 

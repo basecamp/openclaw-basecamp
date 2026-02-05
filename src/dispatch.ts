@@ -121,7 +121,6 @@ export async function dispatchBasecampEvent(
           peerId: msg.peer.id,
           content: htmlContent,
           accountId: outboundAccountId,
-          host: account.host,
           profile: outboundProfile,
         });
       },
