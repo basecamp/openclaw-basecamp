@@ -55,8 +55,8 @@ export class CursorStore {
     if (!this.dirty) return;
 
     // Ensure directory exists
-    const dir = this.filePath.substring(0, this.filePath.lastIndexOf("/"));
-    await mkdir(dir, { recursive: true });
+    const { dirname } = await import("node:path");
+    await mkdir(dirname(this.filePath), { recursive: true });
 
     await writeFile(this.filePath, JSON.stringify(this.cursors, null, 2), "utf-8");
     this.dirty = false;
