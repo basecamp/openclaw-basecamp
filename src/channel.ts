@@ -113,9 +113,8 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
         cfg,
         sectionKey: "channels.basecamp",
         accountId,
-        clearBaseFields: ["personas"],
       });
-      // Also clean up persona entries pointing to the deleted account
+      // Clean up persona entries pointing to the deleted account
       const section = updated.channels?.basecamp as BasecampChannelConfig | undefined;
       if (section?.personas) {
         const cleaned = { ...section.personas };
@@ -126,12 +125,7 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
       }
       return updated;
     },
-    resolveAllowFrom: ({ cfg, accountId }) => {
-      const section = cfg.channels?.basecamp as BasecampChannelConfig | undefined;
-      // Check per-account allowFrom first (if SDK supports it in the future)
-      // For now, use channel-level allowFrom
-      return resolveBasecampAllowFrom(cfg);
-    },
+    resolveAllowFrom: ({ cfg }) => resolveBasecampAllowFrom(cfg),
     formatAllowFrom: ({ allowFrom }) =>
       allowFrom.map((entry) => `Person ${entry}`),
   },
