@@ -4,6 +4,7 @@ import { DEFAULT_ACCOUNT_ID, normalizeAccountId } from "openclaw/plugin-sdk";
 import type {
   BasecampAccountConfig,
   BasecampChannelConfig,
+  BasecampVirtualAccountConfig,
   ResolvedBasecampAccount,
 } from "./types.js";
 
@@ -27,6 +28,15 @@ const BasecampVirtualAccountSchema = z.object({
   bucketId: z.string(),
 });
 
+const BasecampBucketConfigSchema = z.object({
+  requireMention: z.boolean().optional(),
+  tools: z.object({
+    allow: z.array(z.string()).optional(),
+    deny: z.array(z.string()).optional(),
+  }).optional(),
+  enabled: z.boolean().optional(),
+});
+
 export const BasecampConfigSchema = z.object({
   enabled: z.boolean().optional(),
   accounts: z.record(z.string(), BasecampAccountConfigSchema).optional(),
@@ -34,6 +44,7 @@ export const BasecampConfigSchema = z.object({
   personas: z.record(z.string(), z.string()).optional(),
   dmPolicy: z.enum(["open", "pairing", "closed"]).optional(),
   allowFrom: z.array(z.union([z.string(), z.number()])).optional(),
+  buckets: z.record(z.string(), BasecampBucketConfigSchema).optional(),
   polling: z
     .object({
       activityIntervalMs: z.number().positive().optional(),
@@ -67,15 +78,26 @@ function listConfiguredAccountIds(cfg: OpenClawConfig): string[] {
 }
 
 /**
- * List all account IDs configured under channels.basecamp.accounts.
+ * List all account IDs configured under channels.basecamp.accounts,
+ * including virtual (project-scoped) account keys.
  * Returns [DEFAULT_ACCOUNT_ID] if none are configured.
  */
 export function listBasecampAccountIds(cfg: OpenClawConfig): string[] {
-  const ids = listConfiguredAccountIds(cfg);
-  if (ids.length === 0) {
+  const ids = new Set(listConfiguredAccountIds(cfg));
+
+  // Include virtual account (project-scope) keys
+  const section = getBasecampSection(cfg);
+  const virtualAccounts = section?.virtualAccounts;
+  if (virtualAccounts && typeof virtualAccounts === "object") {
+    for (const key of Object.keys(virtualAccounts)) {
+      if (key) ids.add(normalizeAccountId(key));
+    }
+  }
+
+  if (ids.size === 0) {
     return [DEFAULT_ACCOUNT_ID];
   }
-  return ids.toSorted((a, b) => a.localeCompare(b));
+  return [...ids].sort((a: string, b: string) => a.localeCompare(b));
 }
 
 /**
@@ -112,9 +134,26 @@ async function readTokenFile(filePath: string): Promise<string> {
 }
 
 /**
+ * Resolve a project-scope entry by its key.
+ * Returns the real account ID and scoped bucket ID, or undefined if not found.
+ */
+export function resolveProjectScope(
+  cfg: OpenClawConfig,
+  scopeId: string,
+): { accountId: string; bucketId: string } | undefined {
+  const section = getBasecampSection(cfg);
+  const va = section?.virtualAccounts?.[scopeId] as BasecampVirtualAccountConfig | undefined;
+  if (!va) return undefined;
+  return { accountId: va.accountId, bucketId: va.bucketId };
+}
+
+/**
  * Synchronously resolve a Basecamp account from config.
  * Token loading from file is deferred — use the token field if available,
  * otherwise the gateway startup will load it.
+ *
+ * When accountId matches a virtualAccounts (project-scope) entry, the real
+ * account is resolved and scopedBucketId is set on the result.
  */
 export function resolveBasecampAccount(
   cfg: OpenClawConfig,
@@ -122,6 +161,18 @@ export function resolveBasecampAccount(
 ): ResolvedBasecampAccount {
   const effectiveId = normalizeAccountId(accountId ?? DEFAULT_ACCOUNT_ID);
   const section = getBasecampSection(cfg);
+
+  // Check if this is a project-scope (virtual account) entry
+  const scope = resolveProjectScope(cfg, effectiveId);
+  if (scope) {
+    const resolved = resolveBasecampAccount(cfg, scope.accountId);
+    return {
+      ...resolved,
+      accountId: effectiveId,
+      scopedBucketId: scope.bucketId,
+    };
+  }
+
   const accountCfg = section?.accounts?.[effectiveId] as BasecampAccountConfig | undefined;
 
   if (!accountCfg) {

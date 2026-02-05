@@ -1,6 +1,7 @@
-import type { ChannelPlugin, OpenClawConfig } from "openclaw/plugin-sdk";
+import type { ChannelPlugin } from "openclaw/plugin-sdk";
 import { buildChannelConfigSchema, DEFAULT_ACCOUNT_ID } from "openclaw/plugin-sdk";
 import type { ResolvedBasecampAccount, BasecampInboundMessage } from "./types.js";
+import type { BasecampProbe, BasecampAudit } from "./adapters/status.js";
 import {
   BasecampConfigSchema,
   listBasecampAccountIds,
@@ -16,8 +17,14 @@ import { basecampOnboardingAdapter } from "./adapters/onboarding.js";
 import { basecampSetupAdapter } from "./adapters/setup.js";
 import { basecampStatusAdapter } from "./adapters/status.js";
 import { basecampPairingAdapter } from "./adapters/pairing.js";
+import { basecampDirectoryAdapter } from "./adapters/directory.js";
+import { basecampMessagingAdapter } from "./adapters/messaging.js";
+import { basecampResolverAdapter } from "./adapters/resolver.js";
+import { basecampHeartbeatAdapter } from "./adapters/heartbeat.js";
+import { basecampGroupAdapter } from "./adapters/groups.js";
+import { basecampAgentPromptAdapter } from "./adapters/agent-prompt.js";
 
-export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount> = {
+export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampProbe, BasecampAudit> = {
   id: "basecamp",
 
   meta: {
@@ -47,6 +54,18 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount> = {
 
   status: basecampStatusAdapter,
 
+  directory: basecampDirectoryAdapter,
+
+  messaging: basecampMessagingAdapter,
+
+  resolver: basecampResolverAdapter,
+
+  heartbeat: basecampHeartbeatAdapter,
+
+  groups: basecampGroupAdapter,
+
+  agentPrompt: basecampAgentPromptAdapter,
+
   reload: { configPrefixes: ["channels.basecamp"] },
 
   configSchema: buildChannelConfigSchema(BasecampConfigSchema),
@@ -67,7 +86,7 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount> = {
   },
 
   security: {
-    resolveDmPolicy: ({ cfg, accountId, account }) => {
+    resolveDmPolicy: ({ cfg, accountId }) => {
       const section = cfg.channels?.basecamp as Record<string, unknown> | undefined;
       const dmPolicy = (section?.dmPolicy as string) ?? "pairing";
       const allowFrom = (section?.allowFrom as Array<string | number>) ?? [];

@@ -241,6 +241,30 @@ export const basecampOnboardingAdapter: ChannelOnboardingAdapter = {
       },
     };
 
+    // Step 8: Offer to add another identity via hatch flow
+    if (authenticated) {
+      const postChoice = await prompter.select({
+        message: "What would you like to do?",
+        options: [
+          { value: "done", label: "Done — use this account" },
+          { value: "hatch", label: "Add another identity" },
+        ],
+      });
+
+      if (postChoice === "hatch") {
+        try {
+          const { hatchIdentity } = await import("./hatch.js");
+          const result = await hatchIdentity(next, prompter);
+          next = result.cfg;
+        } catch {
+          await prompter.note(
+            "Failed to add another identity. You can add more later with `openclaw channels hatch basecamp`.",
+            "Hatch error",
+          );
+        }
+      }
+    }
+
     return { cfg: next, accountId };
   },
 

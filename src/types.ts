@@ -281,6 +281,36 @@ export type BasecampWebhookPayload = {
 };
 
 // ---------------------------------------------------------------------------
+// Raw API entity shapes (for directory / resolver adapters)
+// ---------------------------------------------------------------------------
+
+export type BasecampPerson = {
+  id: number;
+  name: string;
+  email_address: string;
+  avatar_url?: string;
+  attachable_sgid?: string;
+};
+
+export type BasecampProject = {
+  id: number;
+  name: string;
+  description?: string;
+  app_url?: string;
+  bookmarked?: boolean;
+};
+
+// ---------------------------------------------------------------------------
+// Per-bucket config (Group C)
+// ---------------------------------------------------------------------------
+
+export type BasecampBucketConfig = {
+  requireMention?: boolean;
+  tools?: { allow?: string[]; deny?: string[] };
+  enabled?: boolean;
+};
+
+// ---------------------------------------------------------------------------
 // Config types
 // ---------------------------------------------------------------------------
 
@@ -338,6 +368,8 @@ export type BasecampChannelConfig = {
   dmPolicy?: "open" | "pairing" | "closed";
   /** Allowed sender person IDs for DM/pairing. */
   allowFrom?: Array<string | number>;
+  /** Per-bucket behavior overrides. Key is bucket ID or "*" for wildcard. */
+  buckets?: Record<string, BasecampBucketConfig>;
   /** Polling cadence overrides (milliseconds). */
   polling?: {
     activityIntervalMs?: number;
@@ -360,6 +392,8 @@ export type ResolvedBasecampAccount = {
   tokenSource: "tokenFile" | "config" | "bcq" | "none";
   /** bcq profile name (for --profile flag). */
   bcqProfile?: string;
+  /** When this account was resolved via a project-scope entry, the scoped bucket ID. */
+  scopedBucketId?: string;
   config: BasecampAccountConfig;
 };
 

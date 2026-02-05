@@ -505,6 +505,10 @@ describe("basecampStatusAdapter", () => {
   describe("probeAccount", () => {
     it("returns ok when bcq auth is successful", async () => {
       mockBcqAuthStatus.mockResolvedValue({ data: { authenticated: true } });
+      mockBcqMe.mockResolvedValue({
+        data: { name: "Jeremy", accounts: [{ id: 1, name: "Test" }] },
+        raw: "",
+      });
       const account = {
         accountId: "test",
         bcqProfile: "dev",
@@ -515,7 +519,10 @@ describe("basecampStatusAdapter", () => {
         timeoutMs: 5000,
         cfg: {} as any,
       });
-      expect(result).toEqual({ ok: true, authenticated: true });
+      expect(result.ok).toBe(true);
+      expect(result.authenticated).toBe(true);
+      expect(result.personName).toBe("Jeremy");
+      expect(result.accountCount).toBe(1);
     });
 
     it("returns not ok when bcq auth fails", async () => {

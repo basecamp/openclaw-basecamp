@@ -11,7 +11,7 @@ const plugin = {
   configSchema: emptyPluginConfigSchema(),
   register(api: OpenClawPluginApi) {
     setBasecampRuntime(api.runtime);
-    api.registerChannel({ plugin: basecampChannel });
+    api.registerChannel({ plugin: basecampChannel as any });
     api.registerHttpRoute({
       path: "/webhooks/basecamp",
       handler: handleBasecampWebhook,

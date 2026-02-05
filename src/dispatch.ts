@@ -11,7 +11,8 @@
  *    to send the agent's response back to the correct Basecamp surface
  */
 
-import type { BasecampInboundMessage, ResolvedBasecampAccount } from "./types.js";
+import type { BasecampInboundMessage, BasecampChannelConfig, ResolvedBasecampAccount } from "./types.js";
+import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import { getBasecampRuntime } from "./runtime.js";
 import { resolvePersonaAccountId, resolveBasecampAccount } from "./config.js";
 import { postReplyToEvent } from "./outbound/send.js";
@@ -45,11 +46,16 @@ export async function dispatchBasecampEvent(
     return false;
   }
 
+  // ----- Project-scope routing override -----
+  // Check if the event's bucketId matches a virtualAccounts entry;
+  // if so, override the accountId to the scope alias so agent bindings match.
+  const effectiveAccountId = resolveProjectScopeAccountId(cfg, msg) ?? msg.accountId;
+
   // ----- Route resolution -----
   const route = runtime.channel.routing.resolveAgentRoute({
     cfg,
     channel: "basecamp",
-    accountId: msg.accountId,
+    accountId: effectiveAccountId,
     peer: msg.peer,
     parentPeer: msg.parentPeer,
   });
@@ -136,6 +142,28 @@ export async function dispatchBasecampEvent(
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Check if an inbound message's bucketId matches a virtualAccounts entry.
+ * Returns the virtual account key (scope alias) if matched, undefined otherwise.
+ */
+function resolveProjectScopeAccountId(
+  cfg: OpenClawConfig,
+  msg: BasecampInboundMessage,
+): string | undefined {
+  const section = cfg.channels?.basecamp as BasecampChannelConfig | undefined;
+  const virtualAccounts = section?.virtualAccounts;
+  if (!virtualAccounts) return undefined;
+
+  const bucketId = msg.meta.bucketId;
+  for (const [key, va] of Object.entries(virtualAccounts)) {
+    if (va.bucketId === bucketId) {
+      return key;
+    }
+  }
+
+  return undefined;
+}
 
 /**
  * Build UntrustedContext entries from Basecamp-specific metadata.
