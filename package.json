@@ -1,0 +1,22 @@
+{
+  "name": "@37signals/openclaw-basecamp",
+  "version": "0.1.0",
+  "description": "OpenClaw Basecamp channel plugin — Campfire, cards, todos, check-ins, pings",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "openclaw": ">=2026.2.0",
+    "vitest": "3"
+  },
+  "openclaw": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "dependencies": {
+    "typescript": "*"
+  }
+}

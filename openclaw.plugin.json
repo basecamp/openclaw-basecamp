@@ -1,0 +1,9 @@
+{
+  "id": "basecamp",
+  "channels": ["basecamp"],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}
