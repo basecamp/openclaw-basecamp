@@ -117,7 +117,7 @@ export function formatMentionTag(sgid: string): string {
  * Useful for extracting plain text from Basecamp HTML.
  */
 export function stripAttachmentTags(html: string): string {
-  return html.replace(/<bc-attachment[^>]*>(?:<\/bc-attachment>)?/gi, "");
+  return html.replace(/<bc-attachment[^>]*(?:\/>|><\/bc-attachment>)/gi, "");
 }
 
 /**
