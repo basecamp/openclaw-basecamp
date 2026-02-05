@@ -11,12 +11,17 @@
 import type { ChannelMentionAdapter, OpenClawConfig } from "openclaw/plugin-sdk";
 import type { BasecampChannelConfig } from "../types.js";
 
+function getBasecampSection(cfg: OpenClawConfig): BasecampChannelConfig | undefined {
+  return cfg.channels?.basecamp as BasecampChannelConfig | undefined;
+}
+
 /**
  * Resolve the agent's display name for a given account.
  * Uses the account config's displayName field.
  */
 function resolveAgentDisplayName(cfg: OpenClawConfig | undefined, accountId?: string): string | undefined {
-  const section = cfg?.channels?.basecamp as BasecampChannelConfig | undefined;
+  if (!cfg) return undefined;
+  const section = getBasecampSection(cfg);
   if (!section?.accounts) return undefined;
 
   // If accountId matches a specific account, use its displayName
