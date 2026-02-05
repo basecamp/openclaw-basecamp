@@ -72,7 +72,7 @@ export async function dispatchBasecampEvent(
   const outboundAccount = personaAccountId
     ? resolveBasecampAccount(cfg, personaAccountId)
     : account;
-  const outboundProfile = outboundAccount.config.bcqProfile;
+  const outboundProfile = outboundAccount.bcqProfile;
 
   // ----- Build MsgContext -----
   // OpenClaw expects ChatType "direct" | "group" — NOT "dm"
@@ -90,6 +90,8 @@ export async function dispatchBasecampEvent(
     Provider: "basecamp",
     Surface: "basecamp",
     Timestamp: new Date(msg.createdAt).getTime(),
+    // MessageSid: messageId for comment/message events, recordingId for
+    // non-message events (card moves, todo completions, etc.)
     MessageSid: msg.meta.messageId ?? msg.meta.recordingId,
     AccountId: msg.accountId,
     OriginatingChannel: "basecamp" as const,

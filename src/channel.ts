@@ -55,14 +55,14 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount> = {
     listAccountIds: (cfg) => listBasecampAccountIds(cfg),
     resolveAccount: (cfg, accountId) => resolveBasecampAccount(cfg, accountId),
     defaultAccountId: (cfg) => resolveDefaultBasecampAccountId(cfg),
-    isConfigured: (account) => Boolean(account.token?.trim() || account.config.tokenFile || account.config.bcqProfile),
+    isConfigured: (account) => Boolean(account.token?.trim() || account.config.tokenFile || account.bcqProfile),
     describeAccount: (account) => ({
       accountId: account.accountId,
       name: account.displayName,
       enabled: account.enabled,
-      configured: Boolean(account.token?.trim() || account.config.tokenFile || account.config.bcqProfile),
+      configured: Boolean(account.token?.trim() || account.config.tokenFile || account.bcqProfile),
       tokenSource: account.tokenSource,
-      bcqProfile: account.config.bcqProfile,
+      bcqProfile: account.bcqProfile,
     }),
   },
 
@@ -99,24 +99,24 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount> = {
       const account = await resolveBasecampAccountAsync(ctx.cfg, ctx.account.accountId);
 
       // If bcqProfile is configured, verify bcq auth status before proceeding
-      if (account.config.bcqProfile) {
+      if (account.bcqProfile) {
         try {
-          const authResult = await bcqAuthStatus({ profile: account.config.bcqProfile });
+          const authResult = await bcqAuthStatus({ profile: account.bcqProfile, host: account.host });
           if (!authResult.data.authenticated) {
             ctx.log?.error(
-              `[${account.accountId}] cannot start: bcq profile "${account.config.bcqProfile}" is not authenticated`,
+              `[${account.accountId}] cannot start: bcq profile "${account.bcqProfile}" is not authenticated`,
             );
             return;
           }
         } catch (err) {
           ctx.log?.error(
-            `[${account.accountId}] cannot start: bcq auth check failed for profile "${account.config.bcqProfile}": ${String(err)}`,
+            `[${account.accountId}] cannot start: bcq auth check failed for profile "${account.bcqProfile}": ${String(err)}`,
           );
           return;
         }
       }
 
-      if (!account.token && !account.config.bcqProfile) {
+      if (!account.token && !account.bcqProfile) {
         ctx.log?.error(
           `[${account.accountId}] cannot start: no token (check tokenFile or token config) and no bcqProfile`,
         );

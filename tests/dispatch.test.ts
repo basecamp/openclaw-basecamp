@@ -161,6 +161,7 @@ describe("dispatchBasecampEvent", () => {
       token: "tok-persona",
       tokenSource: "config",
       host: "3.basecampapi.com",
+      bcqProfile: "persona-profile",
       config: { personId: "888", bcqProfile: "persona-profile" },
     } as any);
 

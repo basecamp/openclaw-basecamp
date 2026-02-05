@@ -49,7 +49,7 @@ export async function pollReadings(
   }>({
     accountId: account.accountId,
     host: account.host,
-    profile: account.config.bcqProfile,
+    profile: account.bcqProfile,
   });
 
   const unreads = result.data?.unreads;
