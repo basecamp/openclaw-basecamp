@@ -54,19 +54,18 @@ export const basecampDirectoryAdapter: ChannelDirectoryAdapter = {
       entries.push({ kind: "user", id, name: undefined });
     }
 
-    // Include all account personIds
+    // Include all account personIds (use Set for O(1) dedup)
+    const seenIds = new Set(entries.map((e) => e.id));
     const accounts = section?.accounts;
     if (accounts) {
       for (const acct of Object.values(accounts)) {
-        if (acct.personId) {
-          const existing = entries.find((e) => e.id === acct.personId);
-          if (!existing) {
-            entries.push({
-              kind: "user",
-              id: acct.personId,
-              name: acct.displayName,
-            });
-          }
+        if (acct.personId && !seenIds.has(acct.personId)) {
+          seenIds.add(acct.personId);
+          entries.push({
+            kind: "user",
+            id: acct.personId,
+            name: acct.displayName,
+          });
         }
       }
     }

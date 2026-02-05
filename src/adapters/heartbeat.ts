@@ -45,16 +45,10 @@ export const basecampHeartbeatAdapter: ChannelHeartbeatAdapter = {
       };
     }
 
-    // Map allowFrom entries to ping:<personId> targets
-    const section = getBasecampSection(cfg);
-    const allowFrom = section?.allowFrom;
-    if (allowFrom && allowFrom.length > 0) {
-      return {
-        recipients: allowFrom.map((id) => `ping:${id}`),
-        source: "allowFrom",
-      };
-    }
-
+    // allowFrom contains person IDs, but ping peer IDs require circle bucket
+    // IDs (not person IDs). We cannot map person IDs to ping targets without
+    // an API call to discover the circle. Return empty — heartbeat delivery
+    // for Basecamp requires an explicit --to flag with a valid peer ID.
     return { recipients: [], source: "none" };
   },
 };

@@ -97,7 +97,7 @@ export function listBasecampAccountIds(cfg: OpenClawConfig): string[] {
   if (ids.size === 0) {
     return [DEFAULT_ACCOUNT_ID];
   }
-  return [...ids].sort((a: string, b: string) => a.localeCompare(b));
+  return Array.from(ids).sort();
 }
 
 /**
@@ -158,6 +158,7 @@ export function resolveProjectScope(
 export function resolveBasecampAccount(
   cfg: OpenClawConfig,
   accountId?: string | null,
+  _visited?: Set<string>,
 ): ResolvedBasecampAccount {
   const effectiveId = normalizeAccountId(accountId ?? DEFAULT_ACCOUNT_ID);
   const section = getBasecampSection(cfg);
@@ -165,7 +166,20 @@ export function resolveBasecampAccount(
   // Check if this is a project-scope (virtual account) entry
   const scope = resolveProjectScope(cfg, effectiveId);
   if (scope) {
-    const resolved = resolveBasecampAccount(cfg, scope.accountId);
+    // Cycle detection: virtual accounts must not reference each other
+    const visited = _visited ?? new Set<string>();
+    if (visited.has(effectiveId)) {
+      return {
+        accountId: effectiveId,
+        enabled: false,
+        personId: "",
+        token: "",
+        tokenSource: "none",
+        config: { personId: "" },
+      };
+    }
+    visited.add(effectiveId);
+    const resolved = resolveBasecampAccount(cfg, scope.accountId, visited);
     return {
       ...resolved,
       accountId: effectiveId,

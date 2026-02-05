@@ -118,13 +118,15 @@ describe("heartbeat.resolveRecipients", () => {
     expect(result.source).toBe("explicit");
   });
 
-  it("maps allowFrom to ping targets", () => {
+  it("returns empty when only allowFrom is available (person IDs cannot be mapped to ping peers)", () => {
     const result = basecampHeartbeatAdapter.resolveRecipients!({
       cfg: cfg({ allowFrom: ["100", "200"] }),
     });
 
-    expect(result.recipients).toEqual(["ping:100", "ping:200"]);
-    expect(result.source).toBe("allowFrom");
+    // allowFrom contains person IDs, but ping peers require circle bucket IDs.
+    // Without an API call we can't map them, so recipients is empty.
+    expect(result.recipients).toEqual([]);
+    expect(result.source).toBe("none");
   });
 
   it("returns empty when no recipients available", () => {

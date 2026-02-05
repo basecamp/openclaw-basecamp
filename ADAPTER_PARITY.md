@@ -1,1 +1,0 @@
-~/.claude-sneakpeek/claudesp/config/plans/ticklish-Amplifying-music.md

@@ -80,7 +80,8 @@ export async function hatchIdentity(
       identity?: { id: number; name: string; email_address: string; attachable_sgid?: string };
       accounts?: BcqAccount[];
     };
-    meIdentity = data.identity ?? (meResult.data as any);
+    // bcqMe may return {id, name, ...} directly or nested under {identity: ...}
+    meIdentity = data.identity ?? (meResult.data as typeof meIdentity);
 
     const accounts = data.accounts ?? [];
     if (accounts.length > 1) {

@@ -111,7 +111,7 @@ export const basecampStatusAdapter: ChannelStatusAdapter<ResolvedBasecampAccount
       personasMapped++;
       if (accounts[targetAccountId]) {
         const resolved = resolveBasecampAccount(cfg, targetAccountId);
-        if (resolved.token || resolved.bcqProfile) {
+        if (resolved.token || resolved.bcqProfile || resolved.config.tokenFile) {
           personasValid++;
         } else {
           errors.push(`Persona "${agentId}" → account "${targetAccountId}": no auth configured`);
