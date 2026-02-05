@@ -159,10 +159,6 @@ export async function sendBasecampText(params: {
   // Resolve persona account to get host and effective accountId
   const effectiveAccountId = params.accountId ?? undefined;
   const account = resolveBasecampAccount(cfg, effectiveAccountId);
-  const host = account.host;
-
-  // Convert markdown to Basecamp HTML
-  const htmlContent = markdownToBasecampHtml(text);
 
   // Parse the peer ID to determine target
   const parsed = parsePeerId(to);

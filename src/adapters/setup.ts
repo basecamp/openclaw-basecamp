@@ -24,13 +24,9 @@ export const basecampSetupAdapter: ChannelSetupAdapter = {
       name,
     }),
 
-  validateInput: ({ input }) => {
-    // Basecamp accounts require a personId (set during onboarding or via config).
-    // The setup command accepts token, tokenFile, or bcq profile for auth.
-    if (!input.token && !input.tokenFile && !input.useEnv) {
-      // bcq auth is acceptable — no token needed if bcqProfile is configured
-      return null;
-    }
+  validateInput: () => {
+    // No-op: Basecamp authentication is handled by bcq profiles or
+    // token config. Validation happens during onboarding and gateway startup.
     return null;
   },
 
@@ -51,27 +47,6 @@ export const basecampSetupAdapter: ChannelSetupAdapter = {
       : input.token
         ? { token: input.token }
         : {};
-
-    if (accountId === DEFAULT_ACCOUNT_ID) {
-      return {
-        ...namedConfig,
-        channels: {
-          ...namedConfig.channels,
-          basecamp: {
-            ...section,
-            enabled: true,
-            accounts: {
-              ...accounts,
-              [accountId]: {
-                ...existingAccount,
-                enabled: true,
-                ...tokenConfig,
-              },
-            },
-          },
-        },
-      };
-    }
 
     return {
       ...namedConfig,
