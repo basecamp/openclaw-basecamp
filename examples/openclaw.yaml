@@ -1,0 +1,66 @@
+# Example OpenClaw config with Basecamp channel plugin.
+#
+# Install the plugin:
+#   openclaw plugins install ~/Work/basecamp/basecamp-openclaw-plugin
+#
+# Then add this to your openclaw.yaml (or merge the relevant sections).
+
+channels:
+  basecamp:
+    enabled: true
+
+    # Service accounts — each represents a Basecamp identity.
+    # The tokenFile should contain an OAuth bearer token for bc3 API access.
+    accounts:
+      main:
+        tokenFile: ~/.config/bcq/token
+        personId: "12345678"
+        displayName: "Coworker Bot"
+        # attachableSgid is auto-resolved at startup from personId
+
+    # Agent → account mapping for multi-persona outbound.
+    # When an agent replies, it posts as the mapped account's identity.
+    # personas:
+    #   security-agent: security-bot-account
+    #   support-agent: support-bot-account
+
+    # DM policy for Ping conversations.
+    # "open" = all authenticated Basecamp users can DM (recommended for internal tools)
+    # "pairing" = require pairing approval for unknown senders
+    # "closed" = no DMs accepted
+    dmPolicy: open
+
+    # Polling cadence (milliseconds). Defaults shown.
+    # polling:
+    #   activityIntervalMs: 120000   # Activity feed: every 2 minutes
+    #   readingsIntervalMs: 60000    # Hey! Readings: every 1 minute
+
+# Agent definitions
+agents:
+  list:
+    - id: my-agent
+      model: anthropic/claude-sonnet-4-5
+      systemPrompt: |
+        You are a helpful assistant connected to Basecamp.
+        You can see messages from Campfire chats, card comments,
+        todo updates, and other Basecamp activity.
+
+      # Bind to a specific Basecamp project via parentPeer (bucket ID).
+      # The agent receives ALL events from this project.
+      bindings:
+        - channel: basecamp
+          peer: { kind: group, id: "bucket:67890" }
+
+    # Example: bind to a specific Campfire transcript
+    # - id: campfire-agent
+    #   model: anthropic/claude-sonnet-4-5
+    #   bindings:
+    #     - channel: basecamp
+    #       peer: { kind: group, id: "recording:11111" }
+
+    # Example: bind to a Ping (DM) circle
+    # - id: dm-agent
+    #   model: anthropic/claude-sonnet-4-5
+    #   bindings:
+    #     - channel: basecamp
+    #       peer: { kind: dm, id: "ping:22222" }
