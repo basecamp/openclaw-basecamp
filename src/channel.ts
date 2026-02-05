@@ -23,6 +23,7 @@ import { basecampResolverAdapter } from "./adapters/resolver.js";
 import { basecampHeartbeatAdapter } from "./adapters/heartbeat.js";
 import { basecampGroupAdapter } from "./adapters/groups.js";
 import { basecampAgentPromptAdapter } from "./adapters/agent-prompt.js";
+import { basecampMentionAdapter } from "./adapters/mentions.js";
 
 export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampProbe, BasecampAudit> = {
   id: "basecamp",
@@ -65,6 +66,8 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
   groups: basecampGroupAdapter,
 
   agentPrompt: basecampAgentPromptAdapter,
+
+  mentions: basecampMentionAdapter,
 
   reload: { configPrefixes: ["channels.basecamp"] },
 
