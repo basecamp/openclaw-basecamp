@@ -92,14 +92,21 @@ export function resolveDefaultBasecampAccountId(cfg: OpenClawConfig): string {
 
 /**
  * Read the token from a tokenFile path, returning the trimmed contents.
+ * Expands `~` and `~/...` to the user's home directory.
+ * Paths like `~username/...` are treated as literal (not expanded).
  */
 async function readTokenFile(filePath: string): Promise<string> {
   const { readFile } = await import("node:fs/promises");
   const { resolve } = await import("node:path");
   const { homedir } = await import("node:os");
-  const resolved = filePath.startsWith("~")
-    ? resolve(homedir(), filePath.slice(2))
-    : resolve(filePath);
+  let resolved: string;
+  if (filePath === "~") {
+    resolved = homedir();
+  } else if (filePath.startsWith("~/")) {
+    resolved = resolve(homedir(), filePath.slice(2));
+  } else {
+    resolved = resolve(filePath);
+  }
   const content = await readFile(resolved, "utf-8");
   return content.trim();
 }
@@ -172,8 +179,9 @@ export async function resolveBasecampAccountAsync(
     try {
       account.token = await readTokenFile(account.config.tokenFile);
       account.tokenSource = "tokenFile";
-    } catch {
-      // Token file missing or unreadable — leave as empty
+    } catch (err) {
+      // Token file missing or unreadable — log and leave as empty
+      console.warn(`[basecamp] failed to read token file "${account.config.tokenFile}": ${String(err)}`);
       account.tokenSource = "none";
     }
   }
