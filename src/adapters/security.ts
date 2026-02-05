@@ -14,7 +14,7 @@ function getBasecampSection(cfg: OpenClawConfig): BasecampChannelConfig | undefi
 }
 
 export const basecampSecurityAdapter = {
-  resolveDmPolicy: ({ cfg, accountId }: { cfg: OpenClawConfig; accountId?: string | null; account: ResolvedBasecampAccount }) => {
+  resolveDmPolicy: ({ cfg, accountId, account: _account }: { cfg: OpenClawConfig; accountId?: string | null; account: ResolvedBasecampAccount }) => {
     const section = getBasecampSection(cfg);
     const dmPolicy = section?.dmPolicy ?? "pairing";
     const allowFrom = section?.allowFrom ?? [];
@@ -31,7 +31,7 @@ export const basecampSecurityAdapter = {
     };
   },
 
-  collectWarnings: async ({ cfg }: { cfg: OpenClawConfig; accountId?: string | null; account: ResolvedBasecampAccount }): Promise<string[]> => {
+  collectWarnings: async ({ cfg, account: _account }: { cfg: OpenClawConfig; accountId?: string | null; account: ResolvedBasecampAccount }): Promise<string[]> => {
     const section = getBasecampSection(cfg);
     if (!section) return [];
 

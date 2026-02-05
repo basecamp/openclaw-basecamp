@@ -15,19 +15,22 @@ function cfg(basecamp?: Record<string, unknown>) {
   return { channels: { basecamp } } as any;
 }
 
+const stubAccount = { accountId: "test", personId: "42" } as any;
+
 // ---------------------------------------------------------------------------
 // resolveDmPolicy
 // ---------------------------------------------------------------------------
 
 describe("security.resolveDmPolicy", () => {
   it("defaults to pairing when no dmPolicy is set", () => {
-    const result = basecampSecurityAdapter.resolveDmPolicy({ cfg: cfg({}) });
+    const result = basecampSecurityAdapter.resolveDmPolicy({ cfg: cfg({}), account: stubAccount });
     expect(result.policy).toBe("pairing");
   });
 
   it("returns configured dmPolicy", () => {
     const result = basecampSecurityAdapter.resolveDmPolicy({
       cfg: cfg({ dmPolicy: "open" }),
+      account: stubAccount,
     });
     expect(result.policy).toBe("open");
   });
@@ -36,6 +39,7 @@ describe("security.resolveDmPolicy", () => {
     const result = basecampSecurityAdapter.resolveDmPolicy({
       cfg: cfg({}),
       accountId: "default",
+      account: stubAccount,
     });
     expect(result.policyPath).toBe("channels.basecamp.dmPolicy");
     expect(result.allowFromPath).toBe("channels.basecamp.");
@@ -45,6 +49,7 @@ describe("security.resolveDmPolicy", () => {
     const result = basecampSecurityAdapter.resolveDmPolicy({
       cfg: cfg({}),
       accountId: "work",
+      account: stubAccount,
     });
     expect(result.policyPath).toBe("channels.basecamp.accounts.work.dmPolicy");
     expect(result.allowFromPath).toBe("channels.basecamp.accounts.work.");
@@ -53,6 +58,7 @@ describe("security.resolveDmPolicy", () => {
   it("returns allowFrom entries", () => {
     const result = basecampSecurityAdapter.resolveDmPolicy({
       cfg: cfg({ allowFrom: [42, "99"] }),
+      account: stubAccount,
     });
     expect(result.allowFrom).toEqual([42, "99"]);
   });
@@ -64,7 +70,7 @@ describe("security.resolveDmPolicy", () => {
 
 describe("security.collectWarnings", () => {
   it("returns empty for missing config", async () => {
-    const warnings = await basecampSecurityAdapter.collectWarnings({ cfg: {} as any });
+    const warnings = await basecampSecurityAdapter.collectWarnings({ cfg: {} as any, account: stubAccount });
     expect(warnings).toEqual([]);
   });
 
@@ -77,6 +83,7 @@ describe("security.collectWarnings", () => {
           main: { personId: "42", bcqProfile: "default" },
         },
       }),
+      account: stubAccount,
     });
     expect(warnings).toEqual([]);
   });
@@ -84,6 +91,7 @@ describe("security.collectWarnings", () => {
   it("warns on open dmPolicy with no allowFrom", async () => {
     const warnings = await basecampSecurityAdapter.collectWarnings({
       cfg: cfg({ dmPolicy: "open" }),
+      account: stubAccount,
     });
     expect(warnings).toHaveLength(1);
     expect(warnings[0]).toContain("open");
@@ -93,6 +101,7 @@ describe("security.collectWarnings", () => {
   it("does not warn on open dmPolicy when allowFrom has entries", async () => {
     const warnings = await basecampSecurityAdapter.collectWarnings({
       cfg: cfg({ dmPolicy: "open", allowFrom: [42] }),
+      account: stubAccount,
     });
     expect(warnings).toEqual([]);
   });
@@ -103,6 +112,7 @@ describe("security.collectWarnings", () => {
         accounts: { main: { personId: "42", bcqProfile: "default" } },
         personas: { "agent-1": "missing" },
       }),
+      account: stubAccount,
     });
     expect(warnings).toContainEqual(
       expect.stringContaining("agent-1"),
@@ -118,6 +128,7 @@ describe("security.collectWarnings", () => {
         accounts: { main: { personId: "42", bcqProfile: "default" } },
         personas: { "agent-1": "main" },
       }),
+      account: stubAccount,
     });
     const personaWarnings = warnings.filter((w) => w.includes("Persona"));
     expect(personaWarnings).toHaveLength(0);
@@ -129,6 +140,7 @@ describe("security.collectWarnings", () => {
         accounts: { main: { personId: "42", bcqProfile: "default" } },
         virtualAccounts: { "project-x": { accountId: "ghost", bucketId: "123" } },
       }),
+      account: stubAccount,
     });
     expect(warnings).toContainEqual(
       expect.stringContaining("project-x"),
@@ -146,6 +158,7 @@ describe("security.collectWarnings", () => {
           beta: { personId: "42", token: "tok" },
         },
       }),
+      account: stubAccount,
     });
     expect(warnings).toContainEqual(
       expect.stringContaining("Person ID 42"),
@@ -165,6 +178,7 @@ describe("security.collectWarnings", () => {
           broken: { personId: "42" },
         },
       }),
+      account: stubAccount,
     });
     expect(warnings).toContainEqual(
       expect.stringContaining("broken"),
@@ -181,6 +195,7 @@ describe("security.collectWarnings", () => {
           good: { personId: "42", bcqProfile: "default" },
         },
       }),
+      account: stubAccount,
     });
     const authWarnings = warnings.filter((w) => w.includes("no token"));
     expect(authWarnings).toHaveLength(0);
@@ -191,6 +206,7 @@ describe("security.collectWarnings", () => {
       cfg: cfg({
         allowFrom: [42, "not-a-number", "99"],
       }),
+      account: stubAccount,
     });
     expect(warnings).toContainEqual(
       expect.stringContaining("not-a-number"),
@@ -210,6 +226,7 @@ describe("security.collectWarnings", () => {
         personas: { "agent-1": "ghost" },
         allowFrom: ["abc"],
       }),
+      account: stubAccount,
     });
     // Should have: no-auth on main, bad persona, bad allowFrom
     // (open+allowFrom present = no open-policy warning)

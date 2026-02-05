@@ -15,10 +15,10 @@ describe("outbound.resolveTarget", () => {
     expect(result.to).toBe("recording:123");
   });
 
-  it("accepts bucket:<id>", () => {
+  it("rejects bucket:<id> with helpful error", () => {
     const result = resolveOutboundTarget("bucket:456");
-    expect(result.ok).toBe(true);
-    expect(result.to).toBe("bucket:456");
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("project scope");
   });
 
   it("accepts ping:<id>", () => {

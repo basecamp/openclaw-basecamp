@@ -5,7 +5,7 @@
  * for splitting long agent output within Basecamp's 10K character limit.
  */
 
-const VALID_TARGET = /^(recording|bucket|ping):\d+$/;
+const VALID_TARGET = /^(recording|ping):\d+$/;
 
 export type ResolveTargetResult =
   | { ok: true; to: string }
@@ -13,7 +13,8 @@ export type ResolveTargetResult =
 
 /**
  * Validate an outbound target string before attempting delivery.
- * Must match recording:<id>, bucket:<id>, or ping:<id>.
+ * Must match recording:<id> or ping:<id>. bucket:<id> peers represent a
+ * project scope, not a specific conversation, and are not valid send targets.
  */
 export function resolveOutboundTarget(to: string): ResolveTargetResult {
   if (!to) {
@@ -22,9 +23,15 @@ export function resolveOutboundTarget(to: string): ResolveTargetResult {
   if (VALID_TARGET.test(to)) {
     return { ok: true, to };
   }
+  if (/^bucket:\d+$/.test(to)) {
+    return {
+      ok: false,
+      error: `"${to}" is a project scope, not a conversation target. Use a recording: or ping: peer instead`,
+    };
+  }
   return {
     ok: false,
-    error: `Invalid Basecamp target "${to}". Expected recording:<id>, bucket:<id>, or ping:<id>`,
+    error: `Invalid Basecamp target "${to}". Expected recording:<id> or ping:<id>`,
   };
 }
 
@@ -32,18 +39,17 @@ export function resolveOutboundTarget(to: string): ResolveTargetResult {
  * Split text into chunks that fit within a character limit.
  *
  * Strategy (in priority order):
- * 1. Split on paragraph boundaries (double newline)
+ * 1. Split on paragraph boundaries (double newline), keeping fenced code
+ *    blocks intact as single "paragraphs"
  * 2. Fall back to sentence boundaries (. ! ?)
  * 3. Fall back to word boundaries (space)
- *
- * Code blocks (```) are kept intact when they fit within the limit.
  */
 export function chunkMarkdownText(text: string, limit: number): string[] {
   if (!text) return [];
   if (text.length <= limit) return [text];
 
-  // Split into paragraphs (double newline)
-  const paragraphs = text.split(/\n\n/);
+  // Split into paragraphs, keeping fenced code blocks as single units
+  const paragraphs = splitPreservingCodeBlocks(text);
   const chunks: string[] = [];
   let current = "";
 
@@ -86,11 +92,42 @@ export function chunkMarkdownText(text: string, limit: number): string[] {
 }
 
 /**
+ * Split text on paragraph boundaries while keeping fenced code blocks
+ * (```...```) together as single units.
+ */
+function splitPreservingCodeBlocks(text: string): string[] {
+  const parts: string[] = [];
+  const codeBlockRe = /```[\s\S]*?```/g;
+  let lastIdx = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = codeBlockRe.exec(text)) !== null) {
+    // Text before this code block: split on paragraph boundaries
+    if (match.index > lastIdx) {
+      const before = text.slice(lastIdx, match.index);
+      parts.push(...before.split(/\n\n/).filter(Boolean));
+    }
+    // Code block kept as single unit
+    parts.push(match[0]);
+    lastIdx = codeBlockRe.lastIndex;
+  }
+
+  // Trailing text after the last code block
+  if (lastIdx < text.length) {
+    parts.push(...text.slice(lastIdx).split(/\n\n/).filter(Boolean));
+  }
+
+  return parts;
+}
+
+/**
  * Split a long block of text (single paragraph) by sentences,
  * then by words if needed.
  */
 function splitLongBlock(text: string, limit: number): string[] {
-  // Try sentence splitting first
+  // Try sentence splitting first. Note: this simple regex may incorrectly
+  // split on abbreviations (e.g. "Dr.") or decimals (e.g. "3.14"), but
+  // this is acceptable for agent output chunking.
   const sentences = text.match(/[^.!?]+[.!?]+\s*/g);
   if (sentences && sentences.length > 1) {
     return mergeSegments(sentences, limit);
