@@ -17,6 +17,7 @@
     ]
   },
   "dependencies": {
-    "typescript": "*"
+    "typescript": "^5.0.0",
+    "zod": "^3.22.0"
   }
 }

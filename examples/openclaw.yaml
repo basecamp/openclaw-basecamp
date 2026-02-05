@@ -13,7 +13,7 @@ channels:
     # The tokenFile should contain an OAuth bearer token for bc3 API access.
     accounts:
       main:
-        tokenFile: ~/.config/bcq/token
+        tokenFile: "~/.config/bcq/token"
         personId: "12345678"
         displayName: "Coworker Bot"
         # attachableSgid is auto-resolved at startup from personId

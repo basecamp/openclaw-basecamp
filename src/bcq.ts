@@ -9,7 +9,7 @@ import { execFile } from "node:child_process";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-const BCQ_PATH = join(homedir(), ".local", "bin", "bcq");
+const BCQ_PATH = process.env.BCQ_BIN ?? join(homedir(), ".local", "bin", "bcq");
 
 /** Default timeout for bcq commands (30 seconds). */
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -259,7 +259,7 @@ export async function bcqAuthStatus(
 
 /**
  * List available bcq profiles.
- * Runs `bcq profiles list` to enumerate configured profiles.
+ * Runs `bcq profile list` to enumerate configured profiles.
  */
 export async function bcqProfileList(
   opts: BcqOptions = {},
