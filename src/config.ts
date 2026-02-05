@@ -18,6 +18,8 @@ const BasecampAccountConfigSchema = z.object({
   displayName: z.string().optional(),
   attachableSgid: z.string().optional(),
   enabled: z.boolean().optional(),
+  bcqProfile: z.string().optional(),
+  bcqAccountId: z.string().optional(),
 });
 
 const BasecampVirtualAccountSchema = z.object({
@@ -137,6 +139,10 @@ export function resolveBasecampAccount(
   if (!token && accountCfg.tokenFile) {
     tokenSource = "tokenFile";
   }
+  // If no token and no tokenFile, but a bcqProfile is configured, bcq manages auth
+  if (!token && !accountCfg.tokenFile && accountCfg.bcqProfile) {
+    tokenSource = "bcq";
+  }
 
   return {
     accountId: effectiveId,
@@ -146,6 +152,7 @@ export function resolveBasecampAccount(
     attachableSgid: accountCfg.attachableSgid,
     token,
     tokenSource,
+    bcqProfile: accountCfg.bcqProfile,
     host: accountCfg.host,
     config: accountCfg,
   };

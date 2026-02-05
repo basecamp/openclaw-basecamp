@@ -302,6 +302,19 @@ export type BasecampAccountConfig = {
   /** Whether this account is enabled. */
   enabled?: boolean;
   /**
+   * bcq profile name for this account (maps to --profile flag).
+   * Selects which bcq credential/config profile to use.
+   * Omit to use bcq's default profile.
+   */
+  bcqProfile?: string;
+  /**
+   * bcq account ID override for this account (maps to --account flag).
+   * When set, this value is passed as the bcq --account flag instead of
+   * the plugin's account key. Useful when the plugin account ID differs
+   * from the bcq-level account identifier.
+   */
+  bcqAccountId?: string;
+  /**
    * Basecamp host for this account (e.g., "3.basecampapi.localhost:3001").
    * Omit for production (defaults to bcq's configured host).
    * Supports local dev, staging, and self-hosted Basecamp instances.
@@ -350,7 +363,9 @@ export type ResolvedBasecampAccount = {
   personId: string;
   attachableSgid?: string;
   token: string;
-  tokenSource: "tokenFile" | "config" | "none";
+  tokenSource: "tokenFile" | "config" | "bcq" | "none";
+  /** bcq profile name (for --profile flag). */
+  bcqProfile?: string;
   /** Basecamp host override (for dev/staging/self-hosted). */
   host?: string;
   config: BasecampAccountConfig;
