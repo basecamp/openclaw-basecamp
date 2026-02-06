@@ -5,9 +5,8 @@ import type {
   ResolvedBasecampAccount,
 } from "../src/types.js";
 import { getBasecampRuntime } from "../src/runtime.js";
-import { resolvePersonaAccountId, resolveBasecampAccount } from "../src/config.js";
+import { resolvePersonaAccountId } from "../src/config.js";
 import { postReplyToEvent } from "../src/outbound/send.js";
-import { markdownToBasecampHtml } from "../src/outbound/format.js";
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -189,5 +188,26 @@ describe("dispatch outbound reliability", () => {
     expect(deliveryLog![0]).toContain("event=created");
     expect(deliveryLog![0]).toContain("account=test-acct");
     expect(deliveryLog![0]).toContain("recording=123");
+  });
+
+  it("does not log 'delivered' when onError was called", async () => {
+    // Make dispatchReplyWithBufferedBlockDispatcher call onError
+    mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mockImplementation(
+      async ({ dispatcherOptions }: any) => {
+        dispatcherOptions.onError(new Error("send failed"));
+      },
+    );
+
+    const logInfo = vi.fn();
+    const logError = vi.fn();
+    const log = { info: logInfo, warn: vi.fn(), error: logError };
+
+    await dispatchBasecampEvent(mockMsg, { account: mockAccount, log });
+
+    const deliveryLog = logInfo.mock.calls.find((c: string[]) =>
+      c[0].includes("[basecamp:dispatch] delivered"),
+    );
+    expect(deliveryLog).toBeUndefined();
+    expect(logError).toHaveBeenCalled();
   });
 });

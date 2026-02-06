@@ -168,7 +168,7 @@ describe("postComment", () => {
 
 describe("postReplyToEvent", () => {
   it("passes retries through to postCampfireLine for Chat::Transcript", async () => {
-    vi.mocked(bcqApiPost).mockResolvedValue({ id: 10 });
+    vi.mocked(withRetry).mockResolvedValue({ id: 10 });
 
     const result = await postReplyToEvent({
       bucketId: "1",
@@ -180,14 +180,12 @@ describe("postReplyToEvent", () => {
     });
 
     expect(result.ok).toBe(true);
-    // bcqApiPost should be called — postCampfireLine with retries=2 calls withRetry
-    // But since withRetry is mocked and not called (retries > 0 path calls withRetry),
-    // let's verify withRetry was called
+    expect(result.messageId).toBe("10");
     expect(withRetry).toHaveBeenCalledWith(expect.any(Function), { maxAttempts: 3 });
   });
 
   it("passes retries through to postComment for non-chat types", async () => {
-    vi.mocked(bcqApiPost).mockResolvedValue({ id: 20 });
+    vi.mocked(withRetry).mockResolvedValue({ id: 20 });
 
     const result = await postReplyToEvent({
       bucketId: "1",
@@ -199,6 +197,7 @@ describe("postReplyToEvent", () => {
     });
 
     expect(result.ok).toBe(true);
+    expect(result.messageId).toBe("20");
     expect(withRetry).toHaveBeenCalledWith(expect.any(Function), { maxAttempts: 2 });
   });
 

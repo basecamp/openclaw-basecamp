@@ -110,6 +110,8 @@ export async function dispatchBasecampEvent(
   };
 
   // ----- Dispatch with buffered block dispatcher -----
+  let dispatchHadError = false;
+
   await runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
     ctx,
     cfg,
@@ -132,6 +134,7 @@ export async function dispatchBasecampEvent(
         });
       },
       onError: (err) => {
+        dispatchHadError = true;
         const errorType = classifyDispatchError(err);
         log?.error?.(
           `[basecamp:dispatch] failed — ` +
@@ -147,11 +150,13 @@ export async function dispatchBasecampEvent(
     },
   });
 
-  log?.info?.(
-    `[basecamp:dispatch] delivered — ` +
-    `agent=${route.agentId} event=${msg.meta.eventKind} ` +
-    `account=${account.accountId} recording=${msg.meta.recordingId}`,
-  );
+  if (!dispatchHadError) {
+    log?.info?.(
+      `[basecamp:dispatch] delivered — ` +
+      `agent=${route.agentId} event=${msg.meta.eventKind} ` +
+      `account=${account.accountId} recording=${msg.meta.recordingId}`,
+    );
+  }
 
   return true;
 }
