@@ -128,13 +128,30 @@ export async function dispatchBasecampEvent(
           content: htmlContent,
           accountId: outboundAccountId,
           profile: outboundProfile,
+          retries: 2,
         });
       },
       onError: (err) => {
-        log?.error?.(`[${account.accountId}] reply error for agent=${route.agentId}: ${String(err)}`);
+        const errorType = classifyDispatchError(err);
+        log?.error?.(
+          `[basecamp:dispatch] failed — ` +
+          `agent=${route.agentId} ` +
+          `event=${msg.meta.eventKind} ` +
+          `recording=${msg.meta.recordingId} ` +
+          `account=${account.accountId} ` +
+          `sender=${msg.sender.id} ` +
+          `type=${errorType} ` +
+          `error=${String(err)}`,
+        );
       },
     },
   });
+
+  log?.info?.(
+    `[basecamp:dispatch] delivered — ` +
+    `agent=${route.agentId} event=${msg.meta.eventKind} ` +
+    `account=${account.accountId} recording=${msg.meta.recordingId}`,
+  );
 
   return true;
 }
@@ -204,4 +221,15 @@ function buildUntrustedContext(msg: BasecampInboundMessage): string[] {
   }
 
   return lines;
+}
+
+/**
+ * Classify a dispatch error into a category for structured logging.
+ */
+function classifyDispatchError(err: unknown): string {
+  const s = String(err);
+  if (s.includes("401") || s.includes("403") || s.includes("Unauthorized") || s.includes("Forbidden")) return "auth";
+  if (s.includes("ETIMEDOUT") || s.includes("ECONNREFUSED") || s.includes("ECONNRESET") || s.includes("timeout")) return "network";
+  if (s.includes("no route") || s.includes("not found")) return "routing";
+  return "unknown";
 }
