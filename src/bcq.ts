@@ -240,11 +240,27 @@ function execBcq<T = unknown>(args: string[], opts: BcqOptions = {}): Promise<Bc
       (error, stdout, stderr) => {
         if (error) {
           const stderrTrimmed = stderr.trim();
+          const stdoutTrimmed = stdout.trim();
           const cmdStr = [BCQ_PATH, ...fullArgs].join(" ");
+          // Node's error.message is often just "Command failed: <cmd>" which is
+          // redundant. Prefer stderr, then stdout (bcq may write errors there),
+          // then meaningful parts of error.message, then exit code / signal.
+          const meaningfulMsg = error.message.replace(/^Command failed:.*$/, "").trim();
+          const detail =
+            stderrTrimmed ||
+            stdoutTrimmed ||
+            (error.killed ? "timed out (killed)" : null) ||
+            (error.signal ? `killed by ${error.signal}` : null) ||
+            meaningfulMsg ||
+            `exit code ${error.code ?? "unknown"}`;
+          const exitCode =
+            typeof error.code === "number" ? error.code :
+            typeof (error as any).status === "number" ? (error as any).status :
+            null;
           const err = new BcqError(
-            `bcq failed (${cmdStr}): ${error.message}${stderrTrimmed ? `\nstderr: ${stderrTrimmed}` : ""}`,
-            error.code != null ? Number(error.code) : null,
-            stderr,
+            `bcq failed (${cmdStr}): ${detail}`,
+            exitCode,
+            stderrTrimmed || stdoutTrimmed,
             [BCQ_PATH, ...fullArgs],
           );
           cb?.instance.recordFailure(cb.key);
