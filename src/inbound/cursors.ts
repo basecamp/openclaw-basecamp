@@ -67,9 +67,9 @@ export class CursorStore {
     return { ...this.cursors };
   }
 
-  /** Update the activity feed cursor. Only advances forward. */
+  /** Update the activity feed cursor. Only advances forward (ISO 8601 monotonicity). */
   setActivitySince(since: string): void {
-    if (this.cursors.activitySince && since < this.cursors.activitySince) {
+    if (this.cursors.activitySince && new Date(since) < new Date(this.cursors.activitySince)) {
       console.warn(
         `[basecamp:cursors] clock skew detected: new activitySince (${since}) < existing (${this.cursors.activitySince}), skipping`,
       );
@@ -81,9 +81,9 @@ export class CursorStore {
     }
   }
 
-  /** Update the readings cursor. Only advances forward. */
+  /** Update the readings cursor. Only advances forward (ISO 8601 monotonicity). */
   setReadingsSince(since: string): void {
-    if (this.cursors.readingsSince && since < this.cursors.readingsSince) {
+    if (this.cursors.readingsSince && new Date(since) < new Date(this.cursors.readingsSince)) {
       console.warn(
         `[basecamp:cursors] clock skew detected: new readingsSince (${since}) < existing (${this.cursors.readingsSince}), skipping`,
       );

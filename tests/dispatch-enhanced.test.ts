@@ -5,7 +5,7 @@ import type {
   ResolvedBasecampAccount,
 } from "../src/types.js";
 import { getBasecampRuntime } from "../src/runtime.js";
-import { resolvePersonaAccountId, resolveBasecampAccount } from "../src/config.js";
+import { resolvePersonaAccountId } from "../src/config.js";
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -188,5 +188,39 @@ describe("dispatchBasecampEvent enhanced onError logging", () => {
 
     const errorMsg = log.error.mock.calls[0][0];
     expect(errorMsg).toContain("type=unknown");
+  });
+
+  it("classifies 403 Forbidden as auth", async () => {
+    const log = { info: vi.fn(), warn: vi.fn(), debug: vi.fn(), error: vi.fn() };
+    await dispatchBasecampEvent(mockMsg, { account: mockAccount, log });
+    const call = mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock.calls[0][0];
+    call.dispatcherOptions.onError(new Error("403 Forbidden"));
+    expect(log.error.mock.calls[0][0]).toContain("type=auth");
+  });
+
+  it("classifies ECONNRESET as network", async () => {
+    const log = { info: vi.fn(), warn: vi.fn(), debug: vi.fn(), error: vi.fn() };
+    await dispatchBasecampEvent(mockMsg, { account: mockAccount, log });
+    const call = mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock.calls[0][0];
+    call.dispatcherOptions.onError(new Error("ECONNRESET"));
+    expect(log.error.mock.calls[0][0]).toContain("type=network");
+  });
+
+  it("classifies errors with structured status property as auth", async () => {
+    const log = { info: vi.fn(), warn: vi.fn(), debug: vi.fn(), error: vi.fn() };
+    await dispatchBasecampEvent(mockMsg, { account: mockAccount, log });
+    const call = mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock.calls[0][0];
+    const err = new Error("request failed") as any;
+    err.status = 401;
+    call.dispatcherOptions.onError(err);
+    expect(log.error.mock.calls[0][0]).toContain("type=auth");
+  });
+
+  it("classifies HTTP 404 as unknown (not routing)", async () => {
+    const log = { info: vi.fn(), warn: vi.fn(), debug: vi.fn(), error: vi.fn() };
+    await dispatchBasecampEvent(mockMsg, { account: mockAccount, log });
+    const call = mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock.calls[0][0];
+    call.dispatcherOptions.onError(new Error("HTTP 404 Not Found"));
+    expect(log.error.mock.calls[0][0]).toContain("type=unknown");
   });
 });

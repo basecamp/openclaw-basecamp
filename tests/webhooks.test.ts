@@ -139,4 +139,10 @@ describe("Semaphore", () => {
     sem.release();
     sem.release();
   });
+
+  it("throws when release() is called without matching acquire()", () => {
+    const sem = new Semaphore(2);
+
+    expect(() => sem.release()).toThrow("release() called without matching acquire()");
+  });
 });

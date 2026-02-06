@@ -39,6 +39,9 @@ export class Semaphore {
   }
 
   release(): void {
+    if (this.current <= 0) {
+      throw new Error("Semaphore release() called without matching acquire()");
+    }
     this.current--;
     const next = this.queue.shift();
     if (next) {
