@@ -167,19 +167,40 @@ export const basecampStatusAdapter: ChannelStatusAdapter<ResolvedBasecampAccount
   },
 
   collectStatusIssues: (accounts) => {
-    // Status issues are collected per-channel from the account snapshots.
-    // Return issues for accounts with problems.
-    return accounts
-      .filter((s) => {
-        const probe = s.probe as BasecampProbe | undefined;
-        return probe && !probe.authenticated;
-      })
-      .map((s) => ({
-        channel: "basecamp" as const,
-        accountId: s.accountId,
-        kind: "auth" as const,
-        message: "Account is not authenticated",
-        fix: "Run `bcq auth login` to authenticate",
-      }));
+    const issues: Array<{
+      channel: "basecamp";
+      accountId: string;
+      kind: "auth" | "runtime" | "config";
+      message: string;
+      fix?: string;
+    }> = [];
+
+    for (const s of accounts) {
+      const probe = s.probe as BasecampProbe | undefined;
+
+      // Unauthenticated accounts
+      if (probe && !probe.authenticated) {
+        issues.push({
+          channel: "basecamp",
+          accountId: s.accountId,
+          kind: "auth",
+          message: "Account is not authenticated",
+          fix: "Run `bcq auth login` to authenticate",
+        });
+      }
+
+      // Configured but never started (no runtime record)
+      if (s.configured && s.enabled && !s.running && !s.lastStartAt) {
+        issues.push({
+          channel: "basecamp",
+          accountId: s.accountId,
+          kind: "runtime",
+          message: "Account is configured but has never started",
+          fix: "Start the channel with `openclaw start` or check gateway logs",
+        });
+      }
+    }
+
+    return issues;
   },
 };

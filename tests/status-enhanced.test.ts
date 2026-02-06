@@ -204,12 +204,14 @@ describe("collectStatusIssues", () => {
     expect(issues[0]!.kind).toBe("auth");
   });
 
-  it("returns empty for authenticated accounts", () => {
+  it("returns empty for authenticated running accounts", () => {
     const issues = basecampStatusAdapter.collectStatusIssues!([
       {
         accountId: "test",
         running: true,
-        lastStartAt: null,
+        configured: true,
+        enabled: true,
+        lastStartAt: Date.now(),
         lastStopAt: null,
         lastError: null,
         probe: { ok: true, authenticated: true },
@@ -217,6 +219,70 @@ describe("collectStatusIssues", () => {
     ]);
 
     expect(issues).toHaveLength(0);
+  });
+
+  it("flags configured-but-never-started accounts", () => {
+    const issues = basecampStatusAdapter.collectStatusIssues!([
+      {
+        accountId: "test",
+        configured: true,
+        enabled: true,
+        running: false,
+        lastStartAt: null,
+        lastStopAt: null,
+        lastError: null,
+        probe: { ok: true, authenticated: true },
+      },
+    ]);
+
+    expect(issues).toHaveLength(1);
+    expect(issues[0]!.kind).toBe("runtime");
+    expect(issues[0]!.message).toContain("never started");
+  });
+
+  it("does not flag stopped accounts that have started before", () => {
+    const issues = basecampStatusAdapter.collectStatusIssues!([
+      {
+        accountId: "test",
+        configured: true,
+        enabled: true,
+        running: false,
+        lastStartAt: Date.now() - 60_000,
+        lastStopAt: null,
+        lastError: null,
+        probe: { ok: true, authenticated: true },
+      },
+    ]);
+
+    expect(issues).toHaveLength(0);
+  });
+
+  it("can report both auth and runtime issues for different accounts", () => {
+    const issues = basecampStatusAdapter.collectStatusIssues!([
+      {
+        accountId: "unauthed",
+        probe: { ok: false, authenticated: false },
+        running: false,
+        lastStartAt: null,
+        lastStopAt: null,
+        lastError: null,
+      },
+      {
+        accountId: "never-started",
+        configured: true,
+        enabled: true,
+        running: false,
+        lastStartAt: null,
+        lastStopAt: null,
+        lastError: null,
+        probe: { ok: true, authenticated: true },
+      },
+    ]);
+
+    expect(issues).toHaveLength(2);
+    const kinds = issues.map((i) => i.kind);
+    expect(kinds).toContain("auth");
+    expect(kinds).toContain("runtime");
   });
 });
 

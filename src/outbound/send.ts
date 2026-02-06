@@ -183,8 +183,16 @@ export async function sendBasecampText(params: {
     );
   }
 
+  if (parsed.prefix === "bucket") {
+    throw new Error(
+      `sendBasecampText: cannot send to bucket peer "${to}" directly. ` +
+      `Bucket peers represent a project scope, not a specific conversation. ` +
+      `Use a recording: or ping: peer, or the dispatch bridge for replies.`,
+    );
+  }
+
   throw new Error(
     `sendBasecampText: unsupported peer format "${to}". ` +
-    `Expected "ping:<id>" or "recording:<id>".`,
+    `Expected "recording:<id>", "ping:<id>", or "bucket:<id>".`,
   );
 }
