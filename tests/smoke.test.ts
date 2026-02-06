@@ -288,7 +288,15 @@ describeIntegration("smoke: status adapter integration", () => {
     const probe = await basecampStatusAdapter.probeAccount!({
       account: testAccount,
       timeoutMs: 10000,
-      cfg: { channels: { basecamp: { accounts: { "2914079": { personId: "3" } } } } } as any,
+      cfg: {
+        channels: {
+          basecamp: {
+            accounts: {
+              [testAccount.accountId]: { personId: testAccount.personId },
+            },
+          },
+        },
+      } as any,
     });
     expect(probe.ok).toBe(true);
     expect(probe.authenticated).toBe(true);

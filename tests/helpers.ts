@@ -19,7 +19,7 @@ export function cfg(basecamp?: Record<string, unknown>): any {
  * Build a config with pre-configured accounts.
  */
 export function cfgWithAccounts(
-  accounts: Record<string, { personId: string; token?: string; bcqProfile?: string; bcqAccountId?: string }>,
+  accounts: Record<string, Record<string, unknown>>,
   extra?: Record<string, unknown>,
 ): any {
   return cfg({ accounts, ...extra });
