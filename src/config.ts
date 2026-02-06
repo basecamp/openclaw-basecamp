@@ -56,6 +56,8 @@ export const BasecampConfigSchema = z.object({
     .object({
       maxAttempts: z.number().positive().optional(),
       baseDelayMs: z.number().positive().optional(),
+      maxDelayMs: z.number().positive().optional(),
+      jitter: z.boolean().optional(),
     })
     .optional(),
   circuitBreaker: z
@@ -284,6 +286,26 @@ export function resolvePollingIntervals(cfg: unknown) {
     activityIntervalMs: section?.polling?.activityIntervalMs ?? 120_000,
     readingsIntervalMs: section?.polling?.readingsIntervalMs ?? 60_000,
     directPollIntervalMs: section?.polling?.directPollIntervalMs ?? 300_000,
+  };
+}
+
+/** Resolve retry options from config, with defaults. */
+export function resolveRetryConfig(cfg: OpenClawConfig): { maxAttempts: number; baseDelayMs: number; maxDelayMs: number; jitter: boolean } {
+  const section = getBasecampSection(cfg);
+  return {
+    maxAttempts: section?.retry?.maxAttempts ?? 3,
+    baseDelayMs: section?.retry?.baseDelayMs ?? 1000,
+    maxDelayMs: section?.retry?.maxDelayMs ?? 30000,
+    jitter: section?.retry?.jitter ?? true,
+  };
+}
+
+/** Resolve circuit breaker options from config, with defaults. */
+export function resolveCircuitBreakerConfig(cfg: OpenClawConfig): { threshold: number; cooldownMs: number } {
+  const section = getBasecampSection(cfg);
+  return {
+    threshold: section?.circuitBreaker?.threshold ?? 5,
+    cooldownMs: section?.circuitBreaker?.cooldownMs ?? 5 * 60 * 1000,
   };
 }
 

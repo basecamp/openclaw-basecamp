@@ -380,6 +380,8 @@ export type BasecampChannelConfig = {
   retry?: {
     maxAttempts?: number;
     baseDelayMs?: number;
+    maxDelayMs?: number;
+    jitter?: boolean;
   };
   /** Circuit breaker options for bcq API calls. */
   circuitBreaker?: {

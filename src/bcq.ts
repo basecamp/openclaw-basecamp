@@ -64,7 +64,7 @@ export class BcqError extends Error {
 // ---------------------------------------------------------------------------
 
 const TRANSIENT_PATTERNS = ["ETIMEDOUT", "ECONNREFUSED", "ECONNRESET"];
-const SERVER_ERROR_PATTERNS = ["5xx", "502", "503", "504"];
+const SERVER_ERROR_PATTERNS = ["5xx", "500", "501", "502", "503", "504"];
 const PERMANENT_PATTERNS = [
   "401",
   "403",
@@ -136,6 +136,8 @@ interface CircuitState {
   failures: number;
   trippedAt: number | null;
   cooldownMs: number;
+  /** True while a half-open probe is in flight — blocks other callers. */
+  halfOpenProbe: boolean;
 }
 
 export class CircuitBreaker {
@@ -153,7 +155,9 @@ export class CircuitBreaker {
     if (!state || state.trippedAt === null) return false;
     const elapsed = Date.now() - state.trippedAt;
     if (elapsed >= state.cooldownMs) {
-      // Half-open: allow one attempt through
+      // Half-open: allow exactly one probe through
+      if (state.halfOpenProbe) return true;
+      state.halfOpenProbe = true;
       return false;
     }
     return true;
@@ -164,8 +168,10 @@ export class CircuitBreaker {
       failures: 0,
       trippedAt: null,
       cooldownMs: this.cooldownMs,
+      halfOpenProbe: false,
     };
     state.failures++;
+    state.halfOpenProbe = false;
     if (state.failures >= this.threshold) {
       state.trippedAt = Date.now();
     }
@@ -177,6 +183,7 @@ export class CircuitBreaker {
     if (!state) return;
     state.failures = 0;
     state.trippedAt = null;
+    state.halfOpenProbe = false;
   }
 
   reset(key: string): void {
@@ -261,7 +268,7 @@ function execBcq<T = unknown>(args: string[], opts: BcqOptions = {}): Promise<Bc
             raw,
             [BCQ_PATH, ...fullArgs],
           );
-          cb?.instance.recordFailure(cb.key);
+          // JSON parse errors are not transient — don't trip the circuit breaker
           reject(err);
         }
       },
@@ -331,7 +338,8 @@ export async function bcqMe(
 ): Promise<
   BcqResult<{ id: number; name: string; email_address: string; attachable_sgid?: string }>
 > {
-  return execBcq(["me"], opts);
+  const fn = () => execBcq<{ id: number; name: string; email_address: string; attachable_sgid?: string }>(["me"], opts);
+  return opts.retry ? withRetry(fn, opts.retry) : fn();
 }
 
 // ---------------------------------------------------------------------------
@@ -343,7 +351,8 @@ export async function bcqMe(
  * Returns an array of timeline events (newest first).
  */
 export async function bcqTimeline<T = unknown>(opts: BcqOptions = {}): Promise<BcqResult<T>> {
-  return execBcq<T>(["timeline"], opts);
+  const fn = () => execBcq<T>(["timeline"], opts);
+  return opts.retry ? withRetry(fn, opts.retry) : fn();
 }
 
 /**
@@ -351,7 +360,8 @@ export async function bcqTimeline<T = unknown>(opts: BcqOptions = {}): Promise<B
  * No dedicated bcq command exists yet — uses raw API.
  */
 export async function bcqReadings<T = unknown>(opts: BcqOptions = {}): Promise<BcqResult<T>> {
-  return execBcq<T>(["api", "get", "/my/readings.json"], opts);
+  const fn = () => execBcq<T>(["api", "get", "/my/readings.json"], opts);
+  return opts.retry ? withRetry(fn, opts.retry) : fn();
 }
 
 // ---------------------------------------------------------------------------

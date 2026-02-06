@@ -38,6 +38,14 @@ describe("isRetryableError", () => {
     expect(isRetryableError(bcqErr(1, "HTTP 504 Gateway Timeout"))).toBe(true);
   });
 
+  it("returns true for 500 server error", () => {
+    expect(isRetryableError(bcqErr(1, "HTTP 500 Internal Server Error"))).toBe(true);
+  });
+
+  it("returns true for 501 server error", () => {
+    expect(isRetryableError(bcqErr(1, "HTTP 501 Not Implemented"))).toBe(true);
+  });
+
   it("returns true for generic 5xx", () => {
     expect(isRetryableError(bcqErr(1, "server returned 5xx"))).toBe(true);
   });

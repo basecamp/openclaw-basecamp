@@ -80,6 +80,28 @@ describe("CircuitBreaker", () => {
     expect(cb.isOpen("acct-1")).toBe(true);
   });
 
+  it("half-open allows only one probe (subsequent callers are blocked)", () => {
+    const cb = new CircuitBreaker({ threshold: 2, cooldownMs: 60_000 });
+
+    cb.recordFailure("acct-1");
+    cb.recordFailure("acct-1");
+    expect(cb.isOpen("acct-1")).toBe(true);
+
+    // Advance past cooldown (half-open)
+    vi.advanceTimersByTime(60_000);
+
+    // First caller gets through (the probe)
+    expect(cb.isOpen("acct-1")).toBe(false);
+
+    // Second caller is blocked while probe is in flight
+    expect(cb.isOpen("acct-1")).toBe(true);
+    expect(cb.isOpen("acct-1")).toBe(true);
+
+    // Probe succeeds -> circuit closes, all callers allowed through
+    cb.recordSuccess("acct-1");
+    expect(cb.isOpen("acct-1")).toBe(false);
+  });
+
   it("recordSuccess resets failure count", () => {
     const cb = new CircuitBreaker({ threshold: 3 });
 
