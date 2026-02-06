@@ -199,6 +199,7 @@ describe("dispatchBasecampEvent", () => {
       content: "<p>Agent reply</p>",
       accountId: "test-acct",
       profile: undefined,
+      retries: 2,
     });
   });
 

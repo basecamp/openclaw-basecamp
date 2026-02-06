@@ -9,7 +9,7 @@
  */
 
 import type { BasecampRecordableType } from "../types.js";
-import { bcqApiPost } from "../bcq.js";
+import { bcqApiPost, withRetry, isRetryableError, BcqError } from "../bcq.js";
 import { markdownToBasecampHtml } from "./format.js";
 import { getBasecampRuntime } from "../runtime.js";
 import { resolveBasecampAccount } from "../config.js";
@@ -28,17 +28,32 @@ export async function postCampfireLine(params: {
   content: string;
   accountId?: string;
   profile?: string;
-}): Promise<{ ok: boolean; recordingId?: string; error?: string }> {
-  const { bucketId, transcriptId, content, accountId, profile } = params;
+  retries?: number;
+}): Promise<{ ok: boolean; recordingId?: string; retryable?: boolean; error?: string }> {
+  const { bucketId, transcriptId, content, accountId, profile, retries } = params;
   const path = `/buckets/${bucketId}/chats/${transcriptId}/lines.json`;
   const body = JSON.stringify({ content });
 
+  const doPost = () => bcqApiPost(path, body, accountId, profile);
+
   try {
-    const result = await bcqApiPost(path, body, accountId, profile);
+    const result = retries && retries > 0
+      ? await withRetry(doPost, { maxAttempts: retries + 1 })
+      : await doPost();
     const parsed = typeof result === "string" ? JSON.parse(result) : result;
+    console.log(
+      `[basecamp:outbound] sent ok — ` +
+      `type=campfire recording=${transcriptId} account=${accountId ?? "default"}`,
+    );
     return { ok: true, recordingId: String(parsed?.id ?? "") };
   } catch (err) {
-    return { ok: false, error: String(err) };
+    const retryable = err instanceof BcqError && isRetryableError(err);
+    console.warn(
+      `[basecamp:outbound] failed — ` +
+      `type=campfire recording=${transcriptId} account=${accountId ?? "default"} ` +
+      `retryable=${retryable} error=${String(err)}`,
+    );
+    return { ok: false, retryable, error: String(err) };
   }
 }
 
@@ -52,17 +67,32 @@ export async function postComment(params: {
   content: string;
   accountId?: string;
   profile?: string;
-}): Promise<{ ok: boolean; commentId?: string; error?: string }> {
-  const { bucketId, recordingId, content, accountId, profile } = params;
+  retries?: number;
+}): Promise<{ ok: boolean; commentId?: string; retryable?: boolean; error?: string }> {
+  const { bucketId, recordingId, content, accountId, profile, retries } = params;
   const path = `/buckets/${bucketId}/recordings/${recordingId}/comments.json`;
   const body = JSON.stringify({ content });
 
+  const doPost = () => bcqApiPost(path, body, accountId, profile);
+
   try {
-    const result = await bcqApiPost(path, body, accountId, profile);
+    const result = retries && retries > 0
+      ? await withRetry(doPost, { maxAttempts: retries + 1 })
+      : await doPost();
     const parsed = typeof result === "string" ? JSON.parse(result) : result;
+    console.log(
+      `[basecamp:outbound] sent ok — ` +
+      `type=comment recording=${recordingId} account=${accountId ?? "default"}`,
+    );
     return { ok: true, commentId: String(parsed?.id ?? "") };
   } catch (err) {
-    return { ok: false, error: String(err) };
+    const retryable = err instanceof BcqError && isRetryableError(err);
+    console.warn(
+      `[basecamp:outbound] failed — ` +
+      `type=comment recording=${recordingId} account=${accountId ?? "default"} ` +
+      `retryable=${retryable} error=${String(err)}`,
+    );
+    return { ok: false, retryable, error: String(err) };
   }
 }
 
@@ -94,8 +124,9 @@ export async function postReplyToEvent(params: {
   content: string;
   accountId?: string;
   profile?: string;
-}): Promise<{ ok: boolean; messageId?: string; error?: string }> {
-  const { bucketId, recordingId, recordableType, peerId, content, accountId, profile } = params;
+  retries?: number;
+}): Promise<{ ok: boolean; messageId?: string; retryable?: boolean; error?: string }> {
+  const { bucketId, recordingId, recordableType, peerId, content, accountId, profile, retries } = params;
   const parsed = parsePeerId(peerId);
 
   // Chat lines go to the transcript
@@ -104,11 +135,6 @@ export async function postReplyToEvent(params: {
     recordableType === "Chat::Line" ||
     parsed.prefix === "ping"
   ) {
-    // Always use recordingId for the transcript ID:
-    // - For Chat::Transcript events, recordingId IS the transcript
-    // - For Chat::Line events, recordingId is the transcript (parent)
-    // - For Pings, recordingId should be the transcript recording ID
-    //   (from inbound meta), NOT the circle bucket ID from peer.id
     const transcriptId = recordingId;
     const result = await postCampfireLine({
       bucketId,
@@ -116,8 +142,9 @@ export async function postReplyToEvent(params: {
       content,
       accountId,
       profile,
+      retries,
     });
-    return { ok: result.ok, messageId: result.recordingId, error: result.error };
+    return { ok: result.ok, messageId: result.recordingId, retryable: result.retryable, error: result.error };
   }
 
   // Everything else gets a comment on the recording
@@ -127,8 +154,9 @@ export async function postReplyToEvent(params: {
     content,
     accountId,
     profile,
+    retries,
   });
-  return { ok: result.ok, messageId: result.commentId, error: result.error };
+  return { ok: result.ok, messageId: result.commentId, retryable: result.retryable, error: result.error };
 }
 
 // ---------------------------------------------------------------------------

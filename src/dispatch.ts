@@ -110,6 +110,8 @@ export async function dispatchBasecampEvent(
   };
 
   // ----- Dispatch with buffered block dispatcher -----
+  let dispatchHadError = false;
+
   await runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
     ctx,
     cfg,
@@ -128,21 +130,33 @@ export async function dispatchBasecampEvent(
           content: htmlContent,
           accountId: outboundAccountId,
           profile: outboundProfile,
+          retries: 2,
         });
       },
       onError: (err) => {
+        dispatchHadError = true;
         const errorType = classifyDispatchError(err);
         log?.error?.(
-          `[${account.accountId}] dispatch error ` +
+          `[basecamp:dispatch] failed — ` +
           `agent=${route.agentId} ` +
-          `recording=${msg.meta.recordingId} ` +
           `event=${msg.meta.eventKind} ` +
+          `recording=${msg.meta.recordingId} ` +
+          `account=${account.accountId} ` +
           `sender=${msg.sender.id} ` +
-          `type=${errorType}: ${String(err)}`,
+          `type=${errorType} ` +
+          `error=${String(err)}`,
         );
       },
     },
   });
+
+  if (!dispatchHadError) {
+    log?.info?.(
+      `[basecamp:dispatch] delivered — ` +
+      `agent=${route.agentId} event=${msg.meta.eventKind} ` +
+      `account=${account.accountId} recording=${msg.meta.recordingId}`,
+    );
+  }
 
   return true;
 }
@@ -249,3 +263,4 @@ function buildUntrustedContext(msg: BasecampInboundMessage): string[] {
 
   return lines;
 }
+

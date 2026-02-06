@@ -1,0 +1,213 @@
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { dispatchBasecampEvent } from "../src/dispatch.js";
+import type {
+  BasecampInboundMessage,
+  ResolvedBasecampAccount,
+} from "../src/types.js";
+import { getBasecampRuntime } from "../src/runtime.js";
+import { resolvePersonaAccountId } from "../src/config.js";
+import { postReplyToEvent } from "../src/outbound/send.js";
+
+// ---------------------------------------------------------------------------
+// Mocks
+// ---------------------------------------------------------------------------
+
+vi.mock("../src/runtime.js", () => ({
+  getBasecampRuntime: vi.fn(),
+}));
+vi.mock("../src/config.js", () => ({
+  resolvePersonaAccountId: vi.fn(),
+  resolveBasecampAccount: vi.fn(),
+}));
+vi.mock("../src/outbound/send.js", () => ({
+  postReplyToEvent: vi.fn(),
+}));
+vi.mock("../src/outbound/format.js", () => ({
+  markdownToBasecampHtml: vi.fn((text: string) => `<p>${text}</p>`),
+}));
+
+// ---------------------------------------------------------------------------
+// Fixtures
+// ---------------------------------------------------------------------------
+
+const mockRuntime = {
+  config: {
+    loadConfig: vi.fn(() => ({
+      channels: {
+        basecamp: {
+          accounts: { "test-acct": { personId: "999" } },
+        },
+      },
+    })),
+  },
+  channel: {
+    routing: { resolveAgentRoute: vi.fn() },
+    reply: { dispatchReplyWithBufferedBlockDispatcher: vi.fn() },
+  },
+};
+
+const mockMsg: BasecampInboundMessage = {
+  channel: "basecamp",
+  accountId: "test-acct",
+  peer: { kind: "group", id: "recording:123" },
+  parentPeer: { kind: "group", id: "bucket:456" },
+  sender: { id: "777", name: "Test User" },
+  text: "Hello",
+  html: "<p>Hello</p>",
+  meta: {
+    bucketId: "456",
+    recordingId: "123",
+    recordableType: "Chat::Transcript",
+    eventKind: "created",
+    mentions: [],
+    mentionsAgent: false,
+    attachments: [],
+    sources: ["activity_feed"],
+  },
+  dedupKey: "activity:1",
+  createdAt: "2025-01-15T10:00:00Z",
+};
+
+const mockAccount: ResolvedBasecampAccount = {
+  accountId: "test-acct",
+  enabled: true,
+  personId: "999",
+  token: "tok-abc",
+  tokenSource: "config",
+  config: { personId: "999" },
+};
+
+// ---------------------------------------------------------------------------
+// Setup
+// ---------------------------------------------------------------------------
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.mocked(getBasecampRuntime).mockReturnValue(mockRuntime as any);
+  vi.mocked(resolvePersonaAccountId).mockReturnValue(undefined);
+  mockRuntime.channel.routing.resolveAgentRoute.mockReturnValue({
+    agentId: "agent-1",
+    matchedBy: "peer",
+    sessionKey: "session:abc",
+  });
+  mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mockResolvedValue(
+    undefined,
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+describe("dispatch outbound reliability", () => {
+  it("deliver callback calls postReplyToEvent with retries: 2", async () => {
+    await dispatchBasecampEvent(mockMsg, { account: mockAccount });
+
+    const call =
+      mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock
+        .calls[0][0];
+    const deliver = call.dispatcherOptions.deliver;
+
+    await deliver({ text: "Agent reply" }, {});
+
+    expect(postReplyToEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        bucketId: "456",
+        recordingId: "123",
+        recordableType: "Chat::Transcript",
+        retries: 2,
+      }),
+    );
+  });
+
+  it("onError logs structured error with event metadata", async () => {
+    const logError = vi.fn();
+    const log = { info: vi.fn(), warn: vi.fn(), error: logError };
+
+    await dispatchBasecampEvent(mockMsg, { account: mockAccount, log });
+
+    const call =
+      mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock
+        .calls[0][0];
+    const onError = call.dispatcherOptions.onError;
+
+    onError(new Error("ETIMEDOUT connecting to host"));
+
+    expect(logError).toHaveBeenCalledTimes(1);
+    const logged = logError.mock.calls[0][0];
+    expect(logged).toContain("[basecamp:dispatch] failed");
+    expect(logged).toContain("agent=agent-1");
+    expect(logged).toContain("event=created");
+    expect(logged).toContain("recording=123");
+    expect(logged).toContain("account=test-acct");
+    expect(logged).toContain("sender=777");
+    expect(logged).toContain("type=network");
+    expect(logged).toContain("ETIMEDOUT");
+  });
+
+  it("onError classifies auth errors", async () => {
+    const logError = vi.fn();
+    const log = { info: vi.fn(), warn: vi.fn(), error: logError };
+
+    await dispatchBasecampEvent(mockMsg, { account: mockAccount, log });
+
+    const call =
+      mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock
+        .calls[0][0];
+    call.dispatcherOptions.onError(new Error("401 Unauthorized"));
+
+    expect(logError.mock.calls[0][0]).toContain("type=auth");
+  });
+
+  it("onError classifies unknown errors", async () => {
+    const logError = vi.fn();
+    const log = { info: vi.fn(), warn: vi.fn(), error: logError };
+
+    await dispatchBasecampEvent(mockMsg, { account: mockAccount, log });
+
+    const call =
+      mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock
+        .calls[0][0];
+    call.dispatcherOptions.onError(new Error("something unexpected"));
+
+    expect(logError.mock.calls[0][0]).toContain("type=unknown");
+  });
+
+  it("logs delivery confirmation after successful dispatch", async () => {
+    const logInfo = vi.fn();
+    const log = { info: logInfo, warn: vi.fn(), error: vi.fn() };
+
+    await dispatchBasecampEvent(mockMsg, { account: mockAccount, log });
+
+    // The delivery log should be the last info call
+    const deliveryLog = logInfo.mock.calls.find((c: string[]) =>
+      c[0].includes("[basecamp:dispatch] delivered"),
+    );
+    expect(deliveryLog).toBeDefined();
+    expect(deliveryLog![0]).toContain("agent=agent-1");
+    expect(deliveryLog![0]).toContain("event=created");
+    expect(deliveryLog![0]).toContain("account=test-acct");
+    expect(deliveryLog![0]).toContain("recording=123");
+  });
+
+  it("does not log 'delivered' when onError was called", async () => {
+    // Make dispatchReplyWithBufferedBlockDispatcher call onError
+    mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mockImplementation(
+      async ({ dispatcherOptions }: any) => {
+        dispatcherOptions.onError(new Error("send failed"));
+      },
+    );
+
+    const logInfo = vi.fn();
+    const logError = vi.fn();
+    const log = { info: logInfo, warn: vi.fn(), error: logError };
+
+    await dispatchBasecampEvent(mockMsg, { account: mockAccount, log });
+
+    const deliveryLog = logInfo.mock.calls.find((c: string[]) =>
+      c[0].includes("[basecamp:dispatch] delivered"),
+    );
+    expect(deliveryLog).toBeUndefined();
+    expect(logError).toHaveBeenCalled();
+  });
+});
