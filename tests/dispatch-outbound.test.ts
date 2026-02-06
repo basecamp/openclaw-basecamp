@@ -60,7 +60,7 @@ const mockMsg: BasecampInboundMessage = {
     recordableType: "Chat::Transcript",
     eventKind: "created",
     mentions: [],
-    mentionsAgent: false,
+    mentionsAgent: true,
     attachments: [],
     sources: ["activity_feed"],
   },

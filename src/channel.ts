@@ -108,7 +108,8 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
       "virtualAccounts": { label: "Project scopes", help: "Maps synthetic account IDs to specific projects", advanced: true },
       "dmPolicy": { label: "DM policy", help: "Controls who can DM agents: open, pairing, closed" },
       "allowFrom": { label: "Allowed senders", help: "Basecamp person IDs allowed to message agents" },
-      "buckets": { label: "Per-project settings", help: "Override requireMention and tool policies per bucket", advanced: true },
+      "engage": { label: "Engagement policy", help: "Event types that trigger agent response: dm, mention, assignment, checkin, conversation, activity" },
+      "buckets": { label: "Per-project settings", help: "Override engage, requireMention, and tool policies per bucket", advanced: true },
     },
   },
 

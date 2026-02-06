@@ -61,7 +61,7 @@ const mockMsg: BasecampInboundMessage = {
     recordableType: "Chat::Transcript",
     eventKind: "created",
     mentions: [],
-    mentionsAgent: false,
+    mentionsAgent: true,
     attachments: [],
     sources: ["activity_feed"],
   },
@@ -252,5 +252,168 @@ describe("dispatchBasecampEvent", () => {
       mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock
         .calls[0][0];
     expect(call.ctx.ChatType).toBe("direct");
+  });
+
+  // -----------------------------------------------------------------------
+  // Engagement gate — config-driven classification
+  // -----------------------------------------------------------------------
+
+  it("drops activity events by default (not in default engage policy)", async () => {
+    const cardMsg: BasecampInboundMessage = {
+      ...mockMsg,
+      meta: {
+        ...mockMsg.meta,
+        recordableType: "Kanban::Card",
+        eventKind: "moved",
+        mentionsAgent: false,
+        sources: ["activity_feed"],
+      },
+    };
+
+    const result = await dispatchBasecampEvent(cardMsg, { account: mockAccount });
+    expect(result).toBe(false);
+  });
+
+  it("drops conversation events by default", async () => {
+    const chatMsg: BasecampInboundMessage = {
+      ...mockMsg,
+      meta: {
+        ...mockMsg.meta,
+        recordableType: "Chat::Line",
+        mentionsAgent: false,
+        sources: ["activity_feed"],
+      },
+    };
+
+    const result = await dispatchBasecampEvent(chatMsg, { account: mockAccount });
+    expect(result).toBe(false);
+  });
+
+  it("dispatches @mentions (in default engage policy)", async () => {
+    const mentionedMsg: BasecampInboundMessage = {
+      ...mockMsg,
+      meta: {
+        ...mockMsg.meta,
+        recordableType: "Kanban::Card",
+        mentionsAgent: true,
+        sources: ["activity_feed"],
+      },
+    };
+
+    const result = await dispatchBasecampEvent(mentionedMsg, { account: mockAccount });
+    expect(result).toBe(true);
+  });
+
+  it("dispatches DMs even without @mention", async () => {
+    const dmMsg: BasecampInboundMessage = {
+      ...mockMsg,
+      peer: { kind: "dm", id: "ping:789" },
+      meta: {
+        ...mockMsg.meta,
+        recordableType: "Chat::Line",
+        mentionsAgent: false,
+        sources: ["activity_feed"],
+      },
+    };
+
+    const result = await dispatchBasecampEvent(dmMsg, { account: mockAccount });
+    expect(result).toBe(true);
+  });
+
+  it("dispatches assignment events (assignedToAgent)", async () => {
+    const assignMsg: BasecampInboundMessage = {
+      ...mockMsg,
+      meta: {
+        ...mockMsg.meta,
+        recordableType: "Todo",
+        eventKind: "assigned",
+        mentionsAgent: false,
+        assignedToAgent: true,
+        sources: ["activity_feed"],
+      },
+    };
+
+    const result = await dispatchBasecampEvent(assignMsg, { account: mockAccount });
+    expect(result).toBe(true);
+  });
+
+  it("dispatches check-in reminders (Question from readings)", async () => {
+    const checkinMsg: BasecampInboundMessage = {
+      ...mockMsg,
+      meta: {
+        ...mockMsg.meta,
+        recordableType: "Question",
+        mentionsAgent: false,
+        sources: ["readings"],
+      },
+    };
+
+    const result = await dispatchBasecampEvent(checkinMsg, { account: mockAccount });
+    expect(result).toBe(true);
+  });
+
+  it("drops Question from activity_feed (classified as activity, not checkin)", async () => {
+    const questionMsg: BasecampInboundMessage = {
+      ...mockMsg,
+      meta: {
+        ...mockMsg.meta,
+        recordableType: "Question",
+        mentionsAgent: false,
+        sources: ["activity_feed"],
+      },
+    };
+
+    const result = await dispatchBasecampEvent(questionMsg, { account: mockAccount });
+    expect(result).toBe(false);
+  });
+
+  it("respects per-bucket engage override to include conversation", async () => {
+    // Override config to include conversation for bucket 456
+    mockRuntime.config.loadConfig.mockReturnValue({
+      channels: {
+        basecamp: {
+          accounts: { "test-acct": { personId: "999" } },
+          buckets: { "456": { engage: ["dm", "mention", "conversation"] } },
+        },
+      },
+    });
+
+    const chatMsg: BasecampInboundMessage = {
+      ...mockMsg,
+      meta: {
+        ...mockMsg.meta,
+        recordableType: "Chat::Line",
+        mentionsAgent: false,
+        sources: ["activity_feed"],
+      },
+    };
+
+    const result = await dispatchBasecampEvent(chatMsg, { account: mockAccount });
+    expect(result).toBe(true);
+  });
+
+  it("respects channel-level engage to include activity", async () => {
+    mockRuntime.config.loadConfig.mockReturnValue({
+      channels: {
+        basecamp: {
+          accounts: { "test-acct": { personId: "999" } },
+          engage: ["dm", "mention", "assignment", "checkin", "conversation", "activity"],
+        },
+      },
+    });
+
+    const cardMsg: BasecampInboundMessage = {
+      ...mockMsg,
+      meta: {
+        ...mockMsg.meta,
+        recordableType: "Kanban::Card",
+        eventKind: "moved",
+        mentionsAgent: false,
+        sources: ["activity_feed"],
+      },
+    };
+
+    const result = await dispatchBasecampEvent(cardMsg, { account: mockAccount });
+    expect(result).toBe(true);
   });
 });
