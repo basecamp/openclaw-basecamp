@@ -322,6 +322,14 @@ export function normalizeActivityEvent(
 
   const parentPeer = resolveParentPeer(bucketId, false);
 
+  // Detect assignment events directed at the agent.
+  // bc3 assignment event kinds put the assignee's display name in `target`.
+  const isAssignmentKind = raw.kind.endsWith("_assigned") || raw.kind.endsWith("_unassigned");
+  const isAssignedToAgent = isAssignmentKind &&
+    typeof raw.target === "string" &&
+    typeof account.displayName === "string" &&
+    raw.target === account.displayName;
+
   const meta: BasecampInboundMeta = {
     bucketId,
     recordingId,
@@ -329,6 +337,7 @@ export function normalizeActivityEvent(
     eventKind: resolveEventKind(raw.kind) as BasecampInboundMeta["eventKind"],
     mentions: sgids,
     mentionsAgent: isAgentMentioned,
+    assignedToAgent: isAssignedToAgent || undefined,
     attachments: (raw.attachments ?? []).map((a) => ({
       sgid: a.sgid ?? "",
       url: a.url,
