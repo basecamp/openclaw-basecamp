@@ -131,7 +131,15 @@ export async function dispatchBasecampEvent(
         });
       },
       onError: (err) => {
-        log?.error?.(`[${account.accountId}] reply error for agent=${route.agentId}: ${String(err)}`);
+        const errorType = classifyDispatchError(err);
+        log?.error?.(
+          `[${account.accountId}] dispatch error ` +
+          `agent=${route.agentId} ` +
+          `recording=${msg.meta.recordingId} ` +
+          `event=${msg.meta.eventKind} ` +
+          `sender=${msg.sender.id} ` +
+          `type=${errorType}: ${String(err)}`,
+        );
       },
     },
   });
@@ -142,6 +150,42 @@ export async function dispatchBasecampEvent(
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Classify a dispatch error into a broad category for structured logging.
+ * Prefers structured error properties (code, status) over message heuristics.
+ */
+function classifyDispatchError(err: unknown): string {
+  const anyErr = err as { message?: unknown; code?: unknown; status?: unknown; statusCode?: unknown };
+
+  const message = typeof anyErr?.message === "string" ? anyErr.message : String(err);
+  const lowerMessage = message.toLowerCase();
+  const code = typeof anyErr?.code === "string" || typeof anyErr?.code === "number" ? String(anyErr.code) : undefined;
+  const statusValue =
+    typeof anyErr?.status === "number"
+      ? anyErr.status
+      : typeof anyErr?.statusCode === "number"
+        ? anyErr.statusCode
+        : undefined;
+
+  // Auth errors: prefer structured HTTP status, then message heuristics.
+  if (statusValue === 401 || statusValue === 403) return "auth";
+  if (lowerMessage.includes("unauthorized") || lowerMessage.includes("forbidden")) return "auth";
+
+  // Network errors: prefer error codes when available, fall back to message.
+  if (code === "ETIMEDOUT" || code === "ECONNREFUSED" || code === "ECONNRESET") return "network";
+  if (
+    lowerMessage.includes("etimedout") ||
+    lowerMessage.includes("econnrefused") ||
+    lowerMessage.includes("econnreset") ||
+    lowerMessage.includes("timeout")
+  ) return "network";
+
+  // Routing errors: be specific to avoid matching HTTP 404s.
+  if (/\bno route\b/.test(lowerMessage)) return "routing";
+
+  return "unknown";
+}
 
 /**
  * Check if an inbound message's bucketId matches a virtualAccounts entry.
