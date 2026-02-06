@@ -366,6 +366,25 @@ export async function bcqReadings<T = unknown>(opts: BcqOptions = {}): Promise<B
   return opts.retry ? withRetry(fn, opts.retry) : fn();
 }
 
+/**
+ * Mark readings as read via `PUT /my/unreads` with a list of readable SGIDs.
+ * This is the bulk mark-as-read endpoint — accepts up to ~50 SGIDs per call.
+ */
+export async function bcqMarkReadingsRead(
+  sgids: string[],
+  opts: BcqOptions = {},
+): Promise<BcqResult<unknown>> {
+  if (sgids.length === 0) return { data: null, raw: "" };
+
+  const body = JSON.stringify({ readables: sgids });
+  const fn = () =>
+    execBcq(["api", "put", "/my/unreads.json"], {
+      ...opts,
+      extraFlags: [...(opts.extraFlags ?? []), "-d", body],
+    });
+  return opts.retry ? withRetry(fn, opts.retry) : fn();
+}
+
 // ---------------------------------------------------------------------------
 // bcq introspection helpers (used at startup for validation & diagnostics)
 // ---------------------------------------------------------------------------

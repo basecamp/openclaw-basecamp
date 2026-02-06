@@ -18,6 +18,7 @@ import { EventDedup } from "./dedup.js";
 import { CursorStore } from "./cursors.js";
 import { pollActivityFeed } from "./activity.js";
 import { pollReadings } from "./readings.js";
+import { bcqMarkReadingsRead } from "../bcq.js";
 import { isSelfMessage } from "./normalize.js";
 
 export interface CompositePollerOptions {
@@ -194,6 +195,19 @@ export async function startCompositePoller(
             dispatched++;
           } catch (err) {
             log?.error?.("[" + account.accountId + "] dispatch error for reading " + event.dedupKey + ": " + String(err));
+          }
+        }
+
+        // Mark processed readings as read so they don't reappear
+        if (result.processedSgids.length > 0) {
+          try {
+            await bcqMarkReadingsRead(result.processedSgids, {
+              accountId: account.config.bcqAccountId ?? account.accountId,
+              profile: account.bcqProfile,
+            });
+            log?.debug?.("[" + account.accountId + "] marked " + result.processedSgids.length + " readings as read");
+          } catch (err) {
+            log?.warn?.("[" + account.accountId + "] failed to mark readings as read: " + String(err));
           }
         }
 
