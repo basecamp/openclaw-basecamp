@@ -376,6 +376,18 @@ export type BasecampChannelConfig = {
     readingsIntervalMs?: number;
     directPollIntervalMs?: number;
   };
+  /** Retry options for bcq API calls. */
+  retry?: {
+    maxAttempts?: number;
+    baseDelayMs?: number;
+    maxDelayMs?: number;
+    jitter?: boolean;
+  };
+  /** Circuit breaker options for bcq API calls. */
+  circuitBreaker?: {
+    threshold?: number;
+    cooldownMs?: number;
+  };
 };
 
 /**
