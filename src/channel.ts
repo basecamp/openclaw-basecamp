@@ -244,23 +244,38 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
         });
       };
 
+      // Mark channel as running
+      ctx.setStatus({
+        accountId: account.accountId,
+        running: true,
+        lastStartAt: Date.now(),
+      });
+
       // Start the composite poller (activity feed + readings)
       ctx.log?.info(`[${account.accountId}] starting composite poller`);
 
       // startCompositePoller returns Promise<void> — it runs until abortSignal fires
-      await startCompositePoller({
-        account,
-        cfg: ctx.cfg,
-        abortSignal: ctx.abortSignal,
-        onEvent,
-        stateDir,
-        log: {
-          info: (msg) => ctx.log?.info?.(msg),
-          warn: (msg) => ctx.log?.warn?.(msg),
-          debug: (msg) => ctx.log?.debug?.(msg),
-          error: (msg) => ctx.log?.error?.(msg),
-        },
-      });
+      try {
+        await startCompositePoller({
+          account,
+          cfg: ctx.cfg,
+          abortSignal: ctx.abortSignal,
+          onEvent,
+          stateDir,
+          log: {
+            info: (msg) => ctx.log?.info?.(msg),
+            warn: (msg) => ctx.log?.warn?.(msg),
+            debug: (msg) => ctx.log?.debug?.(msg),
+            error: (msg) => ctx.log?.error?.(msg),
+          },
+        });
+      } finally {
+        ctx.setStatus({
+          accountId: account.accountId,
+          running: false,
+          lastStopAt: Date.now(),
+        });
+      }
     },
     logoutAccount: async ({ accountId, cfg }) => {
       return { cleared: false, loggedOut: false };
