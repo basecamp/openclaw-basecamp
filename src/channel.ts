@@ -23,6 +23,8 @@ import { basecampResolverAdapter } from "./adapters/resolver.js";
 import { basecampHeartbeatAdapter } from "./adapters/heartbeat.js";
 import { basecampGroupAdapter } from "./adapters/groups.js";
 import { basecampAgentPromptAdapter } from "./adapters/agent-prompt.js";
+import { basecampSecurityAdapter } from "./adapters/security.js";
+import { resolveOutboundTarget, chunkMarkdownText } from "./adapters/outbound.js";
 
 export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampProbe, BasecampAudit> = {
   id: "basecamp",
@@ -85,28 +87,18 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
     }),
   },
 
-  security: {
-    resolveDmPolicy: ({ cfg, accountId }) => {
-      const section = cfg.channels?.basecamp as Record<string, unknown> | undefined;
-      const dmPolicy = (section?.dmPolicy as string) ?? "pairing";
-      const allowFrom = (section?.allowFrom as Array<string | number>) ?? [];
-      const basePath =
-        accountId && accountId !== DEFAULT_ACCOUNT_ID
-          ? `channels.basecamp.accounts.${accountId}.`
-          : "channels.basecamp.";
-      return {
-        policy: dmPolicy,
-        allowFrom,
-        policyPath: `${basePath}dmPolicy`,
-        allowFromPath: basePath,
-        approveHint: `Add the sender's Basecamp person ID to ${basePath}allowFrom`,
-      };
-    },
-  },
+  security: basecampSecurityAdapter,
 
   outbound: {
     deliveryMode: "direct",
     textChunkLimit: 10000,
+    chunkerMode: "markdown",
+    chunker: (text, limit) => chunkMarkdownText(text, limit),
+    resolveTarget: ({ to }) => {
+      const result = resolveOutboundTarget(to ?? "");
+      if (result.ok) return { ok: true, to: result.to };
+      return { ok: false, error: new Error(result.error) };
+    },
     sendText: async ({ to, text, accountId }) => {
       const result = await sendBasecampText({ to, text, accountId });
       return { channel: "basecamp", messageId: result.messageId };
