@@ -1,13 +1,20 @@
 import type { ChannelPlugin } from "openclaw/plugin-sdk";
-import { buildChannelConfigSchema, DEFAULT_ACCOUNT_ID } from "openclaw/plugin-sdk";
+import {
+  buildChannelConfigSchema,
+  DEFAULT_ACCOUNT_ID,
+  setAccountEnabledInConfigSection,
+  deleteAccountFromConfigSection,
+} from "openclaw/plugin-sdk";
 import type { ResolvedBasecampAccount, BasecampInboundMessage } from "./types.js";
 import type { BasecampProbe, BasecampAudit } from "./adapters/status.js";
+import type { BasecampChannelConfig } from "./types.js";
 import {
   BasecampConfigSchema,
   listBasecampAccountIds,
   resolveBasecampAccount,
   resolveBasecampAccountAsync,
   resolveDefaultBasecampAccountId,
+  resolveBasecampAllowFrom,
 } from "./config.js";
 import { getBasecampRuntime } from "./runtime.js";
 import { sendBasecampText } from "./outbound/send.js";
@@ -70,13 +77,29 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
 
   reload: { configPrefixes: ["channels.basecamp"] },
 
-  configSchema: buildChannelConfigSchema(BasecampConfigSchema),
+  configSchema: {
+    ...buildChannelConfigSchema(BasecampConfigSchema),
+    uiHints: {
+      "accounts.*.tokenFile": { label: "Token file path", help: "Path to file containing OAuth token", sensitive: true },
+      "accounts.*.token": { label: "Token", help: "Inline OAuth token (prefer tokenFile)", sensitive: true, advanced: true },
+      "accounts.*.bcqProfile": { label: "bcq profile", help: "bcq CLI profile name for auth" },
+      "accounts.*.personId": { label: "Person ID", help: "Your Basecamp person ID (numeric)" },
+      "personas": { label: "Agent personas", help: "Maps agent IDs to Basecamp account IDs for multi-identity outbound", advanced: true },
+      "virtualAccounts": { label: "Project scopes", help: "Maps synthetic account IDs to specific projects", advanced: true },
+      "dmPolicy": { label: "DM policy", help: "Controls who can DM agents: open, pairing, closed" },
+      "allowFrom": { label: "Allowed senders", help: "Basecamp person IDs allowed to message agents" },
+      "buckets": { label: "Per-project settings", help: "Override requireMention and tool policies per bucket", advanced: true },
+    },
+  },
 
   config: {
     listAccountIds: (cfg) => listBasecampAccountIds(cfg),
     resolveAccount: (cfg, accountId) => resolveBasecampAccount(cfg, accountId),
     defaultAccountId: (cfg) => resolveDefaultBasecampAccountId(cfg),
     isConfigured: (account) => Boolean(account.token?.trim() || account.config.tokenFile || account.bcqProfile),
+    isEnabled: (account) => account.enabled,
+    disabledReason: () => "Manually disabled",
+    unconfiguredReason: () => "No bcq profile or token configured",
     describeAccount: (account) => ({
       accountId: account.accountId,
       name: account.displayName,
@@ -85,6 +108,28 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
       tokenSource: account.tokenSource,
       bcqProfile: account.bcqProfile,
     }),
+    setAccountEnabled: ({ cfg, accountId, enabled }) =>
+      setAccountEnabledInConfigSection({ cfg, sectionKey: "channels.basecamp", accountId, enabled }),
+    deleteAccount: ({ cfg, accountId }) => {
+      const updated = deleteAccountFromConfigSection({
+        cfg,
+        sectionKey: "channels.basecamp",
+        accountId,
+      });
+      // Clean up persona entries pointing to the deleted account
+      const section = updated.channels?.basecamp as BasecampChannelConfig | undefined;
+      if (section?.personas) {
+        const cleaned = { ...section.personas };
+        for (const [agentId, targetId] of Object.entries(cleaned)) {
+          if (targetId === accountId) delete cleaned[agentId];
+        }
+        (updated.channels!.basecamp as any).personas = cleaned;
+      }
+      return updated;
+    },
+    resolveAllowFrom: ({ cfg }) => resolveBasecampAllowFrom(cfg),
+    formatAllowFrom: ({ allowFrom }) =>
+      allowFrom.map((entry) => `Person ${entry}`),
   },
 
   security: basecampSecurityAdapter,
