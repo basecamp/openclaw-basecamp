@@ -5,7 +5,7 @@ import type {
   ResolvedBasecampAccount,
 } from "../src/types.js";
 import { getBasecampRuntime } from "../src/runtime.js";
-import { resolvePersonaAccountId } from "../src/config.js";
+import { resolvePersonaAccountId, resolveBasecampAccount } from "../src/config.js";
 import { postReplyToEvent } from "../src/outbound/send.js";
 import { markdownToBasecampHtml } from "../src/outbound/format.js";
 
@@ -18,6 +18,7 @@ vi.mock("../src/runtime.js", () => ({
 }));
 vi.mock("../src/config.js", () => ({
   resolvePersonaAccountId: vi.fn(),
+  resolveBasecampAccount: vi.fn(),
 }));
 vi.mock("../src/outbound/send.js", () => ({
   postReplyToEvent: vi.fn(),
@@ -74,7 +75,6 @@ const mockAccount: ResolvedBasecampAccount = {
   personId: "999",
   token: "tok-abc",
   tokenSource: "config",
-  host: "3.basecampapi.com",
   config: { personId: "999" },
 };
 
@@ -153,6 +153,15 @@ describe("dispatchBasecampEvent", () => {
 
   it("uses persona account ID for outbound when resolvePersonaAccountId returns a value", async () => {
     vi.mocked(resolvePersonaAccountId).mockReturnValue("persona-acct");
+    vi.mocked(resolveBasecampAccount).mockReturnValue({
+      accountId: "persona-acct",
+      enabled: true,
+      personId: "888",
+      token: "tok-persona",
+      tokenSource: "config",
+      bcqProfile: "persona-profile",
+      config: { personId: "888", bcqProfile: "persona-profile" },
+    } as any);
 
     await dispatchBasecampEvent(mockMsg, { account: mockAccount });
 
@@ -166,6 +175,7 @@ describe("dispatchBasecampEvent", () => {
     expect(postReplyToEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         accountId: "persona-acct",
+        profile: "persona-profile",
       }),
     );
   });
@@ -188,7 +198,7 @@ describe("dispatchBasecampEvent", () => {
       peerId: "recording:123",
       content: "<p>Agent reply</p>",
       accountId: "test-acct",
-      host: "3.basecampapi.com",
+      profile: undefined,
     });
   });
 

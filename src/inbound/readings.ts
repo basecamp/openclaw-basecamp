@@ -48,7 +48,7 @@ export async function pollReadings(
     memories?: BasecampReadingsEntry[];
   }>({
     accountId: account.accountId,
-    host: account.host,
+    profile: account.bcqProfile,
   });
 
   const unreads = result.data?.unreads;

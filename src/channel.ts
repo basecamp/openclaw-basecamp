@@ -1,6 +1,7 @@
-import type { ChannelPlugin, OpenClawConfig } from "openclaw/plugin-sdk";
+import type { ChannelPlugin } from "openclaw/plugin-sdk";
 import { buildChannelConfigSchema, DEFAULT_ACCOUNT_ID } from "openclaw/plugin-sdk";
 import type { ResolvedBasecampAccount, BasecampInboundMessage } from "./types.js";
+import type { BasecampProbe, BasecampAudit } from "./adapters/status.js";
 import {
   BasecampConfigSchema,
   listBasecampAccountIds,
@@ -11,8 +12,19 @@ import {
 import { getBasecampRuntime } from "./runtime.js";
 import { sendBasecampText } from "./outbound/send.js";
 import { dispatchBasecampEvent } from "./dispatch.js";
+import { bcqAuthStatus } from "./bcq.js";
+import { basecampOnboardingAdapter } from "./adapters/onboarding.js";
+import { basecampSetupAdapter } from "./adapters/setup.js";
+import { basecampStatusAdapter } from "./adapters/status.js";
+import { basecampPairingAdapter } from "./adapters/pairing.js";
+import { basecampDirectoryAdapter } from "./adapters/directory.js";
+import { basecampMessagingAdapter } from "./adapters/messaging.js";
+import { basecampResolverAdapter } from "./adapters/resolver.js";
+import { basecampHeartbeatAdapter } from "./adapters/heartbeat.js";
+import { basecampGroupAdapter } from "./adapters/groups.js";
+import { basecampAgentPromptAdapter } from "./adapters/agent-prompt.js";
 
-export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount> = {
+export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampProbe, BasecampAudit> = {
   id: "basecamp",
 
   meta: {
@@ -34,6 +46,26 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount> = {
     blockStreaming: false,
   },
 
+  onboarding: basecampOnboardingAdapter,
+
+  pairing: basecampPairingAdapter,
+
+  setup: basecampSetupAdapter,
+
+  status: basecampStatusAdapter,
+
+  directory: basecampDirectoryAdapter,
+
+  messaging: basecampMessagingAdapter,
+
+  resolver: basecampResolverAdapter,
+
+  heartbeat: basecampHeartbeatAdapter,
+
+  groups: basecampGroupAdapter,
+
+  agentPrompt: basecampAgentPromptAdapter,
+
   reload: { configPrefixes: ["channels.basecamp"] },
 
   configSchema: buildChannelConfigSchema(BasecampConfigSchema),
@@ -42,18 +74,19 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount> = {
     listAccountIds: (cfg) => listBasecampAccountIds(cfg),
     resolveAccount: (cfg, accountId) => resolveBasecampAccount(cfg, accountId),
     defaultAccountId: (cfg) => resolveDefaultBasecampAccountId(cfg),
-    isConfigured: (account) => Boolean(account.token?.trim() || account.config.tokenFile),
+    isConfigured: (account) => Boolean(account.token?.trim() || account.config.tokenFile || account.bcqProfile),
     describeAccount: (account) => ({
       accountId: account.accountId,
       name: account.displayName,
       enabled: account.enabled,
-      configured: Boolean(account.token?.trim() || account.config.tokenFile),
+      configured: Boolean(account.token?.trim() || account.config.tokenFile || account.bcqProfile),
       tokenSource: account.tokenSource,
+      bcqProfile: account.bcqProfile,
     }),
   },
 
   security: {
-    resolveDmPolicy: ({ cfg, accountId, account }) => {
+    resolveDmPolicy: ({ cfg, accountId }) => {
       const section = cfg.channels?.basecamp as Record<string, unknown> | undefined;
       const dmPolicy = (section?.dmPolicy as string) ?? "pairing";
       const allowFrom = (section?.allowFrom as Array<string | number>) ?? [];
@@ -83,9 +116,28 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount> = {
   gateway: {
     startAccount: async (ctx) => {
       const account = await resolveBasecampAccountAsync(ctx.cfg, ctx.account.accountId);
-      if (!account.token) {
+
+      // If bcqProfile is configured, verify bcq auth status before proceeding
+      if (account.bcqProfile) {
+        try {
+          const authResult = await bcqAuthStatus({ profile: account.bcqProfile });
+          if (!authResult.data.authenticated) {
+            ctx.log?.error(
+              `[${account.accountId}] cannot start: bcq profile "${account.bcqProfile}" is not authenticated`,
+            );
+            return;
+          }
+        } catch (err) {
+          ctx.log?.error(
+            `[${account.accountId}] cannot start: bcq auth check failed for profile "${account.bcqProfile}": ${String(err)}`,
+          );
+          return;
+        }
+      }
+
+      if (!account.token && !account.bcqProfile) {
         ctx.log?.error(
-          `[${account.accountId}] cannot start: no token (check tokenFile or token config)`,
+          `[${account.accountId}] cannot start: no token (check tokenFile or token config) and no bcqProfile`,
         );
         return;
       }

@@ -11,7 +11,9 @@ const plugin = {
   configSchema: emptyPluginConfigSchema(),
   register(api: OpenClawPluginApi) {
     setBasecampRuntime(api.runtime);
-    api.registerChannel({ plugin: basecampChannel });
+    // Cast required: SDK's registerChannel expects ChannelPlugin<unknown> but
+    // our concrete Probe/Audit type params are contravariant with unknown.
+    api.registerChannel({ plugin: basecampChannel as any });
     api.registerHttpRoute({
       path: "/webhooks/basecamp",
       handler: handleBasecampWebhook,

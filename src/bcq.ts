@@ -9,7 +9,7 @@ import { execFile } from "node:child_process";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-const BCQ_PATH = join(homedir(), ".local", "bin", "bcq");
+const BCQ_PATH = process.env.BCQ_BIN ?? join(homedir(), ".local", "bin", "bcq");
 
 /** Default timeout for bcq commands (30 seconds). */
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -17,8 +17,8 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 export interface BcqOptions {
   /** Basecamp account ID for --account flag. */
   accountId?: string;
-  /** Basecamp host override (e.g., "3.basecampapi.localhost:3001" for local dev). */
-  host?: string;
+  /** bcq profile name for --profile flag (selects credential/config profile). */
+  profile?: string;
   /** Request timeout in milliseconds. */
   timeoutMs?: number;
   /** Extra CLI flags to append. */
@@ -55,8 +55,8 @@ function execBcq<T = unknown>(
     fullArgs.push("--account", opts.accountId);
   }
 
-  if (opts.host) {
-    fullArgs.push("--host", opts.host);
+  if (opts.profile) {
+    fullArgs.push("--profile", opts.profile);
   }
 
   if (opts.extraFlags) {
@@ -195,6 +195,83 @@ export async function bcqReadings<T = unknown>(
 }
 
 // ---------------------------------------------------------------------------
+// bcq introspection helpers (used at startup for validation & diagnostics)
+// ---------------------------------------------------------------------------
+
+/**
+ * Check that the bcq binary exists and return its path.
+ * Runs `which bcq` (or checks the known path) to verify availability.
+ */
+export async function bcqWhich(): Promise<BcqResult<{ path: string }>> {
+  return new Promise((resolve, reject) => {
+    execFile(
+      BCQ_PATH,
+      ["--version"],
+      { timeout: 5_000 },
+      (error, stdout, stderr) => {
+        if (error) {
+          reject(
+            new BcqError(
+              `bcq not found or not executable at ${BCQ_PATH}: ${error.message}`,
+              error.code != null ? Number(error.code) : null,
+              stderr,
+              [BCQ_PATH, "--version"],
+            ),
+          );
+          return;
+        }
+        resolve({ data: { path: BCQ_PATH }, raw: stdout.trim() });
+      },
+    );
+  });
+}
+
+/**
+ * Check the authentication status of a bcq profile.
+ * Runs `bcq auth status` to verify the profile's credentials are valid.
+ */
+export async function bcqAuthStatus(
+  opts: BcqOptions = {},
+): Promise<BcqResult<{ authenticated: boolean }>> {
+  try {
+    const result = await execBcq<{ authenticated?: boolean }>(
+      ["auth", "status"],
+      opts,
+    );
+    const authenticated =
+      typeof result.data === "object" &&
+      result.data !== null &&
+      result.data.authenticated === true;
+    return { data: { authenticated }, raw: result.raw };
+  } catch (err) {
+    if (err instanceof BcqError) {
+      return { data: { authenticated: false }, raw: err.stderr };
+    }
+    throw err;
+  }
+}
+
+/**
+ * List available bcq profiles.
+ * Runs `bcq profile list` to enumerate configured profiles.
+ */
+export async function bcqProfileList(
+  opts: BcqOptions = {},
+): Promise<BcqResult<string[]>> {
+  try {
+    const result = await execBcq<string[]>(["profile", "list"], opts);
+    const profiles = Array.isArray(result.data) ? result.data : [];
+    return { data: profiles, raw: result.raw };
+  } catch (err) {
+    if (err instanceof BcqError) {
+      // If the command doesn't exist or returns error, return empty list
+      return { data: [], raw: err.stderr };
+    }
+    throw err;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Simplified API helpers (used by outbound/send.ts and other modules)
 // ---------------------------------------------------------------------------
 
@@ -205,9 +282,9 @@ export async function bcqReadings<T = unknown>(
 export async function bcqApiGet<T = unknown>(
   path: string,
   accountId?: string,
-  host?: string,
+  profile?: string,
 ): Promise<T> {
-  const result = await bcqGet<T>(path, { accountId, host });
+  const result = await bcqGet<T>(path, { accountId, profile });
   return result.data;
 }
 
@@ -219,9 +296,9 @@ export async function bcqApiPost<T = unknown>(
   path: string,
   body?: string,
   accountId?: string,
-  host?: string,
+  profile?: string,
 ): Promise<T> {
-  const opts: BcqOptions = { accountId, host };
+  const opts: BcqOptions = { accountId, profile };
   if (body) {
     opts.extraFlags = ["-d", body];
   }

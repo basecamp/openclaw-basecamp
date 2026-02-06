@@ -30,15 +30,42 @@ function getDedup(accountId: string): EventDedup {
   return dedup;
 }
 
+/** Maximum allowed webhook request body size (1 MiB). */
+const MAX_WEBHOOK_BODY_BYTES = 1 * 1024 * 1024;
+
 /**
  * Read the full request body as a string.
+ * Rejects if the body exceeds MAX_WEBHOOK_BODY_BYTES.
  */
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
-    req.on("data", (chunk: Buffer) => chunks.push(chunk));
-    req.on("end", () => resolve(Buffer.concat(chunks).toString("utf-8")));
-    req.on("error", reject);
+    let receivedBytes = 0;
+    let finished = false;
+
+    req.on("data", (chunk: Buffer) => {
+      if (finished) return;
+      receivedBytes += chunk.length;
+      if (receivedBytes > MAX_WEBHOOK_BODY_BYTES) {
+        finished = true;
+        req.destroy(new Error("Request body too large"));
+        reject(new Error("Request body too large"));
+        return;
+      }
+      chunks.push(chunk);
+    });
+
+    req.on("end", () => {
+      if (finished) return;
+      finished = true;
+      resolve(Buffer.concat(chunks).toString("utf-8"));
+    });
+
+    req.on("error", (err) => {
+      if (finished) return;
+      finished = true;
+      reject(err);
+    });
   });
 }
 

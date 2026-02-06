@@ -11,9 +11,10 @@
  *    to send the agent's response back to the correct Basecamp surface
  */
 
-import type { BasecampInboundMessage, ResolvedBasecampAccount } from "./types.js";
+import type { BasecampInboundMessage, BasecampChannelConfig, ResolvedBasecampAccount } from "./types.js";
+import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import { getBasecampRuntime } from "./runtime.js";
-import { resolvePersonaAccountId } from "./config.js";
+import { resolvePersonaAccountId, resolveBasecampAccount } from "./config.js";
 import { postReplyToEvent } from "./outbound/send.js";
 import { markdownToBasecampHtml } from "./outbound/format.js";
 
@@ -45,11 +46,16 @@ export async function dispatchBasecampEvent(
     return false;
   }
 
+  // ----- Project-scope routing override -----
+  // Check if the event's bucketId matches a virtualAccounts entry;
+  // if so, override the accountId to the scope alias so agent bindings match.
+  const effectiveAccountId = resolveProjectScopeAccountId(cfg, msg) ?? msg.accountId;
+
   // ----- Route resolution -----
   const route = runtime.channel.routing.resolveAgentRoute({
     cfg,
     channel: "basecamp",
-    accountId: msg.accountId,
+    accountId: effectiveAccountId,
     peer: msg.peer,
     parentPeer: msg.parentPeer,
   });
@@ -68,6 +74,11 @@ export async function dispatchBasecampEvent(
   // The agent may have a dedicated Basecamp persona (service account).
   const personaAccountId = resolvePersonaAccountId(cfg, route.agentId);
   const outboundAccountId = personaAccountId ?? account.accountId;
+  // Resolve the outbound account's bcqProfile (persona may have its own profile)
+  const outboundAccount = personaAccountId
+    ? resolveBasecampAccount(cfg, personaAccountId)
+    : account;
+  const outboundProfile = outboundAccount.bcqProfile;
 
   // ----- Build MsgContext -----
   // OpenClaw expects ChatType "direct" | "group" — NOT "dm"
@@ -85,6 +96,8 @@ export async function dispatchBasecampEvent(
     Provider: "basecamp",
     Surface: "basecamp",
     Timestamp: new Date(msg.createdAt).getTime(),
+    // MessageSid: messageId for comment/message events, recordingId for
+    // non-message events (card moves, todo completions, etc.)
     MessageSid: msg.meta.messageId ?? msg.meta.recordingId,
     AccountId: msg.accountId,
     OriginatingChannel: "basecamp" as const,
@@ -114,7 +127,7 @@ export async function dispatchBasecampEvent(
           peerId: msg.peer.id,
           content: htmlContent,
           accountId: outboundAccountId,
-          host: account.host,
+          profile: outboundProfile,
         });
       },
       onError: (err) => {
@@ -129,6 +142,28 @@ export async function dispatchBasecampEvent(
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Check if an inbound message's bucketId matches a virtualAccounts entry.
+ * Returns the virtual account key (scope alias) if matched, undefined otherwise.
+ */
+function resolveProjectScopeAccountId(
+  cfg: OpenClawConfig,
+  msg: BasecampInboundMessage,
+): string | undefined {
+  const section = cfg.channels?.basecamp as BasecampChannelConfig | undefined;
+  const virtualAccounts = section?.virtualAccounts;
+  if (!virtualAccounts) return undefined;
+
+  const bucketId = msg.meta.bucketId;
+  for (const [key, va] of Object.entries(virtualAccounts)) {
+    if (va.bucketId === bucketId) {
+      return key;
+    }
+  }
+
+  return undefined;
+}
 
 /**
  * Build UntrustedContext entries from Basecamp-specific metadata.

@@ -12,12 +12,6 @@ import { describe, it, expect } from "vitest";
 import { bcqGet, bcqMe, bcqTimeline, bcqReadings } from "../src/bcq.js";
 import { pollActivityFeed } from "../src/inbound/activity.js";
 import { pollReadings } from "../src/inbound/readings.js";
-import {
-  normalizeActivityEvent,
-  normalizeReadingsEvent,
-  parseBucketIdFromUrl,
-  parseRecordingIdFromUrl,
-} from "../src/inbound/normalize.js";
 import { EventDedup } from "../src/inbound/dedup.js";
 import type { ResolvedBasecampAccount } from "../src/types.js";
 
@@ -248,7 +242,6 @@ describe("smoke: URL parsing with real data", () => {
   it("parseBucketIdFromUrl handles all real app_urls", async () => {
     const result = await pollActivityFeed({ account: testAccount, log });
 
-    const failures: string[] = [];
     for (const msg of result.events) {
       // The meta should have a bucketId — verify our URL parser agrees
       if (msg.meta.bucketId) {
@@ -256,10 +249,6 @@ describe("smoke: URL parsing with real data", () => {
         // We can't get the original URL, but we can check the ID is numeric
         expect(msg.meta.bucketId).toMatch(/^\d+$/);
       }
-    }
-
-    if (failures.length > 0) {
-      console.warn("URL parsing failures:", failures);
     }
   });
 });

@@ -281,6 +281,36 @@ export type BasecampWebhookPayload = {
 };
 
 // ---------------------------------------------------------------------------
+// Raw API entity shapes (for directory / resolver adapters)
+// ---------------------------------------------------------------------------
+
+export type BasecampPerson = {
+  id: number;
+  name: string;
+  email_address: string;
+  avatar_url?: string;
+  attachable_sgid?: string;
+};
+
+export type BasecampProject = {
+  id: number;
+  name: string;
+  description?: string;
+  app_url?: string;
+  bookmarked?: boolean;
+};
+
+// ---------------------------------------------------------------------------
+// Per-bucket config (Group C)
+// ---------------------------------------------------------------------------
+
+export type BasecampBucketConfig = {
+  requireMention?: boolean;
+  tools?: { allow?: string[]; deny?: string[] };
+  enabled?: boolean;
+};
+
+// ---------------------------------------------------------------------------
 // Config types
 // ---------------------------------------------------------------------------
 
@@ -302,11 +332,18 @@ export type BasecampAccountConfig = {
   /** Whether this account is enabled. */
   enabled?: boolean;
   /**
-   * Basecamp host for this account (e.g., "3.basecampapi.localhost:3001").
-   * Omit for production (defaults to bcq's configured host).
-   * Supports local dev, staging, and self-hosted Basecamp instances.
+   * bcq profile name for this account (maps to --profile flag).
+   * Selects which bcq credential/config profile to use.
+   * Omit to use bcq's default profile.
    */
-  host?: string;
+  bcqProfile?: string;
+  /**
+   * bcq account ID override for this account (maps to --account flag).
+   * When set, this value is passed as the bcq --account flag instead of
+   * the plugin's account key. Useful when the plugin account ID differs
+   * from the bcq-level account identifier.
+   */
+  bcqAccountId?: string;
 };
 
 /**
@@ -331,6 +368,8 @@ export type BasecampChannelConfig = {
   dmPolicy?: "open" | "pairing" | "closed";
   /** Allowed sender person IDs for DM/pairing. */
   allowFrom?: Array<string | number>;
+  /** Per-bucket behavior overrides. Key is bucket ID or "*" for wildcard. */
+  buckets?: Record<string, BasecampBucketConfig>;
   /** Polling cadence overrides (milliseconds). */
   polling?: {
     activityIntervalMs?: number;
@@ -350,9 +389,11 @@ export type ResolvedBasecampAccount = {
   personId: string;
   attachableSgid?: string;
   token: string;
-  tokenSource: "tokenFile" | "config" | "none";
-  /** Basecamp host override (for dev/staging/self-hosted). */
-  host?: string;
+  tokenSource: "tokenFile" | "config" | "bcq" | "none";
+  /** bcq profile name (for --profile flag). */
+  bcqProfile?: string;
+  /** When this account was resolved via a project-scope entry, the scoped bucket ID. */
+  scopedBucketId?: string;
   config: BasecampAccountConfig;
 };
 
