@@ -14,7 +14,19 @@
   "openclaw": {
     "extensions": [
       "./index.ts"
-    ]
+    ],
+    "channel": {
+      "id": "basecamp",
+      "label": "Basecamp",
+      "selectionLabel": "Basecamp (Campfire, Cards, Todos, Check-ins, Pings)",
+      "docsPath": "/channels/basecamp",
+      "docsLabel": "basecamp",
+      "blurb": "Campfire chats, card tables, to-do lists, check-ins, pings — every Basecamp surface as a live agent interaction point."
+    },
+    "install": {
+      "npmSpec": "@37signals/openclaw-basecamp",
+      "defaultChoice": "npm"
+    }
   },
   "dependencies": {
     "typescript": "^5.0.0",

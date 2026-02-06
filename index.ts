@@ -5,7 +5,7 @@ import { setBasecampRuntime } from "./src/runtime.js";
 import { handleBasecampWebhook } from "./src/inbound/webhooks.js";
 
 const plugin = {
-  id: "basecamp",
+  id: "openclaw-basecamp",
   name: "Basecamp",
   description: "Basecamp channel — Campfire, cards, todos, check-ins, pings",
   configSchema: emptyPluginConfigSchema(),
