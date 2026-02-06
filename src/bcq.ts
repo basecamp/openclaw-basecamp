@@ -239,8 +239,10 @@ function execBcq<T = unknown>(args: string[], opts: BcqOptions = {}): Promise<Bc
       },
       (error, stdout, stderr) => {
         if (error) {
+          const stderrTrimmed = stderr.trim();
+          const cmdStr = [BCQ_PATH, ...fullArgs].join(" ");
           const err = new BcqError(
-            `bcq failed: ${error.message}`,
+            `bcq failed (${cmdStr}): ${error.message}${stderrTrimmed ? `\nstderr: ${stderrTrimmed}` : ""}`,
             error.code != null ? Number(error.code) : null,
             stderr,
             [BCQ_PATH, ...fullArgs],
