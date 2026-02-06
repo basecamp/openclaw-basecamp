@@ -5,7 +5,7 @@
  * Phase 1 uses bcq for all Basecamp API access; native API replaces polling in Phase 2.
  */
 
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -269,6 +269,56 @@ export async function bcqProfileList(
     }
     throw err;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Interactive auth helpers (used by channel auth adapter)
+// ---------------------------------------------------------------------------
+
+/**
+ * Launch `bcq auth login` as an interactive subprocess.
+ * This opens the browser for Basecamp OAuth and waits for completion.
+ */
+export async function execBcqAuthLogin(
+  opts: { profile?: string } = {},
+): Promise<void> {
+  const args = ["auth", "login"];
+  if (opts.profile) {
+    args.push("--profile", opts.profile);
+  }
+
+  return new Promise((resolve, reject) => {
+    const proc = spawn(BCQ_PATH, args, {
+      stdio: "inherit",
+      env: { ...process.env },
+    });
+
+    proc.on("error", (err: Error) => {
+      reject(
+        new BcqError(
+          `bcq auth login failed to start: ${err.message}`,
+          null,
+          "",
+          [BCQ_PATH, ...args],
+        ),
+      );
+    });
+
+    proc.on("close", (code: number | null) => {
+      if (code === 0) {
+        resolve();
+      } else {
+        reject(
+          new BcqError(
+            `bcq auth login exited with code ${code}`,
+            code,
+            "",
+            [BCQ_PATH, ...args],
+          ),
+        );
+      }
+    });
+  });
 }
 
 // ---------------------------------------------------------------------------

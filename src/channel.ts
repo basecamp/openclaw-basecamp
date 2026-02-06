@@ -19,7 +19,7 @@ import {
 import { getBasecampRuntime } from "./runtime.js";
 import { sendBasecampText } from "./outbound/send.js";
 import { dispatchBasecampEvent } from "./dispatch.js";
-import { bcqAuthStatus } from "./bcq.js";
+import { bcqAuthStatus, execBcqAuthLogin } from "./bcq.js";
 import { basecampOnboardingAdapter } from "./adapters/onboarding.js";
 import { basecampSetupAdapter } from "./adapters/setup.js";
 import { basecampStatusAdapter } from "./adapters/status.js";
@@ -75,6 +75,23 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
   groups: basecampGroupAdapter,
 
   agentPrompt: basecampAgentPromptAdapter,
+
+  elevated: {
+    allowFromFallback: () => undefined,
+  },
+
+  commands: {
+    enforceOwnerForCommands: true,
+    skipWhenConfigEmpty: true,
+  },
+
+  auth: {
+    login: async ({ cfg, accountId }) => {
+      const account = resolveBasecampAccount(cfg, accountId);
+      const profile = account.bcqProfile;
+      await execBcqAuthLogin({ profile });
+    },
+  },
 
   mentions: basecampMentionAdapter,
 
