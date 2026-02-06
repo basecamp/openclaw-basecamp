@@ -180,6 +180,43 @@ describe("dispatchBasecampEvent", () => {
     );
   });
 
+  it("returns false and logs error when bcqAccountId is undefined", async () => {
+    const accountNoBcq: ResolvedBasecampAccount = {
+      ...mockAccount,
+      config: { personId: "999" },
+    };
+    const log = { info: vi.fn(), warn: vi.fn(), debug: vi.fn(), error: vi.fn() };
+
+    const result = await dispatchBasecampEvent(mockMsg, { account: accountNoBcq, log });
+
+    expect(result).toBe(false);
+    expect(log.error).toHaveBeenCalledTimes(1);
+    expect(log.error.mock.calls[0][0]).toContain("unable to resolve bcq account id");
+    expect(
+      mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher,
+    ).not.toHaveBeenCalled();
+  });
+
+  it("falls back to numeric accountId when bcqAccountId is unset", async () => {
+    const accountNumericId: ResolvedBasecampAccount = {
+      ...mockAccount,
+      accountId: "2914079",
+      config: { personId: "999" },
+    };
+
+    const result = await dispatchBasecampEvent(mockMsg, { account: accountNumericId });
+
+    expect(result).toBe(true);
+    const call =
+      mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock.calls[0][0];
+    const deliver = call.dispatcherOptions.deliver;
+    await deliver({ text: "Reply" }, {});
+
+    expect(postReplyToEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ accountId: "2914079" }),
+    );
+  });
+
   it("deliver callback calls postReplyToEvent with correct params", async () => {
     await dispatchBasecampEvent(mockMsg, { account: mockAccount });
 
@@ -390,6 +427,49 @@ describe("dispatchBasecampEvent", () => {
 
     const result = await dispatchBasecampEvent(chatMsg, { account: mockAccount });
     expect(result).toBe(true);
+  });
+
+  it("respects wildcard bucket engage override", async () => {
+    mockRuntime.config.loadConfig.mockReturnValue({
+      channels: {
+        basecamp: {
+          accounts: { "test-acct": { personId: "999" } },
+          buckets: { "*": { engage: ["dm", "mention", "conversation", "activity"] } },
+        },
+      },
+    });
+
+    const cardMsg: BasecampInboundMessage = {
+      ...mockMsg,
+      meta: {
+        ...mockMsg.meta,
+        recordableType: "Kanban::Card",
+        eventKind: "moved",
+        mentionsAgent: false,
+        sources: ["activity_feed"],
+      },
+    };
+
+    const result = await dispatchBasecampEvent(cardMsg, { account: mockAccount });
+    expect(result).toBe(true);
+  });
+
+  it("prefers exact bucket engage over wildcard", async () => {
+    mockRuntime.config.loadConfig.mockReturnValue({
+      channels: {
+        basecamp: {
+          accounts: { "test-acct": { personId: "999" } },
+          buckets: {
+            "456": { engage: ["dm"] },
+            "*": { engage: ["dm", "mention", "conversation", "activity"] },
+          },
+        },
+      },
+    });
+
+    // Mention should be dropped — exact bucket only allows "dm"
+    const result = await dispatchBasecampEvent(mockMsg, { account: mockAccount });
+    expect(result).toBe(false);
   });
 
   it("respects channel-level engage to include activity", async () => {

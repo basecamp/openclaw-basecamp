@@ -96,7 +96,16 @@ export async function dispatchBasecampEvent(
   const outboundProfile = outboundAccount.bcqProfile;
   // Use the bcq account ID for API calls — NOT the OpenClaw account ID.
   // The OpenClaw account ID ("default") is never valid for bcq --account.
-  const outboundBcqAccountId = outboundAccount.config.bcqAccountId;
+  const outboundBcqAccountId =
+    outboundAccount.config.bcqAccountId ??
+    (/^\d+$/.test(outboundAccount.accountId) ? outboundAccount.accountId : undefined);
+  if (!outboundBcqAccountId) {
+    log?.error(
+      `[${account.accountId}] outbound dispatch: unable to resolve bcq account id for outbound account ` +
+      `"${outboundAccount.accountId}". Set config.bcqAccountId to a valid Basecamp account id.`,
+    );
+    return false;
+  }
 
   // ----- Build MsgContext -----
   // OpenClaw expects ChatType "direct" | "group" — NOT "dm"
@@ -229,8 +238,8 @@ function resolveEngagePolicy(
 ): BasecampEngagementType[] {
   const section = cfg.channels?.basecamp as BasecampChannelConfig | undefined;
 
-  // Per-bucket override
-  const bucketConfig = section?.buckets?.[bucketId];
+  // Per-bucket override (exact match → wildcard fallback)
+  const bucketConfig = section?.buckets?.[bucketId] ?? section?.buckets?.["*"];
   if (bucketConfig?.engage) return bucketConfig.engage;
 
   // Channel-level
