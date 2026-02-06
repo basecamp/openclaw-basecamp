@@ -49,7 +49,7 @@ export async function pollReadings(
     reads?: BasecampReadingsEntry[];
     memories?: BasecampReadingsEntry[];
   }>({
-    accountId: account.accountId,
+    accountId: account.config.bcqAccountId,
     profile: account.bcqProfile,
   });
 

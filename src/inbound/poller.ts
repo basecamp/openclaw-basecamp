@@ -202,7 +202,7 @@ export async function startCompositePoller(
         if (result.processedSgids.length > 0) {
           try {
             await bcqMarkReadingsRead(result.processedSgids, {
-              accountId: account.config.bcqAccountId ?? account.accountId,
+              accountId: account.config.bcqAccountId,
               profile: account.bcqProfile,
             });
             log?.debug?.("[" + account.accountId + "] marked " + result.processedSgids.length + " readings as read");

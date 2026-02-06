@@ -32,7 +32,7 @@ export const basecampPairingAdapter: ChannelPairingAdapter = {
       await bcqApiPost(
         `/circles/people/${id}/lines.json`,
         JSON.stringify({ content: `<p>${PAIRING_APPROVED_MESSAGE}</p>` }),
-        account.config.bcqAccountId ?? account.accountId,
+        account.config.bcqAccountId,
         profile,
       );
     } catch {
