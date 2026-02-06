@@ -75,7 +75,7 @@ const mockAccount: ResolvedBasecampAccount = {
   personId: "999",
   token: "tok-abc",
   tokenSource: "config",
-  config: { personId: "999" },
+  config: { personId: "999", bcqAccountId: "12345" },
 };
 
 // ---------------------------------------------------------------------------
@@ -160,7 +160,7 @@ describe("dispatchBasecampEvent", () => {
       token: "tok-persona",
       tokenSource: "config",
       bcqProfile: "persona-profile",
-      config: { personId: "888", bcqProfile: "persona-profile" },
+      config: { personId: "888", bcqProfile: "persona-profile", bcqAccountId: "67890" },
     } as any);
 
     await dispatchBasecampEvent(mockMsg, { account: mockAccount });
@@ -174,7 +174,7 @@ describe("dispatchBasecampEvent", () => {
 
     expect(postReplyToEvent).toHaveBeenCalledWith(
       expect.objectContaining({
-        accountId: "persona-acct",
+        accountId: "67890",
         profile: "persona-profile",
       }),
     );
@@ -197,7 +197,7 @@ describe("dispatchBasecampEvent", () => {
       recordableType: "Chat::Transcript",
       peerId: "recording:123",
       content: "<p>Agent reply</p>",
-      accountId: "test-acct",
+      accountId: "12345",
       profile: undefined,
       retries: 2,
     });

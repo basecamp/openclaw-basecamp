@@ -73,12 +73,14 @@ export async function dispatchBasecampEvent(
   // ----- Resolve persona for outbound -----
   // The agent may have a dedicated Basecamp persona (service account).
   const personaAccountId = resolvePersonaAccountId(cfg, route.agentId);
-  const outboundAccountId = personaAccountId ?? account.accountId;
   // Resolve the outbound account's bcqProfile (persona may have its own profile)
   const outboundAccount = personaAccountId
     ? resolveBasecampAccount(cfg, personaAccountId)
     : account;
   const outboundProfile = outboundAccount.bcqProfile;
+  // Use the bcq account ID for API calls — NOT the OpenClaw account ID.
+  // The OpenClaw account ID ("default") is never valid for bcq --account.
+  const outboundBcqAccountId = outboundAccount.config.bcqAccountId;
 
   // ----- Build MsgContext -----
   // OpenClaw expects ChatType "direct" | "group" — NOT "dm"
@@ -128,7 +130,7 @@ export async function dispatchBasecampEvent(
           recordableType: msg.meta.recordableType,
           peerId: msg.peer.id,
           content: htmlContent,
-          accountId: outboundAccountId,
+          accountId: outboundBcqAccountId,
           profile: outboundProfile,
           retries: 2,
         });
