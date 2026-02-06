@@ -52,6 +52,18 @@ export const BasecampConfigSchema = z.object({
       directPollIntervalMs: z.number().positive().optional(),
     })
     .optional(),
+  retry: z
+    .object({
+      maxAttempts: z.number().positive().optional(),
+      baseDelayMs: z.number().positive().optional(),
+    })
+    .optional(),
+  circuitBreaker: z
+    .object({
+      threshold: z.number().positive().optional(),
+      cooldownMs: z.number().positive().optional(),
+    })
+    .optional(),
 });
 
 // ---------------------------------------------------------------------------
