@@ -49,6 +49,25 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
 }
 
+/** Save cursors with one retry after 1s delay on failure. */
+async function saveCursorsWithRetry(
+  cursors: CursorStore,
+  accountId: string,
+  log?: CompositePollerOptions["log"],
+): Promise<void> {
+  try {
+    await cursors.save();
+  } catch (err) {
+    log?.warn?.(`[${accountId}] cursor save failed, retrying in 1s: ${String(err)}`);
+    await new Promise((r) => setTimeout(r, 1000));
+    try {
+      await cursors.save();
+    } catch (retryErr) {
+      log?.error?.(`[${accountId}] cursor save retry failed, continuing: ${String(retryErr)}`);
+    }
+  }
+}
+
 /**
  * Start the composite poller. Long-running; resolves when abort fires.
  */
@@ -63,6 +82,19 @@ export async function startCompositePoller(
 
   const dedup = new EventDedup();
   const stateDir = opts.stateDir ?? "/tmp/openclaw-basecamp-state";
+
+  // Validate state directory
+  const { mkdir, access } = await import("node:fs/promises");
+  const { constants } = await import("node:fs");
+  try {
+    await mkdir(stateDir, { recursive: true });
+    await access(stateDir, constants.W_OK);
+    log?.info?.(`[${account.accountId}] state directory: ${stateDir}`);
+  } catch (err) {
+    log?.error?.(`[${account.accountId}] state directory not writable: ${stateDir}: ${String(err)}`);
+    throw err;
+  }
+
   const cursors = new CursorStore(stateDir, account.accountId);
 
   try {
@@ -120,7 +152,7 @@ export async function startCompositePoller(
 
         if (result.newestAt) {
           cursors.setActivitySince(result.newestAt);
-          await cursors.save();
+          await saveCursorsWithRetry(cursors, account.accountId, log);
         }
 
         if (dispatched > 0) {
@@ -167,7 +199,7 @@ export async function startCompositePoller(
 
         if (result.newestAt) {
           cursors.setReadingsSince(result.newestAt);
-          await cursors.save();
+          await saveCursorsWithRetry(cursors, account.accountId, log);
         }
 
         if (dispatched > 0) {
@@ -194,7 +226,7 @@ export async function startCompositePoller(
   }
 
   try {
-    await cursors.save();
+    await saveCursorsWithRetry(cursors, account.accountId, log);
     log?.info?.("[" + account.accountId + "] composite poller stopped, cursors saved");
   } catch (err) {
     log?.warn?.("[" + account.accountId + "] failed to save final cursors: " + String(err));

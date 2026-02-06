@@ -67,16 +67,28 @@ export class CursorStore {
     return { ...this.cursors };
   }
 
-  /** Update the activity feed cursor. */
+  /** Update the activity feed cursor. Only advances forward. */
   setActivitySince(since: string): void {
+    if (this.cursors.activitySince && since < this.cursors.activitySince) {
+      console.warn(
+        `[basecamp:cursors] clock skew detected: new activitySince (${since}) < existing (${this.cursors.activitySince}), skipping`,
+      );
+      return;
+    }
     if (this.cursors.activitySince !== since) {
       this.cursors.activitySince = since;
       this.dirty = true;
     }
   }
 
-  /** Update the readings cursor. */
+  /** Update the readings cursor. Only advances forward. */
   setReadingsSince(since: string): void {
+    if (this.cursors.readingsSince && since < this.cursors.readingsSince) {
+      console.warn(
+        `[basecamp:cursors] clock skew detected: new readingsSince (${since}) < existing (${this.cursors.readingsSince}), skipping`,
+      );
+      return;
+    }
     if (this.cursors.readingsSince !== since) {
       this.cursors.readingsSince = since;
       this.dirty = true;

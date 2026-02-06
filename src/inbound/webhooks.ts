@@ -18,6 +18,51 @@ import { dispatchBasecampEvent } from "../dispatch.js";
 import { getBasecampRuntime } from "../runtime.js";
 import { resolveBasecampAccount } from "../config.js";
 
+// ---------------------------------------------------------------------------
+// Concurrency limiter
+// ---------------------------------------------------------------------------
+
+export class Semaphore {
+  private current = 0;
+  private queue: Array<() => void> = [];
+
+  constructor(private readonly max: number) {}
+
+  async acquire(): Promise<void> {
+    if (this.current < this.max) {
+      this.current++;
+      return;
+    }
+    return new Promise<void>((resolve) => {
+      this.queue.push(resolve);
+    });
+  }
+
+  release(): void {
+    this.current--;
+    const next = this.queue.shift();
+    if (next) {
+      this.current++;
+      next();
+    }
+  }
+
+  get pending(): number {
+    return this.queue.length;
+  }
+}
+
+/** Max concurrent webhook dispatches. */
+const MAX_CONCURRENT_DISPATCHES = 10;
+/** Max queued dispatches before dropping. */
+const MAX_QUEUED_DISPATCHES = 100;
+
+export const dispatchSemaphore = new Semaphore(MAX_CONCURRENT_DISPATCHES);
+
+// ---------------------------------------------------------------------------
+// Dedup
+// ---------------------------------------------------------------------------
+
 /** Per-account dedup instances for webhook events. */
 const dedupRegistry = new Map<string, EventDedup>();
 
@@ -144,10 +189,22 @@ export async function handleBasecampWebhook(
     return;
   }
 
-  // Dispatch
+  // Check backpressure before processing
+  if (dispatchSemaphore.pending >= MAX_QUEUED_DISPATCHES) {
+    console.error("[basecamp:webhook] dispatch queue full, dropping event");
+    return;
+  }
+  if (dispatchSemaphore.pending > 0) {
+    console.warn(`[basecamp:webhook] backpressure: ${dispatchSemaphore.pending} queued dispatches`);
+  }
+
+  // Dispatch with concurrency limit
+  await dispatchSemaphore.acquire();
   try {
     await dispatchBasecampEvent(msg, { account });
   } catch (err) {
     console.error("[basecamp:webhook] dispatch error:", err);
+  } finally {
+    dispatchSemaphore.release();
   }
 }

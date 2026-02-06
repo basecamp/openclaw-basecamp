@@ -131,7 +131,15 @@ export async function dispatchBasecampEvent(
         });
       },
       onError: (err) => {
-        log?.error?.(`[${account.accountId}] reply error for agent=${route.agentId}: ${String(err)}`);
+        const errorType = classifyDispatchError(err);
+        log?.error?.(
+          `[${account.accountId}] dispatch error ` +
+          `agent=${route.agentId} ` +
+          `recording=${msg.meta.recordingId} ` +
+          `event=${msg.meta.eventKind} ` +
+          `sender=${msg.sender.id} ` +
+          `type=${errorType}: ${String(err)}`,
+        );
       },
     },
   });
@@ -142,6 +150,17 @@ export async function dispatchBasecampEvent(
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Classify a dispatch error into a broad category for structured logging.
+ */
+function classifyDispatchError(err: unknown): string {
+  const s = String(err);
+  if (s.includes("401") || s.includes("403") || s.includes("Unauthorized") || s.includes("Forbidden")) return "auth";
+  if (s.includes("ETIMEDOUT") || s.includes("ECONNREFUSED") || s.includes("ECONNRESET") || s.includes("timeout")) return "network";
+  if (s.includes("no route") || s.includes("not found")) return "routing";
+  return "unknown";
+}
 
 /**
  * Check if an inbound message's bucketId matches a virtualAccounts entry.
