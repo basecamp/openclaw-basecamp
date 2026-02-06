@@ -3,17 +3,27 @@
  *
  * These tests call the real plugin functions (pollActivityFeed, bcqGet, etc.)
  * and verify they handle real API responses correctly. This is NOT a unit test
- * with mocked responses — it hits the live API via bcq.
+ * with mocked responses -- it hits the live API via bcq.
  *
- * Run with: npx vitest run tests/smoke.test.ts
+ * Gated behind OPENCLAW_INTEGRATION=1. When the env var is unset, all tests
+ * are skipped (shown as "skipped" in vitest output).
+ *
+ * Run with: OPENCLAW_INTEGRATION=1 npx vitest run tests/smoke.test.ts
  */
 
 import { describe, it, expect } from "vitest";
-import { bcqGet, bcqMe, bcqTimeline, bcqReadings } from "../src/bcq.js";
+import { bcqGet, bcqMe, bcqTimeline, bcqReadings, bcqApiGet } from "../src/bcq.js";
 import { pollActivityFeed } from "../src/inbound/activity.js";
 import { pollReadings } from "../src/inbound/readings.js";
 import { EventDedup } from "../src/inbound/dedup.js";
 import type { ResolvedBasecampAccount } from "../src/types.js";
+
+// ---------------------------------------------------------------------------
+// Integration gate
+// ---------------------------------------------------------------------------
+
+const INTEGRATION_ENABLED = process.env.OPENCLAW_INTEGRATION === "1";
+const describeIntegration = INTEGRATION_ENABLED ? describe : describe.skip;
 
 // ---------------------------------------------------------------------------
 // Shared test account (uses bcq's default authenticated account)
@@ -36,10 +46,10 @@ const log = {
 };
 
 // ---------------------------------------------------------------------------
-// bcq.ts — verify our wrapper works
+// bcq.ts -- verify our wrapper works
 // ---------------------------------------------------------------------------
 
-describe("smoke: bcq.ts", () => {
+describeIntegration("smoke: bcq.ts", () => {
   it("bcqMe returns authenticated user", async () => {
     const result = await bcqMe();
     expect(result.data).toBeDefined();
@@ -77,7 +87,7 @@ describe("smoke: bcq.ts", () => {
     const result = await bcqReadings<any>({
       accountId: testAccount.accountId,
     });
-    // 204 No Content → null, 200 → { unreads, reads, memories }
+    // 204 No Content -> null, 200 -> { unreads, reads, memories }
     if (result.data === null) {
       console.log("bcqReadings: 204 No Content (no unread items)");
     } else {
@@ -88,10 +98,10 @@ describe("smoke: bcq.ts", () => {
 });
 
 // ---------------------------------------------------------------------------
-// pollActivityFeed — the full pipeline
+// pollActivityFeed -- the full pipeline
 // ---------------------------------------------------------------------------
 
-describe("smoke: pollActivityFeed", () => {
+describeIntegration("smoke: pollActivityFeed", () => {
   it("polls activity feed and returns normalized events", async () => {
     const result = await pollActivityFeed({
       account: testAccount,
@@ -161,7 +171,7 @@ describe("smoke: pollActivityFeed", () => {
     const first = await pollActivityFeed({ account: testAccount, log });
     expect(first.events.length).toBeGreaterThan(0);
 
-    // Second poll: use the newest timestamp as cursor — should get 0 events
+    // Second poll: use the newest timestamp as cursor -- should get 0 events
     const second = await pollActivityFeed({
       account: testAccount,
       since: first.newestAt,
@@ -176,10 +186,10 @@ describe("smoke: pollActivityFeed", () => {
 });
 
 // ---------------------------------------------------------------------------
-// pollReadings — the full pipeline
+// pollReadings -- the full pipeline
 // ---------------------------------------------------------------------------
 
-describe("smoke: pollReadings", () => {
+describeIntegration("smoke: pollReadings", () => {
   it("pollReadings handles empty and populated responses", async () => {
     const result = await pollReadings({ account: testAccount, log });
 
@@ -199,10 +209,10 @@ describe("smoke: pollReadings", () => {
 });
 
 // ---------------------------------------------------------------------------
-// EventDedup — cross-source dedup with real events
+// EventDedup -- cross-source dedup with real events
 // ---------------------------------------------------------------------------
 
-describe("smoke: EventDedup with real events", () => {
+describeIntegration("smoke: EventDedup with real events", () => {
   it("dedup correctly tracks real activity events", async () => {
     const dedup = new EventDedup({ ttlMs: 60_000 });
 
@@ -238,17 +248,58 @@ describe("smoke: EventDedup with real events", () => {
 // URL parsing against real app_urls
 // ---------------------------------------------------------------------------
 
-describe("smoke: URL parsing with real data", () => {
+describeIntegration("smoke: URL parsing with real data", () => {
   it("parseBucketIdFromUrl handles all real app_urls", async () => {
     const result = await pollActivityFeed({ account: testAccount, log });
 
     for (const msg of result.events) {
-      // The meta should have a bucketId — verify our URL parser agrees
+      // The meta should have a bucketId -- verify our URL parser agrees
       if (msg.meta.bucketId) {
         // Reconstruct: every event came from an app_url that had a bucket
         // We can't get the original URL, but we can check the ID is numeric
         expect(msg.meta.bucketId).toMatch(/^\d+$/);
       }
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Directory listing integration
+// ---------------------------------------------------------------------------
+
+describeIntegration("smoke: directory integration", () => {
+  it("bcqApiGet /people.json returns people array", async () => {
+    const people = await bcqApiGet<any[]>("/people.json", testAccount.accountId);
+    expect(Array.isArray(people)).toBe(true);
+    expect(people.length).toBeGreaterThan(0);
+    expect(people[0]).toHaveProperty("id");
+    expect(people[0]).toHaveProperty("name");
+    console.log(`Directory: ${people.length} people`);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Status probe integration
+// ---------------------------------------------------------------------------
+
+describeIntegration("smoke: status adapter integration", () => {
+  it("probeAccount returns successful probe for real account", async () => {
+    const { basecampStatusAdapter } = await import("../src/adapters/status.js");
+    const probe = await basecampStatusAdapter.probeAccount!({
+      account: testAccount,
+      timeoutMs: 10000,
+      cfg: {
+        channels: {
+          basecamp: {
+            accounts: {
+              [testAccount.accountId]: { personId: testAccount.personId },
+            },
+          },
+        },
+      } as any,
+    });
+    expect(probe.ok).toBe(true);
+    expect(probe.authenticated).toBe(true);
+    console.log("Status probe:", JSON.stringify(probe));
   });
 });
