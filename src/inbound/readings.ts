@@ -18,6 +18,8 @@ export interface ReadingsPollResult {
   events: BasecampInboundMessage[];
   /** ISO timestamp of the newest reading (for cursor advancement). */
   newestAt: string | undefined;
+  /** Readable SGIDs of all processed entries — pass to bcqMarkReadingsRead. */
+  processedSgids: string[];
 }
 
 export interface ReadingsPollerOptions {
@@ -47,13 +49,13 @@ export async function pollReadings(
     reads?: BasecampReadingsEntry[];
     memories?: BasecampReadingsEntry[];
   }>({
-    accountId: account.accountId,
+    accountId: account.config.bcqAccountId,
     profile: account.bcqProfile,
   });
 
   const unreads = result.data?.unreads;
   if (!Array.isArray(unreads) || unreads.length === 0) {
-    return { events: [], newestAt: undefined };
+    return { events: [], newestAt: undefined, processedSgids: [] };
   }
 
   log?.debug?.(`[${account.accountId}] readings returned ${unreads.length} unreads`);
@@ -67,6 +69,7 @@ export async function pollReadings(
     : unreads;
 
   const events: BasecampInboundMessage[] = [];
+  const processedSgids: string[] = [];
   let newestAt: string | undefined;
 
   for (const raw of filtered) {
@@ -75,6 +78,10 @@ export async function pollReadings(
       if (!normalized) continue;
 
       events.push(normalized);
+
+      if (raw.readable_sgid) {
+        processedSgids.push(raw.readable_sgid);
+      }
 
       const ts = raw.unread_at ?? raw.created_at;
       if (!newestAt || ts > newestAt) {
@@ -87,5 +94,5 @@ export async function pollReadings(
     }
   }
 
-  return { events, newestAt };
+  return { events, newestAt, processedSgids };
 }

@@ -28,6 +28,10 @@ const BasecampVirtualAccountSchema = z.object({
   bucketId: z.string(),
 });
 
+const EngagementTypeSchema = z.enum([
+  "dm", "mention", "assignment", "checkin", "conversation", "activity",
+]);
+
 const BasecampBucketConfigSchema = z.object({
   requireMention: z.boolean().optional(),
   tools: z.object({
@@ -35,6 +39,7 @@ const BasecampBucketConfigSchema = z.object({
     deny: z.array(z.string()).optional(),
   }).optional(),
   enabled: z.boolean().optional(),
+  engage: z.array(EngagementTypeSchema).optional(),
 });
 
 export const BasecampConfigSchema = z.object({
@@ -45,6 +50,7 @@ export const BasecampConfigSchema = z.object({
   dmPolicy: z.enum(["open", "pairing", "closed"]).optional(),
   allowFrom: z.array(z.union([z.string(), z.number()])).optional(),
   buckets: z.record(z.string(), BasecampBucketConfigSchema).optional(),
+  engage: z.array(EngagementTypeSchema).optional(),
   polling: z
     .object({
       activityIntervalMs: z.number().positive().optional(),

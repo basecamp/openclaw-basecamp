@@ -59,7 +59,7 @@ const mockMsg: BasecampInboundMessage = {
     recordableType: "Chat::Transcript",
     eventKind: "created",
     mentions: [],
-    mentionsAgent: false,
+    mentionsAgent: true,
     attachments: [],
     sources: ["activity_feed"],
   },
@@ -73,7 +73,7 @@ const mockAccount: ResolvedBasecampAccount = {
   personId: "999",
   token: "tok-abc",
   tokenSource: "config",
-  config: { personId: "999" },
+  config: { personId: "999", bcqAccountId: "12345" },
 };
 
 // ---------------------------------------------------------------------------

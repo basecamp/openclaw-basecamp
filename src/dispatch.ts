@@ -11,7 +11,8 @@
  *    to send the agent's response back to the correct Basecamp surface
  */
 
-import type { BasecampInboundMessage, BasecampChannelConfig, ResolvedBasecampAccount } from "./types.js";
+import type { BasecampInboundMessage, BasecampChannelConfig, BasecampEngagementType, ResolvedBasecampAccount } from "./types.js";
+import { DEFAULT_ENGAGE } from "./types.js";
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import { getBasecampRuntime } from "./runtime.js";
 import { resolvePersonaAccountId, resolveBasecampAccount } from "./config.js";
@@ -65,6 +66,21 @@ export async function dispatchBasecampEvent(
     return false;
   }
 
+  // ----- Engagement gate -----
+  // Classify the event, then check it against the configured engagement
+  // policy. Defaults to ["dm", "mention", "assignment", "checkin"].
+  // Per-bucket overrides take precedence over channel-level config.
+  const engagement = classifyEngagement(msg);
+  const engagePolicy = resolveEngagePolicy(cfg, msg.meta.bucketId);
+  if (!engagePolicy.includes(engagement)) {
+    log?.debug?.(
+      `[${account.accountId}] engagement gate: dropping ` +
+      `engagement=${engagement} event=${msg.meta.eventKind} type=${msg.meta.recordableType} ` +
+      `peer=${msg.peer.id} policy=[${engagePolicy.join(",")}]`,
+    );
+    return false;
+  }
+
   log?.info?.(
     `[${account.accountId}] dispatching to agent=${route.agentId} via ${route.matchedBy} ` +
     `peer=${msg.peer.kind}:${msg.peer.id} recordableType=${msg.meta.recordableType}`,
@@ -73,12 +89,23 @@ export async function dispatchBasecampEvent(
   // ----- Resolve persona for outbound -----
   // The agent may have a dedicated Basecamp persona (service account).
   const personaAccountId = resolvePersonaAccountId(cfg, route.agentId);
-  const outboundAccountId = personaAccountId ?? account.accountId;
   // Resolve the outbound account's bcqProfile (persona may have its own profile)
   const outboundAccount = personaAccountId
     ? resolveBasecampAccount(cfg, personaAccountId)
     : account;
   const outboundProfile = outboundAccount.bcqProfile;
+  // Use the bcq account ID for API calls — NOT the OpenClaw account ID.
+  // The OpenClaw account ID ("default") is never valid for bcq --account.
+  const outboundBcqAccountId =
+    outboundAccount.config.bcqAccountId ??
+    (/^\d+$/.test(outboundAccount.accountId) ? outboundAccount.accountId : undefined);
+  if (!outboundBcqAccountId) {
+    log?.error(
+      `[${account.accountId}] outbound dispatch: unable to resolve bcq account id for outbound account ` +
+      `"${outboundAccount.accountId}". Set config.bcqAccountId to a valid Basecamp account id.`,
+    );
+    return false;
+  }
 
   // ----- Build MsgContext -----
   // OpenClaw expects ChatType "direct" | "group" — NOT "dm"
@@ -128,7 +155,7 @@ export async function dispatchBasecampEvent(
           recordableType: msg.meta.recordableType,
           peerId: msg.peer.id,
           content: htmlContent,
-          accountId: outboundAccountId,
+          accountId: outboundBcqAccountId,
           profile: outboundProfile,
           retries: 2,
         });
@@ -164,6 +191,62 @@ export async function dispatchBasecampEvent(
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Classify an inbound event into an engagement type.
+ *
+ * Ordered from most direct to most ambient:
+ *   dm           — 1:1 Ping
+ *   mention      — @mentioned
+ *   assignment   — assigned/unassigned to agent
+ *   checkin      — check-in question directed at agent (Hey! inbox)
+ *   conversation — chat lines, comments in bound surfaces
+ *   activity     — everything else (card moves, todo completions, edits…)
+ */
+function classifyEngagement(msg: BasecampInboundMessage): BasecampEngagementType {
+  if (msg.peer.kind === "dm") return "dm";
+  if (msg.meta.mentionsAgent) return "mention";
+  if (msg.meta.assignedToAgent) return "assignment";
+
+  // Check-in reminders: Question in Hey! inbox = you're a respondent
+  if (
+    msg.meta.recordableType === "Question" &&
+    msg.meta.sources.includes("readings")
+  ) {
+    return "checkin";
+  }
+
+  // Conversational surfaces: chat and comments
+  if (
+    msg.meta.recordableType === "Chat::Line" ||
+    msg.meta.recordableType === "Chat::Transcript" ||
+    msg.meta.recordableType === "Comment"
+  ) {
+    return "conversation";
+  }
+
+  return "activity";
+}
+
+/**
+ * Resolve the engagement policy for a given bucket.
+ * Per-bucket `engage` overrides channel-level; falls back to DEFAULT_ENGAGE.
+ */
+function resolveEngagePolicy(
+  cfg: OpenClawConfig,
+  bucketId: string,
+): BasecampEngagementType[] {
+  const section = cfg.channels?.basecamp as BasecampChannelConfig | undefined;
+
+  // Per-bucket override (exact match → wildcard fallback)
+  const bucketConfig = section?.buckets?.[bucketId] ?? section?.buckets?.["*"];
+  if (bucketConfig?.engage) return bucketConfig.engage;
+
+  // Channel-level
+  if (section?.engage) return section.engage;
+
+  return DEFAULT_ENGAGE;
+}
 
 /**
  * Classify a dispatch error into a broad category for structured logging.

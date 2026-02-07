@@ -427,6 +427,43 @@ describe("normalizeActivityEvent", () => {
 
     expect(msg.meta.sources).toContain("activity_feed");
   });
+
+  it("sets assignedToAgent when assignment target matches agent displayName", () => {
+    const acct = { ...mockAccount, displayName: "Clawdito" };
+    const raw = makeActivityEvent({
+      kind: "todo_assigned",
+      target: "Clawdito",
+      recording: { id: 203, type: "Todo", title: "Do the thing" },
+    });
+    const msg = normalizeActivityEvent(raw, acct);
+
+    expect(msg.meta.assignedToAgent).toBe(true);
+    expect(msg.meta.eventKind).toBe("assigned");
+  });
+
+  it("does not set assignedToAgent when target is a different person", () => {
+    const acct = { ...mockAccount, displayName: "Clawdito" };
+    const raw = makeActivityEvent({
+      kind: "todo_assigned",
+      target: "Alice",
+      recording: { id: 203, type: "Todo", title: "Do the thing" },
+    });
+    const msg = normalizeActivityEvent(raw, acct);
+
+    expect(msg.meta.assignedToAgent).toBeUndefined();
+  });
+
+  it("does not set assignedToAgent for non-assignment event kinds", () => {
+    const acct = { ...mockAccount, displayName: "Clawdito" };
+    const raw = makeActivityEvent({
+      kind: "todo_completed",
+      target: "Clawdito",
+      recording: { id: 203, type: "Todo", title: "Do the thing" },
+    });
+    const msg = normalizeActivityEvent(raw, acct);
+
+    expect(msg.meta.assignedToAgent).toBeUndefined();
+  });
 });
 
 // ---------------------------------------------------------------------------

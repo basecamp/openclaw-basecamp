@@ -9,10 +9,28 @@
  */
 
 import type { BasecampRecordableType } from "../types.js";
-import { bcqApiPost, withRetry, isRetryableError, BcqError } from "../bcq.js";
+import { bcqApiPost, withRetry, isRetryableError, BcqError, bcqResolvePingTranscript } from "../bcq.js";
 import { markdownToBasecampHtml } from "./format.js";
 import { getBasecampRuntime } from "../runtime.js";
 import { resolveBasecampAccount } from "../config.js";
+
+// ---------------------------------------------------------------------------
+// Ping transcript cache — avoids re-fetching /circles/<id>.json per reply
+// ---------------------------------------------------------------------------
+
+const pingTranscriptCache = new Map<string, string>();
+
+async function resolvePingTranscriptCached(
+  bucketId: string,
+  accountId?: string,
+  profile?: string,
+): Promise<string | undefined> {
+  const cached = pingTranscriptCache.get(bucketId);
+  if (cached) return cached;
+  const transcriptId = await bcqResolvePingTranscript(bucketId, { accountId, profile });
+  if (transcriptId) pingTranscriptCache.set(bucketId, transcriptId);
+  return transcriptId;
+}
 
 // ---------------------------------------------------------------------------
 // Helpers — Basecamp API write operations via bcq
@@ -129,11 +147,27 @@ export async function postReplyToEvent(params: {
   const { bucketId, recordingId, recordableType, peerId, content, accountId, profile, retries } = params;
   const parsed = parsePeerId(peerId);
 
+  // Pings: resolve the transcript ID from the circle's bucket ID
+  if (parsed.prefix === "ping") {
+    const transcriptId = await resolvePingTranscriptCached(bucketId, accountId, profile);
+    if (!transcriptId) {
+      return { ok: false, error: `Could not resolve Ping transcript for circle bucket=${bucketId}` };
+    }
+    const result = await postCampfireLine({
+      bucketId,
+      transcriptId,
+      content,
+      accountId,
+      profile,
+      retries,
+    });
+    return { ok: result.ok, messageId: result.recordingId, retryable: result.retryable, error: result.error };
+  }
+
   // Chat lines go to the transcript
   if (
     recordableType === "Chat::Transcript" ||
-    recordableType === "Chat::Line" ||
-    parsed.prefix === "ping"
+    recordableType === "Chat::Line"
   ) {
     const transcriptId = recordingId;
     const result = await postCampfireLine({

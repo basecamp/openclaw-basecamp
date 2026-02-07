@@ -108,7 +108,8 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
       "virtualAccounts": { label: "Project scopes", help: "Maps synthetic account IDs to specific projects", advanced: true },
       "dmPolicy": { label: "DM policy", help: "Controls who can DM agents: open, pairing, closed" },
       "allowFrom": { label: "Allowed senders", help: "Basecamp person IDs allowed to message agents" },
-      "buckets": { label: "Per-project settings", help: "Override requireMention and tool policies per bucket", advanced: true },
+      "engage": { label: "Engagement policy", help: "Event types that trigger agent response: dm, mention, assignment, checkin, conversation, activity" },
+      "buckets": { label: "Per-project settings", help: "Override engage, requireMention, and tool policies per bucket", advanced: true },
     },
   },
 
@@ -243,23 +244,38 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
         });
       };
 
+      // Mark channel as running
+      ctx.setStatus({
+        accountId: account.accountId,
+        running: true,
+        lastStartAt: Date.now(),
+      });
+
       // Start the composite poller (activity feed + readings)
       ctx.log?.info(`[${account.accountId}] starting composite poller`);
 
       // startCompositePoller returns Promise<void> — it runs until abortSignal fires
-      await startCompositePoller({
-        account,
-        cfg: ctx.cfg,
-        abortSignal: ctx.abortSignal,
-        onEvent,
-        stateDir,
-        log: {
-          info: (msg) => ctx.log?.info?.(msg),
-          warn: (msg) => ctx.log?.warn?.(msg),
-          debug: (msg) => ctx.log?.debug?.(msg),
-          error: (msg) => ctx.log?.error?.(msg),
-        },
-      });
+      try {
+        await startCompositePoller({
+          account,
+          cfg: ctx.cfg,
+          abortSignal: ctx.abortSignal,
+          onEvent,
+          stateDir,
+          log: {
+            info: (msg) => ctx.log?.info?.(msg),
+            warn: (msg) => ctx.log?.warn?.(msg),
+            debug: (msg) => ctx.log?.debug?.(msg),
+            error: (msg) => ctx.log?.error?.(msg),
+          },
+        });
+      } finally {
+        ctx.setStatus({
+          accountId: account.accountId,
+          running: false,
+          lastStopAt: Date.now(),
+        });
+      }
     },
     logoutAccount: async ({ accountId, cfg }) => {
       return { cleared: false, loggedOut: false };

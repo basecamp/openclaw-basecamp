@@ -27,6 +27,33 @@ export type BasecampRecordableType =
   | "Vault"
   | "Schedule::Entry";
 
+/**
+ * Engagement types — how an event relates to the agent.
+ *
+ * Ordered from most specific (direct address) to most ambient:
+ *   dm           — 1:1 Ping, someone is talking directly to the agent
+ *   mention      — agent was @mentioned in any surface
+ *   assignment   — agent was assigned/unassigned to a recording
+ *   checkin      — check-in question directed at the agent (Hey! inbox)
+ *   conversation — chat lines, comments in bound surfaces (not addressed)
+ *   activity     — general project activity (card moves, todo completions…)
+ */
+export type BasecampEngagementType =
+  | "dm"
+  | "mention"
+  | "assignment"
+  | "checkin"
+  | "conversation"
+  | "activity";
+
+/** Default engagement types that trigger agent response. */
+export const DEFAULT_ENGAGE: BasecampEngagementType[] = [
+  "dm",
+  "mention",
+  "assignment",
+  "checkin",
+];
+
 /** Event kinds emitted by the composite event fabric. */
 export type BasecampEventKind =
   // Chat
@@ -308,6 +335,8 @@ export type BasecampBucketConfig = {
   requireMention?: boolean;
   tools?: { allow?: string[]; deny?: string[] };
   enabled?: boolean;
+  /** Override engagement types for this bucket. */
+  engage?: BasecampEngagementType[];
 };
 
 // ---------------------------------------------------------------------------
@@ -370,6 +399,12 @@ export type BasecampChannelConfig = {
   allowFrom?: Array<string | number>;
   /** Per-bucket behavior overrides. Key is bucket ID or "*" for wildcard. */
   buckets?: Record<string, BasecampBucketConfig>;
+  /**
+   * Engagement types that trigger agent response.
+   * Defaults to ["dm", "mention", "assignment", "checkin"].
+   * Per-bucket overrides in `buckets.<id>.engage` take precedence.
+   */
+  engage?: BasecampEngagementType[];
   /** Polling cadence overrides (milliseconds). */
   polling?: {
     activityIntervalMs?: number;

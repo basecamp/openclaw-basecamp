@@ -239,10 +239,28 @@ function execBcq<T = unknown>(args: string[], opts: BcqOptions = {}): Promise<Bc
       },
       (error, stdout, stderr) => {
         if (error) {
+          const stderrTrimmed = stderr.trim();
+          const stdoutTrimmed = stdout.trim();
+          const cmdStr = [BCQ_PATH, ...fullArgs].join(" ");
+          // Node's error.message is often just "Command failed: <cmd>" which is
+          // redundant. Prefer stderr, then stdout (bcq may write errors there),
+          // then meaningful parts of error.message, then exit code / signal.
+          const meaningfulMsg = error.message.replace(/^Command failed:.*$/, "").trim();
+          const detail =
+            stderrTrimmed ||
+            stdoutTrimmed ||
+            (error.killed ? "timed out (killed)" : null) ||
+            (error.signal ? `killed by ${error.signal}` : null) ||
+            meaningfulMsg ||
+            `exit code ${error.code ?? "unknown"}`;
+          const exitCode =
+            typeof error.code === "number" ? error.code :
+            typeof (error as any).status === "number" ? (error as any).status :
+            null;
           const err = new BcqError(
-            `bcq failed: ${error.message}`,
-            error.code != null ? Number(error.code) : null,
-            stderr,
+            `bcq failed (${cmdStr}): ${detail}`,
+            exitCode,
+            stderrTrimmed || stdoutTrimmed,
             [BCQ_PATH, ...fullArgs],
           );
           cb?.instance.recordFailure(cb.key);
@@ -362,6 +380,45 @@ export async function bcqTimeline<T = unknown>(opts: BcqOptions = {}): Promise<B
 export async function bcqReadings<T = unknown>(opts: BcqOptions = {}): Promise<BcqResult<T>> {
   const fn = () => execBcq<T>(["api", "get", "/my/readings.json"], opts);
   return opts.retry ? withRetry(fn, opts.retry) : fn();
+}
+
+/**
+ * Mark readings as read via `PUT /my/unreads` with a list of readable SGIDs.
+ * This is the bulk mark-as-read endpoint — accepts up to ~50 SGIDs per call.
+ */
+export async function bcqMarkReadingsRead(
+  sgids: string[],
+  opts: BcqOptions = {},
+): Promise<BcqResult<unknown>> {
+  if (sgids.length === 0) return { data: null, raw: "" };
+
+  const body = JSON.stringify({ readables: sgids });
+  const fn = () =>
+    execBcq(["api", "put", "/my/unreads.json"], {
+      ...opts,
+      extraFlags: [...(opts.extraFlags ?? []), "-d", body],
+    });
+  return opts.retry ? withRetry(fn, opts.retry) : fn();
+}
+
+/**
+ * Resolve a Ping (Circle) to its chat transcript ID.
+ * Fetches GET /circles/<bucketId>.json and extracts the transcript ID
+ * from the room_url field (format: /buckets/<id>/chats/<transcriptId>).
+ */
+export async function bcqResolvePingTranscript(
+  bucketId: string,
+  opts: BcqOptions = {},
+): Promise<string | undefined> {
+  const result = await bcqGet<{ room_url?: string }>(
+    `/circles/${bucketId}.json`,
+    opts,
+  );
+  const roomUrl = result.data?.room_url;
+  if (!roomUrl) return undefined;
+  // room_url format: /buckets/<bucketId>/chats/<transcriptId>
+  const match = /\/chats\/(\d+)/.exec(roomUrl);
+  return match ? match[1] : undefined;
 }
 
 // ---------------------------------------------------------------------------
