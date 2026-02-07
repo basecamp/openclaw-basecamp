@@ -2,18 +2,22 @@
  * Basecamp agent tools — channel-specific tools agents can invoke.
  *
  * These are registered via the `agentTools` slot on ChannelPlugin and let
- * agents perform Basecamp-specific write operations during response generation.
+ * agents perform Basecamp-specific operations during response generation.
  *
- * Tools:
+ * Write tools:
  *   basecamp_create_todo   — Create a new to-do in a to-do list
  *   basecamp_complete_todo — Mark a to-do as complete
  *   basecamp_reopen_todo   — Mark a to-do as incomplete
+ *
+ * Read tools:
+ *   basecamp_read_history  — Fetch recent messages/comments for a recording
  */
 
 import type { ChannelAgentTool } from "openclaw/plugin-sdk";
 import { Type } from "@sinclair/typebox";
 import type { Static } from "@sinclair/typebox";
-import { bcqApiPost, bcqPut, bcqDelete } from "../bcq.js";
+import { bcqApiGet, bcqApiPost, bcqPut, bcqDelete } from "../bcq.js";
+import { basecampHtmlToPlainText } from "../outbound/format.js";
 
 // ---------------------------------------------------------------------------
 // Tool parameter schemas
@@ -37,6 +41,20 @@ const CompleteTodoParams = Type.Object({
 const ReopenTodoParams = Type.Object({
   bucketId: Type.String({ description: "Basecamp project (bucket) ID" }),
   todoId: Type.String({ description: "To-do recording ID to reopen" }),
+});
+
+const ReadHistoryParams = Type.Object({
+  bucketId: Type.String({ description: "Basecamp project (bucket) ID" }),
+  recordingId: Type.String({ description: "Recording ID (chat transcript, todo, card, message, etc.)" }),
+  type: Type.Union([
+    Type.Literal("comments"),
+    Type.Literal("campfire"),
+  ], { description: "Type of history: 'comments' for recording comments, 'campfire' for chat lines" }),
+  limit: Type.Optional(Type.Number({
+    description: "Maximum number of messages to return (default 20, max 50)",
+    minimum: 1,
+    maximum: 50,
+  })),
 });
 
 // ---------------------------------------------------------------------------
@@ -124,6 +142,60 @@ async function executeReopenTodo(
 }
 
 // ---------------------------------------------------------------------------
+// readHistory — fetch recent messages/comments for context
+// ---------------------------------------------------------------------------
+
+/** Raw comment/line shape from the Basecamp API. */
+type BasecampCommentOrLine = {
+  id?: number;
+  content?: string;
+  created_at?: string;
+  creator?: { id?: number; name?: string };
+};
+
+type ReadHistoryInput = Static<typeof ReadHistoryParams>;
+
+const DEFAULT_HISTORY_LIMIT = 20;
+
+async function executeReadHistory(
+  _toolCallId: string,
+  rawParams: unknown,
+) {
+  const { bucketId, recordingId, type, limit } = rawParams as ReadHistoryInput;
+  const effectiveLimit = Math.min(limit ?? DEFAULT_HISTORY_LIMIT, 50);
+
+  const path = type === "campfire"
+    ? `/buckets/${bucketId}/chats/${recordingId}/lines.json`
+    : `/buckets/${bucketId}/recordings/${recordingId}/comments.json`;
+
+  try {
+    const entries = await bcqApiGet<BasecampCommentOrLine[]>(path, bucketId);
+    const items = Array.isArray(entries) ? entries : [];
+
+    // Take the most recent N entries (API returns oldest-first for comments)
+    const recent = items.slice(-effectiveLimit);
+
+    const messages = recent.map((entry) => ({
+      id: entry.id,
+      sender: entry.creator?.name ?? "unknown",
+      senderId: entry.creator?.id,
+      text: basecampHtmlToPlainText(entry.content ?? ""),
+      timestamp: entry.created_at,
+    }));
+
+    return {
+      content: [{ type: "text" as const, text: JSON.stringify({ ok: true, count: messages.length, messages }) }],
+      details: { ok: true, count: messages.length },
+    };
+  } catch (err) {
+    return {
+      content: [{ type: "text" as const, text: JSON.stringify({ ok: false, error: String(err) }) }],
+      details: { ok: false, error: String(err) },
+    };
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Exported tools array
 // ---------------------------------------------------------------------------
 
@@ -148,5 +220,15 @@ export const basecampAgentTools: ChannelAgentTool[] = [
     description: "Reopen a completed Basecamp to-do (mark as incomplete). Requires the project (bucket) ID and to-do ID.",
     parameters: ReopenTodoParams,
     execute: executeReopenTodo,
+  },
+  {
+    name: "basecamp_read_history",
+    label: "Read Basecamp History",
+    description:
+      "Fetch recent messages or comments from a Basecamp recording. " +
+      "Use type 'campfire' for chat transcripts or 'comments' for comments on any recording (todo, card, message, etc.). " +
+      "Returns up to 50 entries with sender, text, and timestamp.",
+    parameters: ReadHistoryParams,
+    execute: executeReadHistory,
   },
 ];

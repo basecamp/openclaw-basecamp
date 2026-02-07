@@ -1,13 +1,18 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("../src/bcq.js", () => ({
+  bcqApiGet: vi.fn(),
   bcqApiPost: vi.fn(),
   bcqPut: vi.fn(),
   bcqDelete: vi.fn(),
 }));
 
+vi.mock("../src/outbound/format.js", () => ({
+  basecampHtmlToPlainText: vi.fn((html: string) => html.replace(/<[^>]+>/g, "")),
+}));
+
 import { basecampAgentTools } from "../src/adapters/agent-tools.js";
-import { bcqApiPost, bcqDelete } from "../src/bcq.js";
+import { bcqApiGet, bcqApiPost, bcqDelete } from "../src/bcq.js";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -24,8 +29,8 @@ function findTool(name: string) {
 // ---------------------------------------------------------------------------
 
 describe("basecampAgentTools", () => {
-  it("exports three tools", () => {
-    expect(basecampAgentTools).toHaveLength(3);
+  it("exports four tools", () => {
+    expect(basecampAgentTools).toHaveLength(4);
   });
 
   it("has correct tool names", () => {
@@ -34,6 +39,7 @@ describe("basecampAgentTools", () => {
       "basecamp_create_todo",
       "basecamp_complete_todo",
       "basecamp_reopen_todo",
+      "basecamp_read_history",
     ]);
   });
 
@@ -206,5 +212,181 @@ describe("basecamp_reopen_todo", () => {
     const parsed = JSON.parse(result.content[0].text);
     expect(parsed.ok).toBe(false);
     expect(parsed.error).toContain("404 Not Found");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// basecamp_read_history
+// ---------------------------------------------------------------------------
+
+describe("basecamp_read_history", () => {
+  const tool = findTool("basecamp_read_history");
+
+  it("fetches campfire lines", async () => {
+    vi.mocked(bcqApiGet).mockResolvedValue([
+      { id: 1, content: "<p>Hello</p>", created_at: "2025-01-01T10:00:00Z", creator: { id: 10, name: "Alice" } },
+      { id: 2, content: "<p>World</p>", created_at: "2025-01-01T10:01:00Z", creator: { id: 20, name: "Bob" } },
+    ]);
+
+    const result = await tool.execute("call-9", {
+      bucketId: "100",
+      recordingId: "200",
+      type: "campfire",
+    });
+
+    expect(bcqApiGet).toHaveBeenCalledWith(
+      "/buckets/100/chats/200/lines.json",
+      "100",
+    );
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.ok).toBe(true);
+    expect(parsed.count).toBe(2);
+    expect(parsed.messages).toEqual([
+      { id: 1, sender: "Alice", senderId: 10, text: "Hello", timestamp: "2025-01-01T10:00:00Z" },
+      { id: 2, sender: "Bob", senderId: 20, text: "World", timestamp: "2025-01-01T10:01:00Z" },
+    ]);
+  });
+
+  it("fetches recording comments", async () => {
+    vi.mocked(bcqApiGet).mockResolvedValue([
+      { id: 5, content: "<strong>Done</strong>", created_at: "2025-01-01T12:00:00Z", creator: { id: 30, name: "Charlie" } },
+    ]);
+
+    const result = await tool.execute("call-10", {
+      bucketId: "100",
+      recordingId: "300",
+      type: "comments",
+    });
+
+    expect(bcqApiGet).toHaveBeenCalledWith(
+      "/buckets/100/recordings/300/comments.json",
+      "100",
+    );
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.ok).toBe(true);
+    expect(parsed.count).toBe(1);
+    expect(parsed.messages[0].sender).toBe("Charlie");
+    expect(parsed.messages[0].text).toBe("Done");
+  });
+
+  it("respects limit parameter", async () => {
+    const entries = Array.from({ length: 30 }, (_, i) => ({
+      id: i,
+      content: `<p>Message ${i}</p>`,
+      created_at: `2025-01-01T10:${String(i).padStart(2, "0")}:00Z`,
+      creator: { id: 1, name: "Alice" },
+    }));
+    vi.mocked(bcqApiGet).mockResolvedValue(entries);
+
+    const result = await tool.execute("call-11", {
+      bucketId: "100",
+      recordingId: "200",
+      type: "campfire",
+      limit: 5,
+    });
+
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.count).toBe(5);
+    // Should return the last 5 entries (most recent)
+    expect(parsed.messages[0].id).toBe(25);
+    expect(parsed.messages[4].id).toBe(29);
+  });
+
+  it("caps limit at 50", async () => {
+    const entries = Array.from({ length: 60 }, (_, i) => ({
+      id: i,
+      content: `<p>M${i}</p>`,
+      created_at: "2025-01-01T10:00:00Z",
+      creator: { id: 1, name: "A" },
+    }));
+    vi.mocked(bcqApiGet).mockResolvedValue(entries);
+
+    const result = await tool.execute("call-12", {
+      bucketId: "100",
+      recordingId: "200",
+      type: "campfire",
+      limit: 100,
+    });
+
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.count).toBe(50);
+  });
+
+  it("defaults to 20 entries when limit not specified", async () => {
+    const entries = Array.from({ length: 30 }, (_, i) => ({
+      id: i,
+      content: `<p>M${i}</p>`,
+      created_at: "2025-01-01T10:00:00Z",
+      creator: { id: 1, name: "A" },
+    }));
+    vi.mocked(bcqApiGet).mockResolvedValue(entries);
+
+    const result = await tool.execute("call-13", {
+      bucketId: "100",
+      recordingId: "200",
+      type: "campfire",
+    });
+
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.count).toBe(20);
+  });
+
+  it("handles empty results", async () => {
+    vi.mocked(bcqApiGet).mockResolvedValue([]);
+
+    const result = await tool.execute("call-14", {
+      bucketId: "100",
+      recordingId: "200",
+      type: "comments",
+    });
+
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.ok).toBe(true);
+    expect(parsed.count).toBe(0);
+    expect(parsed.messages).toEqual([]);
+  });
+
+  it("handles non-array response gracefully", async () => {
+    vi.mocked(bcqApiGet).mockResolvedValue(null);
+
+    const result = await tool.execute("call-15", {
+      bucketId: "100",
+      recordingId: "200",
+      type: "campfire",
+    });
+
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.ok).toBe(true);
+    expect(parsed.count).toBe(0);
+  });
+
+  it("returns error on API failure", async () => {
+    vi.mocked(bcqApiGet).mockRejectedValue(new Error("503 Service Unavailable"));
+
+    const result = await tool.execute("call-16", {
+      bucketId: "100",
+      recordingId: "200",
+      type: "campfire",
+    });
+
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("503 Service Unavailable");
+  });
+
+  it("handles entries with missing creator", async () => {
+    vi.mocked(bcqApiGet).mockResolvedValue([
+      { id: 1, content: "<p>No creator</p>", created_at: "2025-01-01T10:00:00Z" },
+    ]);
+
+    const result = await tool.execute("call-17", {
+      bucketId: "100",
+      recordingId: "200",
+      type: "comments",
+    });
+
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.messages[0].sender).toBe("unknown");
+    expect(parsed.messages[0].senderId).toBeUndefined();
   });
 });
