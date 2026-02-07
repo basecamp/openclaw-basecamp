@@ -16,7 +16,7 @@ import { normalizeWebhookPayload, isSelfMessage } from "./normalize.js";
 import { EventDedup } from "./dedup.js";
 import { dispatchBasecampEvent } from "../dispatch.js";
 import { getBasecampRuntime } from "../runtime.js";
-import { resolveBasecampAccount, resolveWebhookSecret, resolveAccountForBucket, listBasecampAccountIds } from "../config.js";
+import { resolveBasecampAccount, resolveDefaultBasecampAccountId, resolveWebhookSecret, resolveAccountForBucket, listBasecampAccountIds } from "../config.js";
 
 // ---------------------------------------------------------------------------
 // Concurrency limiter
@@ -205,7 +205,8 @@ export async function handleBasecampWebhook(
         return;
       }
     }
-    account = resolveBasecampAccount(cfg, scopeAccountId);
+    const effectiveAccountId = scopeAccountId ?? resolveDefaultBasecampAccountId(cfg);
+    account = resolveBasecampAccount(cfg, effectiveAccountId);
     if (!account.enabled) {
       console.warn(`[basecamp:webhook] resolved account "${account.accountId}" is disabled, dropping`);
       return;

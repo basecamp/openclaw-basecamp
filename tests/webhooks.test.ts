@@ -27,6 +27,7 @@ vi.mock("../src/config.js", () => ({
     tokenSource: "none",
     config: { personId: "1" },
   })),
+  resolveDefaultBasecampAccountId: vi.fn(() => "default"),
   resolveWebhookSecret: vi.fn(() => "test-secret-123"),
   resolveAccountForBucket: vi.fn(() => undefined),
   listBasecampAccountIds: vi.fn(() => ["default"]),
@@ -51,7 +52,7 @@ vi.mock("../src/inbound/normalize.js", () => ({
 }));
 
 import { Semaphore, handleBasecampWebhook } from "../src/inbound/webhooks.js";
-import { resolveWebhookSecret, resolveAccountForBucket, listBasecampAccountIds } from "../src/config.js";
+import { resolveDefaultBasecampAccountId, resolveWebhookSecret, resolveAccountForBucket, listBasecampAccountIds } from "../src/config.js";
 import { dispatchBasecampEvent } from "../src/dispatch.js";
 
 beforeEach(() => {
@@ -304,5 +305,39 @@ describe("handleBasecampWebhook — hardening", () => {
 
     expect(res.status).toBe(200);
     expect(dispatchBasecampEvent).toHaveBeenCalled();
+  });
+
+  it("routes to sole non-default account when bucket is unmapped", async () => {
+    // Single account named "work" (not "default") — should resolve via
+    // resolveDefaultBasecampAccountId instead of falling to DEFAULT_ACCOUNT_ID.
+    vi.mocked(resolveAccountForBucket).mockReturnValue(undefined);
+    vi.mocked(listBasecampAccountIds).mockReturnValue(["work"]);
+    vi.mocked(resolveDefaultBasecampAccountId).mockReturnValue("work");
+    const { resolveBasecampAccount } = await import("../src/config.js");
+    vi.mocked(resolveBasecampAccount).mockReturnValue({
+      accountId: "work",
+      enabled: true,
+      personId: "1",
+      token: "",
+      tokenSource: "none",
+      config: { personId: "1" },
+    });
+
+    const payload = JSON.stringify({
+      kind: "comment_created",
+      created_at: "2025-01-01T00:00:00Z",
+      recording: { id: 1, type: "Comment", bucket: { id: 100, name: "Test" } },
+      creator: { id: 2, name: "Tester" },
+    });
+    const req = mockReq("POST", "/webhooks/basecamp?token=test-secret-123", payload);
+    const res = mockRes();
+    await handleBasecampWebhook(req, res);
+
+    expect(res.status).toBe(200);
+    expect(dispatchBasecampEvent).toHaveBeenCalled();
+    expect(resolveBasecampAccount).toHaveBeenCalledWith(
+      expect.anything(),
+      "work",
+    );
   });
 });
