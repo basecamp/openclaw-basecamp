@@ -51,6 +51,8 @@ export const BasecampConfigSchema = z.object({
   allowFrom: z.array(z.union([z.string(), z.number()])).optional(),
   buckets: z.record(z.string(), BasecampBucketConfigSchema).optional(),
   engage: z.array(EngagementTypeSchema).optional(),
+  /** Secret token for webhook URL verification. Required to accept webhook requests. */
+  webhookSecret: z.string().optional(),
   polling: z
     .object({
       activityIntervalMs: z.number().positive().optional(),
@@ -317,4 +319,30 @@ export function resolveBasecampDmPolicy(cfg: OpenClawConfig) {
 export function resolveBasecampAllowFrom(cfg: OpenClawConfig): string[] {
   const section = getBasecampSection(cfg);
   return (section?.allowFrom ?? []).map((entry) => String(entry));
+}
+
+/** Get the webhook secret (undefined = webhooks disabled). */
+export function resolveWebhookSecret(cfg: OpenClawConfig): string | undefined {
+  const section = getBasecampSection(cfg);
+  return section?.webhookSecret;
+}
+
+/**
+ * Resolve the account for a given bucket ID.
+ * Checks virtualAccounts for a scope mapping, then falls back to the
+ * first concrete account. Returns undefined if no account found.
+ */
+export function resolveAccountForBucket(
+  cfg: OpenClawConfig,
+  bucketId: string,
+): string | undefined {
+  const section = getBasecampSection(cfg);
+  // Check virtualAccounts for a scope mapping to this bucket
+  if (section?.virtualAccounts) {
+    for (const [key, va] of Object.entries(section.virtualAccounts)) {
+      if (va.bucketId === bucketId) return key;
+    }
+  }
+  // Fall back to the default account
+  return undefined;
 }

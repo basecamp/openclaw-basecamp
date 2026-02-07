@@ -412,6 +412,8 @@ export type BasecampChannelConfig = {
    * Per-bucket overrides in `buckets.<id>.engage` take precedence.
    */
   engage?: BasecampEngagementType[];
+  /** Secret token for webhook URL verification. Webhook requests are rejected when unset. */
+  webhookSecret?: string;
   /** Polling cadence overrides (milliseconds). */
   polling?: {
     activityIntervalMs?: number;
