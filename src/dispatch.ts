@@ -15,7 +15,7 @@ import type { BasecampInboundMessage, BasecampChannelConfig, BasecampEngagementT
 import { DEFAULT_ENGAGE } from "./types.js";
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import { getBasecampRuntime } from "./runtime.js";
-import { resolvePersonaAccountId, resolveBasecampAccount } from "./config.js";
+import { resolvePersonaAccountId, resolveBasecampAccount, resolveBasecampDmPolicy, resolveBasecampAllowFrom } from "./config.js";
 import { postReplyToEvent } from "./outbound/send.js";
 import { markdownToBasecampHtml } from "./outbound/format.js";
 
@@ -79,6 +79,31 @@ export async function dispatchBasecampEvent(
       `peer=${msg.peer.id} policy=[${engagePolicy.join(",")}]`,
     );
     return false;
+  }
+
+  // ----- DM policy enforcement -----
+  // Even when engagement=dm passes the engage gate, verify the sender is
+  // allowed under the configured DM policy (SDK vocabulary:
+  // pairing | allowlist | open | disabled).
+  if (engagement === "dm") {
+    const dmPolicy = resolveBasecampDmPolicy(cfg);
+    if (dmPolicy === "disabled") {
+      log?.debug?.(
+        `[${account.accountId}] dm policy: dropping dm from sender=${msg.sender.id} (policy=disabled)`,
+      );
+      return false;
+    }
+    if (dmPolicy === "pairing" || dmPolicy === "allowlist") {
+      const allowFrom = resolveBasecampAllowFrom(cfg);
+      if (!allowFrom.includes(msg.sender.id)) {
+        log?.debug?.(
+          `[${account.accountId}] dm policy: dropping dm from sender=${msg.sender.id} ` +
+          `(policy=${dmPolicy}, not in allowFrom=[${allowFrom.join(",")}])`,
+        );
+        return false;
+      }
+    }
+    // dmPolicy === "open" → allow all DMs through
   }
 
   log?.info?.(

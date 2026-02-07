@@ -47,7 +47,7 @@ export const BasecampConfigSchema = z.object({
   accounts: z.record(z.string(), BasecampAccountConfigSchema).optional(),
   virtualAccounts: z.record(z.string(), BasecampVirtualAccountSchema).optional(),
   personas: z.record(z.string(), z.string()).optional(),
-  dmPolicy: z.enum(["open", "pairing", "closed"]).optional(),
+  dmPolicy: z.enum(["pairing", "allowlist", "open", "disabled"]).optional(),
   allowFrom: z.array(z.union([z.string(), z.number()])).optional(),
   buckets: z.record(z.string(), BasecampBucketConfigSchema).optional(),
   engage: z.array(EngagementTypeSchema).optional(),
@@ -307,10 +307,10 @@ export function resolveCircuitBreakerConfig(cfg: OpenClawConfig): { threshold: n
   };
 }
 
-/** Get the DM policy for Basecamp Pings. */
+/** Get the DM policy for Basecamp Pings. Defaults to "pairing". */
 export function resolveBasecampDmPolicy(cfg: OpenClawConfig) {
   const section = getBasecampSection(cfg);
-  return section?.dmPolicy ?? "open";
+  return section?.dmPolicy ?? "pairing";
 }
 
 /** Get the allow-from list. */

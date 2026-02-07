@@ -14,14 +14,12 @@ function getBasecampSection(cfg: OpenClawConfig): BasecampChannelConfig | undefi
 }
 
 export const basecampSecurityAdapter = {
-  resolveDmPolicy: ({ cfg, accountId, account: _account }: { cfg: OpenClawConfig; accountId?: string | null; account: ResolvedBasecampAccount }) => {
+  resolveDmPolicy: ({ cfg, accountId: _accountId, account: _account }: { cfg: OpenClawConfig; accountId?: string | null; account: ResolvedBasecampAccount }) => {
     const section = getBasecampSection(cfg);
     const dmPolicy = section?.dmPolicy ?? "pairing";
     const allowFrom = section?.allowFrom ?? [];
-    const basePath =
-      accountId != null && accountId !== DEFAULT_ACCOUNT_ID
-        ? `channels.basecamp.accounts.${accountId}.`
-        : "channels.basecamp.";
+    // DM policy is channel-level (channels.basecamp.dmPolicy), not per-account.
+    const basePath = "channels.basecamp.";
     return {
       policy: dmPolicy,
       allowFrom,

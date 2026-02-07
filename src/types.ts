@@ -393,8 +393,15 @@ export type BasecampChannelConfig = {
   virtualAccounts?: Record<string, BasecampVirtualAccountConfig>;
   /** Agent ID → account ID mapping for multi-persona outbound. */
   personas?: Record<string, string>;
-  /** DM policy for Ping conversations. */
-  dmPolicy?: "open" | "pairing" | "closed";
+  /**
+   * DM policy for Ping conversations.
+   * Uses the SDK's standard vocabulary:
+   *   pairing  — DMs allowed through the pairing flow (default)
+   *   allowlist — DMs allowed only from sender IDs in allowFrom
+   *   open     — DMs allowed from anyone
+   *   disabled — DMs completely blocked
+   */
+  dmPolicy?: "pairing" | "allowlist" | "open" | "disabled";
   /** Allowed sender person IDs for DM/pairing. */
   allowFrom?: Array<string | number>;
   /** Per-bucket behavior overrides. Key is bucket ID or "*" for wildcard. */
