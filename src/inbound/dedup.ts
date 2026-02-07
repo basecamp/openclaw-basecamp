@@ -5,8 +5,12 @@
  * secondary keys for cross-source collapse (e.g., same recording+action+ts
  * from both activity feed and readings).
  *
- * Phase 1 uses in-memory Map. Sqlite persistence can be added later if needed.
+ * Supports an optional DedupStore backend for restart-safe persistence.
+ * When a store is provided, state is loaded on construction and flushed
+ * periodically (every pruneInterval insertions) and on explicit flush().
  */
+
+import type { DedupStore, DedupStoreEntry } from "./dedup-store.js";
 
 /** Default TTL: 24 hours in milliseconds. */
 const DEFAULT_TTL_MS = 24 * 60 * 60 * 1000;
@@ -26,6 +30,8 @@ export interface DedupOptions {
   ttlMs?: number;
   /** How often to prune expired entries (every N insertions). Default: 1000. */
   pruneInterval?: number;
+  /** Optional persistent store for restart-safe dedup. */
+  store?: DedupStore;
 }
 
 export type DedupSource = "activity" | "reading" | "webhook" | "direct";
@@ -35,11 +41,30 @@ export class EventDedup {
   private readonly secondary = new Map<string, string>(); // secondary → primary key
   private readonly ttlMs: number;
   private readonly pruneInterval: number;
+  private readonly store?: DedupStore;
   private insertionCount = 0;
 
   constructor(opts: DedupOptions = {}) {
     this.ttlMs = opts.ttlMs ?? DEFAULT_TTL_MS;
     this.pruneInterval = opts.pruneInterval ?? DEFAULT_PRUNE_INTERVAL;
+    this.store = opts.store;
+
+    // Hydrate from persistent store if available
+    if (this.store) {
+      const snapshot = this.store.load();
+      const now = Date.now();
+      for (const [key, entry] of Object.entries(snapshot.primary)) {
+        // Skip expired entries during load
+        if (now - entry.seenAt < this.ttlMs) {
+          this.primary.set(key, entry);
+        }
+      }
+      for (const [secKey, priKey] of Object.entries(snapshot.secondary)) {
+        if (this.primary.has(priKey)) {
+          this.secondary.set(secKey, priKey);
+        }
+      }
+    }
   }
 
   /**
@@ -116,6 +141,7 @@ export class EventDedup {
     this.insertionCount++;
     if (this.insertionCount % this.pruneInterval === 0) {
       this.prune();
+      this.flush();
     }
   }
 
@@ -139,6 +165,23 @@ export class EventDedup {
         this.secondary.delete(secKey);
       }
     }
+  }
+
+  /**
+   * Flush current state to the persistent store (if configured).
+   * Call this on graceful shutdown to ensure all recent events are persisted.
+   */
+  flush(): void {
+    if (!this.store) return;
+    const primary: Record<string, DedupStoreEntry> = {};
+    for (const [key, entry] of this.primary) {
+      primary[key] = entry;
+    }
+    const secondary: Record<string, string> = {};
+    for (const [key, value] of this.secondary) {
+      secondary[key] = value;
+    }
+    this.store.save({ primary, secondary });
   }
 
   /** Number of entries currently tracked. */
