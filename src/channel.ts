@@ -31,7 +31,7 @@ import { basecampHeartbeatAdapter } from "./adapters/heartbeat.js";
 import { basecampGroupAdapter } from "./adapters/groups.js";
 import { basecampAgentPromptAdapter } from "./adapters/agent-prompt.js";
 import { basecampSecurityAdapter } from "./adapters/security.js";
-import { resolveOutboundTarget, chunkMarkdownText } from "./adapters/outbound.js";
+import { resolveOutboundTarget, chunkMarkdownText, BASECAMP_TEXT_CHUNK_LIMIT } from "./adapters/outbound.js";
 import { basecampMentionAdapter } from "./adapters/mentions.js";
 
 export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampProbe, BasecampAudit> = {
@@ -157,7 +157,7 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
 
   outbound: {
     deliveryMode: "direct",
-    textChunkLimit: 10000,
+    textChunkLimit: BASECAMP_TEXT_CHUNK_LIMIT,
     chunkerMode: "markdown",
     chunker: (text, limit) => chunkMarkdownText(text, limit),
     resolveTarget: ({ to }) => {

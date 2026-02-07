@@ -18,6 +18,7 @@ import { getBasecampRuntime } from "./runtime.js";
 import { resolvePersonaAccountId, resolveBasecampAccount, resolveBasecampDmPolicy, resolveBasecampAllowFrom } from "./config.js";
 import { postReplyToEvent } from "./outbound/send.js";
 import { markdownToBasecampHtml } from "./outbound/format.js";
+import { chunkMarkdownText, BASECAMP_TEXT_CHUNK_LIMIT } from "./adapters/outbound.js";
 
 export type DispatchOptions = {
   /** The resolved account that received this event. */
@@ -171,19 +172,28 @@ export async function dispatchBasecampEvent(
       deliver: async (payload, info) => {
         if (!payload.text) return;
 
-        // Convert agent markdown output to Basecamp HTML
-        const htmlContent = markdownToBasecampHtml(payload.text);
+        // Chunk long agent output to fit within Basecamp's character limit.
+        // Each chunk is converted to HTML and sent as a separate message.
+        const chunks = chunkMarkdownText(payload.text, BASECAMP_TEXT_CHUNK_LIMIT);
 
-        await postReplyToEvent({
-          bucketId: msg.meta.bucketId,
-          recordingId: msg.meta.recordingId,
-          recordableType: msg.meta.recordableType,
-          peerId: msg.peer.id,
-          content: htmlContent,
-          accountId: outboundBcqAccountId,
-          profile: outboundProfile,
-          retries: 2,
-        });
+        for (const chunk of chunks) {
+          const htmlContent = markdownToBasecampHtml(chunk);
+
+          const result = await postReplyToEvent({
+            bucketId: msg.meta.bucketId,
+            recordingId: msg.meta.recordingId,
+            recordableType: msg.meta.recordableType,
+            peerId: msg.peer.id,
+            content: htmlContent,
+            accountId: outboundBcqAccountId,
+            profile: outboundProfile,
+            retries: 2,
+          });
+
+          if (!result.ok) {
+            throw new Error(result.error ?? "Outbound delivery failed");
+          }
+        }
       },
       onError: (err) => {
         dispatchHadError = true;

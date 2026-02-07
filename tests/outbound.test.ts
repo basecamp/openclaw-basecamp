@@ -9,22 +9,24 @@ import {
 // ---------------------------------------------------------------------------
 
 describe("outbound.resolveTarget", () => {
-  it("accepts recording:<id>", () => {
+  it("rejects recording:<id> — direct send not supported", () => {
     const result = resolveOutboundTarget("recording:123");
-    expect(result.ok).toBe(true);
-    expect(result.to).toBe("recording:123");
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("bucket context");
+    expect(result.error).toContain("dispatch bridge");
   });
 
-  it("rejects bucket:<id> with helpful error", () => {
+  it("rejects bucket:<id> with project scope error", () => {
     const result = resolveOutboundTarget("bucket:456");
     expect(result.ok).toBe(false);
     expect(result.error).toContain("project scope");
   });
 
-  it("accepts ping:<id>", () => {
+  it("rejects ping:<id> — direct send not supported", () => {
     const result = resolveOutboundTarget("ping:789");
-    expect(result.ok).toBe(true);
-    expect(result.to).toBe("ping:789");
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("bucket context");
+    expect(result.error).toContain("dispatch bridge");
   });
 
   it("rejects empty string", () => {
