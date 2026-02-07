@@ -34,6 +34,7 @@ import { basecampSecurityAdapter } from "./adapters/security.js";
 import { resolveOutboundTarget, chunkMarkdownText, BASECAMP_TEXT_CHUNK_LIMIT } from "./adapters/outbound.js";
 import { basecampMentionAdapter } from "./adapters/mentions.js";
 import { basecampActionsAdapter } from "./adapters/actions.js";
+import { basecampAgentTools } from "./adapters/agent-tools.js";
 
 export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampProbe, BasecampAudit> = {
   id: "basecamp",
@@ -97,6 +98,8 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
   mentions: basecampMentionAdapter,
 
   actions: basecampActionsAdapter,
+
+  agentTools: basecampAgentTools,
 
   reload: { configPrefixes: ["channels.basecamp"] },
 
