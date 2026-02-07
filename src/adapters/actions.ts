@@ -15,7 +15,7 @@ import type {
   ChannelMessageActionContext,
   ChannelToolSend,
 } from "openclaw/plugin-sdk";
-import { jsonResult, readStringParam, readNumberParam } from "openclaw/plugin-sdk";
+import { jsonResult, readStringParam } from "openclaw/plugin-sdk";
 import { postCampfireLine, postComment } from "../outbound/send.js";
 import { markdownToBasecampHtml } from "../outbound/format.js";
 import { resolveBasecampAccount } from "../config.js";
@@ -93,6 +93,21 @@ async function handleSend(ctx: ChannelMessageActionContext) {
   const content = markdownToBasecampHtml(text);
   const account = resolveBasecampAccount(cfg, accountId);
 
+  // Resolve bcq account ID — NOT the OpenClaw account key.
+  // Prefer explicit bcqAccountId config, fall back to accountId only if numeric.
+  const bcqAccountId =
+    account.config.bcqAccountId ??
+    (/^\d+$/.test(account.accountId) ? account.accountId : undefined);
+
+  // Enforce virtual-account bucket scoping: if the account is scoped to a
+  // specific bucket, reject sends targeting a different bucket.
+  if (account.scopedBucketId && bucketId !== String(account.scopedBucketId)) {
+    return jsonResult({
+      ok: false,
+      error: `Account "${account.accountId}" is scoped to bucket ${account.scopedBucketId}, cannot send to bucket ${bucketId}`,
+    });
+  }
+
   if (dryRun) {
     return jsonResult({
       ok: true,
@@ -111,7 +126,7 @@ async function handleSend(ctx: ChannelMessageActionContext) {
       bucketId,
       transcriptId,
       content,
-      accountId: account.config.bcqAccountId ?? account.accountId,
+      accountId: bcqAccountId,
       profile: account.bcqProfile,
     });
     return jsonResult({
@@ -127,7 +142,7 @@ async function handleSend(ctx: ChannelMessageActionContext) {
     bucketId,
     recordingId: recordingId!,
     content,
-    accountId: account.config.bcqAccountId ?? account.accountId,
+    accountId: bcqAccountId,
     profile: account.bcqProfile,
   });
   return jsonResult({

@@ -11,13 +11,6 @@ vi.mock("openclaw/plugin-sdk", () => ({
     }
     return typeof val === "string" ? val : undefined;
   },
-  readNumberParam: (params: Record<string, unknown>, key: string, opts?: { required?: boolean; label?: string }) => {
-    const val = params[key];
-    if (opts?.required && val === undefined) {
-      throw new Error(`Missing required parameter: ${opts.label ?? key}`);
-    }
-    return typeof val === "number" ? val : undefined;
-  },
 }));
 
 vi.mock("../src/outbound/send.js", () => ({
@@ -158,7 +151,7 @@ describe("actions.handleAction — send campfire line", () => {
       bucketId: "1",
       transcriptId: "2",
       content: "<p>Hello campfire</p>",
-      accountId: "test-acct",
+      accountId: undefined,
       profile: "test-profile",
     });
     expect(markdownToBasecampHtml).toHaveBeenCalledWith("Hello campfire");
@@ -215,7 +208,7 @@ describe("actions.handleAction — send comment", () => {
       bucketId: "1",
       recordingId: "3",
       content: "<p>A comment</p>",
-      accountId: "test-acct",
+      accountId: undefined,
       profile: "test-profile",
     });
   });
