@@ -3,7 +3,6 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 vi.mock("../src/bcq.js", () => ({
   bcqApiGet: vi.fn(),
   bcqApiPost: vi.fn(),
-  bcqPut: vi.fn(),
   bcqDelete: vi.fn(),
 }));
 
@@ -73,7 +72,6 @@ describe("basecamp_create_todo", () => {
     expect(bcqApiPost).toHaveBeenCalledWith(
       "/buckets/100/todolists/200/todos.json",
       JSON.stringify({ content: "Buy milk" }),
-      "100",
     );
     const parsed = JSON.parse(result.content[0].text);
     expect(parsed).toEqual({ ok: true, todoId: 42, title: "Buy milk" });
@@ -102,7 +100,6 @@ describe("basecamp_create_todo", () => {
         due_on: "2025-03-01",
         starts_on: "2025-02-15",
       }),
-      "100",
     );
   });
 
@@ -157,8 +154,6 @@ describe("basecamp_complete_todo", () => {
 
     expect(bcqApiPost).toHaveBeenCalledWith(
       "/buckets/100/todos/300/completion.json",
-      undefined,
-      "100",
     );
     const parsed = JSON.parse(result.content[0].text);
     expect(parsed).toEqual({ ok: true, todoId: "300" });
@@ -195,7 +190,6 @@ describe("basecamp_reopen_todo", () => {
 
     expect(bcqDelete).toHaveBeenCalledWith(
       "/buckets/100/todos/300/completion.json",
-      { accountId: "100" },
     );
     const parsed = JSON.parse(result.content[0].text);
     expect(parsed).toEqual({ ok: true, todoId: "300" });
@@ -236,7 +230,6 @@ describe("basecamp_read_history", () => {
 
     expect(bcqApiGet).toHaveBeenCalledWith(
       "/buckets/100/chats/200/lines.json",
-      "100",
     );
     const parsed = JSON.parse(result.content[0].text);
     expect(parsed.ok).toBe(true);
@@ -260,7 +253,6 @@ describe("basecamp_read_history", () => {
 
     expect(bcqApiGet).toHaveBeenCalledWith(
       "/buckets/100/recordings/300/comments.json",
-      "100",
     );
     const parsed = JSON.parse(result.content[0].text);
     expect(parsed.ok).toBe(true);

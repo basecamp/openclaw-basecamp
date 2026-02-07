@@ -16,7 +16,7 @@
 import type { ChannelAgentTool } from "openclaw/plugin-sdk";
 import { Type } from "@sinclair/typebox";
 import type { Static } from "@sinclair/typebox";
-import { bcqApiGet, bcqApiPost, bcqPut, bcqDelete } from "../bcq.js";
+import { bcqApiGet, bcqApiPost, bcqDelete } from "../bcq.js";
 import { basecampHtmlToPlainText } from "../outbound/format.js";
 
 // ---------------------------------------------------------------------------
@@ -80,7 +80,6 @@ async function executeCreateTodo(
     const result = await bcqApiPost<{ id?: number; title?: string }>(
       path,
       JSON.stringify(body),
-      bucketId,
     );
     return {
       content: [{ type: "text" as const, text: JSON.stringify({ ok: true, todoId: result?.id, title: result?.title }) }],
@@ -104,7 +103,7 @@ async function executeCompleteTodo(
   const path = `/buckets/${bucketId}/todos/${todoId}/completion.json`;
 
   try {
-    await bcqApiPost(path, undefined, bucketId);
+    await bcqApiPost(path);
     return {
       content: [{ type: "text" as const, text: JSON.stringify({ ok: true, todoId }) }],
       details: { ok: true, todoId },
@@ -128,7 +127,7 @@ async function executeReopenTodo(
 
   try {
     // DELETE /completion.json re-opens a completed todo
-    await bcqDelete(path, { accountId: bucketId });
+    await bcqDelete(path);
     return {
       content: [{ type: "text" as const, text: JSON.stringify({ ok: true, todoId }) }],
       details: { ok: true, todoId },
@@ -169,7 +168,7 @@ async function executeReadHistory(
     : `/buckets/${bucketId}/recordings/${recordingId}/comments.json`;
 
   try {
-    const entries = await bcqApiGet<BasecampCommentOrLine[]>(path, bucketId);
+    const entries = await bcqApiGet<BasecampCommentOrLine[]>(path);
     const items = Array.isArray(entries) ? entries : [];
 
     // Take the most recent N entries (API returns oldest-first for comments)
