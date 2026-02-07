@@ -16,7 +16,7 @@ import { normalizeWebhookPayload, isSelfMessage } from "./normalize.js";
 import { EventDedup } from "./dedup.js";
 import { dispatchBasecampEvent } from "../dispatch.js";
 import { getBasecampRuntime } from "../runtime.js";
-import { resolveBasecampAccount } from "../config.js";
+import { resolveBasecampAccount, resolveDefaultBasecampAccountId, resolveWebhookSecret, resolveAccountForBucket, listBasecampAccountIds } from "../config.js";
 
 // ---------------------------------------------------------------------------
 // Concurrency limiter
@@ -134,6 +134,36 @@ export async function handleBasecampWebhook(
     return;
   }
 
+  // ----- Webhook secret verification -----
+  // Reject requests when no webhookSecret is configured (disabled by default)
+  // or when the provided token doesn't match.
+  let cfg;
+  try {
+    const runtime = getBasecampRuntime();
+    cfg = runtime.config.loadConfig();
+  } catch (err) {
+    console.error("[basecamp:webhook] failed to load config:", err);
+    res.writeHead(500, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "Internal error" }));
+    return;
+  }
+
+  const webhookSecret = resolveWebhookSecret(cfg);
+  if (!webhookSecret) {
+    res.writeHead(403, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "Webhooks not configured (set channels.basecamp.webhookSecret)" }));
+    return;
+  }
+
+  // Check token from query string: /webhooks/basecamp?token=<secret>
+  const urlObj = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
+  const providedToken = urlObj.searchParams.get("token");
+  if (!providedToken || providedToken !== webhookSecret) {
+    res.writeHead(403, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "Invalid webhook token" }));
+    return;
+  }
+
   // Read and parse body
   let payload: BasecampWebhookPayload;
   try {
@@ -146,9 +176,9 @@ export async function handleBasecampWebhook(
   }
 
   // Validate minimal required fields
-  if (!payload.kind || !payload.recording?.id || !payload.creator?.id) {
+  if (!payload.kind || !payload.recording?.id || !payload.creator?.id || !payload.recording?.bucket?.id) {
     res.writeHead(422, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: "Missing required fields: kind, recording.id, creator.id" }));
+    res.end(JSON.stringify({ error: "Missing required fields: kind, recording.id, recording.bucket.id, creator.id" }));
     return;
   }
 
@@ -156,14 +186,31 @@ export async function handleBasecampWebhook(
   res.writeHead(200, { "Content-Type": "application/json" });
   res.end(JSON.stringify({ ok: true }));
 
-  // Resolve account from the webhook delivery context.
-  // Basecamp webhooks include a bucket.id — we use it to find the account.
-  // For Phase 1, we resolve the default account.
+  // Resolve account from bucket ID in the webhook payload.
+  // Check virtualAccounts for a scope mapping. Reject unmapped buckets
+  // in multi-account mode to prevent dispatching under the wrong identity.
   let account: ResolvedBasecampAccount;
   try {
-    const runtime = getBasecampRuntime();
-    const cfg = runtime.config.loadConfig();
-    account = resolveBasecampAccount(cfg);
+    const bucketId = String(payload.recording.bucket.id);
+    const scopeAccountId = resolveAccountForBucket(cfg, bucketId);
+    if (!scopeAccountId) {
+      // No virtualAccount mapping for this bucket. In multi-account mode
+      // this is ambiguous — reject rather than guess wrong identity.
+      const accountIds = listBasecampAccountIds(cfg);
+      if (accountIds.length > 1) {
+        console.warn(
+          `[basecamp:webhook] unmapped bucket ${bucketId} with ${accountIds.length} accounts configured, dropping ` +
+          `(add a virtualAccounts entry to route this bucket to an account)`,
+        );
+        return;
+      }
+    }
+    const effectiveAccountId = scopeAccountId ?? resolveDefaultBasecampAccountId(cfg);
+    account = resolveBasecampAccount(cfg, effectiveAccountId);
+    if (!account.enabled) {
+      console.warn(`[basecamp:webhook] resolved account "${account.accountId}" is disabled, dropping`);
+      return;
+    }
   } catch (err) {
     console.error("[basecamp:webhook] failed to resolve account:", err);
     return;

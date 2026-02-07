@@ -3,30 +3,47 @@
  *
  * Provides resolveTarget for pre-send validation and chunkMarkdownText
  * for splitting long agent output within Basecamp's 10K character limit.
+ *
+ * IMPORTANT: Direct sendText delivery is not supported. Basecamp outbound
+ * delivery requires bucket/recording/recordableType context that a bare
+ * peer ID cannot provide. All agent replies flow through the dispatch
+ * bridge (dispatch.ts → postReplyToEvent), which has full context from
+ * the originating inbound event.
  */
 
-const VALID_TARGET = /^(recording|ping):\d+$/;
+/** Basecamp's per-message character limit. Shared by channel config and dispatch. */
+export const BASECAMP_TEXT_CHUNK_LIMIT = 10_000;
 
 export type ResolveTargetResult =
   | { ok: true; to: string }
   | { ok: false; error: string };
 
 /**
- * Validate an outbound target string before attempting delivery.
- * Must match recording:<id> or ping:<id>. bucket:<id> peers represent a
- * project scope, not a specific conversation, and are not valid send targets.
+ * Validate an outbound target for direct sendText delivery.
+ *
+ * Currently always returns ok:false — direct sendText delivery is not
+ * supported for Basecamp targets. Peer IDs (recording:<id>, ping:<id>)
+ * lack the bucketId/recordableType context needed for API calls.
+ *
+ * Agent replies are delivered through the dispatch bridge's deliver
+ * callback, which has full context from the inbound event.
  */
 export function resolveOutboundTarget(to: string): ResolveTargetResult {
   if (!to) {
     return { ok: false, error: "Target is empty" };
   }
-  if (VALID_TARGET.test(to)) {
-    return { ok: true, to };
+  // Recognize valid Basecamp peer formats for clear error messages
+  if (/^(recording|ping):\d+$/.test(to)) {
+    return {
+      ok: false,
+      error: `Basecamp target "${to}" requires bucket context for delivery. ` +
+        `Direct sendText is not supported — agent replies use the dispatch bridge`,
+    };
   }
   if (/^bucket:\d+$/.test(to)) {
     return {
       ok: false,
-      error: `"${to}" is a project scope, not a conversation target. Use a recording: or ping: peer instead`,
+      error: `"${to}" is a project scope, not a conversation target`,
     };
   }
   return {

@@ -371,14 +371,14 @@ describe("basecampOnboardingAdapter", () => {
       expect(dp.allowFromKey).toBe("channels.basecamp.allowFrom");
     });
 
-    it("getCurrent returns 'open' by default", () => {
+    it("getCurrent returns 'pairing' by default", () => {
       const dp = basecampOnboardingAdapter.dmPolicy!;
-      expect(dp.getCurrent({} as any)).toBe("open");
+      expect(dp.getCurrent({} as any)).toBe("pairing");
     });
 
     it("getCurrent returns configured policy", () => {
       const dp = basecampOnboardingAdapter.dmPolicy!;
-      expect(dp.getCurrent(cfg({ dmPolicy: "closed" }))).toBe("closed");
+      expect(dp.getCurrent(cfg({ dmPolicy: "disabled" }))).toBe("disabled");
     });
 
     it("setPolicy applies the policy to config", () => {

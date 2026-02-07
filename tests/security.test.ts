@@ -45,14 +45,14 @@ describe("security.resolveDmPolicy", () => {
     expect(result.allowFromPath).toBe("channels.basecamp.");
   });
 
-  it("uses account-level path for named account", () => {
+  it("uses channel-level path for named account (dmPolicy is channel-wide)", () => {
     const result = basecampSecurityAdapter.resolveDmPolicy({
       cfg: cfg({}),
       accountId: "work",
       account: stubAccount,
     });
-    expect(result.policyPath).toBe("channels.basecamp.accounts.work.dmPolicy");
-    expect(result.allowFromPath).toBe("channels.basecamp.accounts.work.");
+    expect(result.policyPath).toBe("channels.basecamp.dmPolicy");
+    expect(result.allowFromPath).toBe("channels.basecamp.");
   });
 
   it("returns allowFrom entries", () => {

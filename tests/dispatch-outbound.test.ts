@@ -7,6 +7,7 @@ import type {
 import { getBasecampRuntime } from "../src/runtime.js";
 import { resolvePersonaAccountId } from "../src/config.js";
 import { postReplyToEvent } from "../src/outbound/send.js";
+import { markdownToBasecampHtml } from "../src/outbound/format.js";
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -18,6 +19,8 @@ vi.mock("../src/runtime.js", () => ({
 vi.mock("../src/config.js", () => ({
   resolvePersonaAccountId: vi.fn(),
   resolveBasecampAccount: vi.fn(),
+  resolveBasecampDmPolicy: vi.fn(() => "open"),
+  resolveBasecampAllowFrom: vi.fn(() => []),
 }));
 vi.mock("../src/outbound/send.js", () => ({
   postReplyToEvent: vi.fn(),
@@ -93,6 +96,7 @@ beforeEach(() => {
   mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mockResolvedValue(
     undefined,
   );
+  vi.mocked(postReplyToEvent).mockResolvedValue({ ok: true });
 });
 
 // ---------------------------------------------------------------------------
@@ -209,5 +213,113 @@ describe("dispatch outbound reliability", () => {
     );
     expect(deliveryLog).toBeUndefined();
     expect(logError).toHaveBeenCalled();
+  });
+
+  it("deliver callback throws when postReplyToEvent returns ok: false", async () => {
+    vi.mocked(postReplyToEvent).mockResolvedValue({
+      ok: false,
+      error: "403 Forbidden",
+    });
+
+    await dispatchBasecampEvent(mockMsg, { account: mockAccount });
+
+    const call =
+      mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock
+        .calls[0][0];
+    const deliver = call.dispatcherOptions.deliver;
+
+    await expect(deliver({ text: "Reply" }, {})).rejects.toThrow("403 Forbidden");
+  });
+
+  it("chunks long text and sends multiple postReplyToEvent calls", async () => {
+    await dispatchBasecampEvent(mockMsg, { account: mockAccount });
+
+    const call =
+      mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock
+        .calls[0][0];
+    const deliver = call.dispatcherOptions.deliver;
+
+    // Generate text with sentence breaks that exceeds the 10K chunk limit.
+    // "Hello world. " is 14 chars × 1000 = 14,000 chars → 2 chunks.
+    const longText = "Hello world. ".repeat(1000);
+    await deliver({ text: longText }, {});
+
+    expect(postReplyToEvent).toHaveBeenCalledTimes(2);
+    expect(markdownToBasecampHtml).toHaveBeenCalledTimes(2);
+
+    // Each call should have the correct routing params
+    for (const postCall of vi.mocked(postReplyToEvent).mock.calls) {
+      expect(postCall[0]).toMatchObject({
+        bucketId: "456",
+        recordingId: "123",
+        accountId: "12345",
+        retries: 2,
+      });
+    }
+  });
+
+  it("sends single postReplyToEvent call for text under chunk limit", async () => {
+    await dispatchBasecampEvent(mockMsg, { account: mockAccount });
+
+    const call =
+      mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock
+        .calls[0][0];
+    const deliver = call.dispatcherOptions.deliver;
+
+    await deliver({ text: "Short reply" }, {});
+
+    expect(postReplyToEvent).toHaveBeenCalledTimes(1);
+    expect(markdownToBasecampHtml).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops sending chunks when postReplyToEvent fails mid-sequence", async () => {
+    let callCount = 0;
+    vi.mocked(postReplyToEvent).mockImplementation(async () => {
+      callCount++;
+      if (callCount >= 2) return { ok: false, error: "rate limited", channel: "basecamp" };
+      return { ok: true, channel: "basecamp" };
+    });
+
+    await dispatchBasecampEvent(mockMsg, { account: mockAccount });
+
+    const call =
+      mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock
+        .calls[0][0];
+    const deliver = call.dispatcherOptions.deliver;
+
+    // ~35K chars with sentence breaks → 3+ chunks
+    const longText = "Hello world. ".repeat(2500);
+    await expect(deliver({ text: longText }, {})).rejects.toThrow("rate limited");
+
+    // First chunk succeeded, second failed, remaining never attempted
+    expect(callCount).toBe(2);
+  });
+
+  it("routes replies using peerId from inbound message", async () => {
+    // Use a message where peerId (parent transcript) differs from recordingId (child line)
+    const childMsg: BasecampInboundMessage = {
+      ...mockMsg,
+      peer: { kind: "group", id: "recording:TRANSCRIPT_42" },
+      meta: {
+        ...mockMsg.meta,
+        recordingId: "LINE_99",
+        recordableType: "Chat::Line",
+      },
+    };
+
+    await dispatchBasecampEvent(childMsg, { account: mockAccount });
+
+    const call =
+      mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock
+        .calls[0][0];
+    const deliver = call.dispatcherOptions.deliver;
+    await deliver({ text: "Reply to thread" }, {});
+
+    expect(postReplyToEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        peerId: "recording:TRANSCRIPT_42",
+        recordingId: "LINE_99",
+      }),
+    );
   });
 });

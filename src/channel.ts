@@ -31,7 +31,7 @@ import { basecampHeartbeatAdapter } from "./adapters/heartbeat.js";
 import { basecampGroupAdapter } from "./adapters/groups.js";
 import { basecampAgentPromptAdapter } from "./adapters/agent-prompt.js";
 import { basecampSecurityAdapter } from "./adapters/security.js";
-import { resolveOutboundTarget, chunkMarkdownText } from "./adapters/outbound.js";
+import { resolveOutboundTarget, chunkMarkdownText, BASECAMP_TEXT_CHUNK_LIMIT } from "./adapters/outbound.js";
 import { basecampMentionAdapter } from "./adapters/mentions.js";
 
 export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampProbe, BasecampAudit> = {
@@ -106,7 +106,7 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
       "accounts.*.personId": { label: "Person ID", help: "Your Basecamp person ID (numeric)" },
       "personas": { label: "Agent personas", help: "Maps agent IDs to Basecamp account IDs for multi-identity outbound", advanced: true },
       "virtualAccounts": { label: "Project scopes", help: "Maps synthetic account IDs to specific projects", advanced: true },
-      "dmPolicy": { label: "DM policy", help: "Controls who can DM agents: open, pairing, closed" },
+      "dmPolicy": { label: "DM policy", help: "Controls who can DM agents: pairing, allowlist, open, disabled" },
       "allowFrom": { label: "Allowed senders", help: "Basecamp person IDs allowed to message agents" },
       "engage": { label: "Engagement policy", help: "Event types that trigger agent response: dm, mention, assignment, checkin, conversation, activity" },
       "buckets": { label: "Per-project settings", help: "Override engage, requireMention, and tool policies per bucket", advanced: true },
@@ -130,11 +130,11 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
       bcqProfile: account.bcqProfile,
     }),
     setAccountEnabled: ({ cfg, accountId, enabled }) =>
-      setAccountEnabledInConfigSection({ cfg, sectionKey: "channels.basecamp", accountId, enabled }),
+      setAccountEnabledInConfigSection({ cfg, sectionKey: "basecamp", accountId, enabled }),
     deleteAccount: ({ cfg, accountId }) => {
       const updated = deleteAccountFromConfigSection({
         cfg,
-        sectionKey: "channels.basecamp",
+        sectionKey: "basecamp",
         accountId,
       });
       // Clean up persona entries pointing to the deleted account
@@ -157,7 +157,7 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
 
   outbound: {
     deliveryMode: "direct",
-    textChunkLimit: 10000,
+    textChunkLimit: BASECAMP_TEXT_CHUNK_LIMIT,
     chunkerMode: "markdown",
     chunker: (text, limit) => chunkMarkdownText(text, limit),
     resolveTarget: ({ to }) => {

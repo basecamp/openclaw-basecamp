@@ -15,9 +15,10 @@ import type { BasecampInboundMessage, BasecampChannelConfig, BasecampEngagementT
 import { DEFAULT_ENGAGE } from "./types.js";
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import { getBasecampRuntime } from "./runtime.js";
-import { resolvePersonaAccountId, resolveBasecampAccount } from "./config.js";
+import { resolvePersonaAccountId, resolveBasecampAccount, resolveBasecampDmPolicy, resolveBasecampAllowFrom } from "./config.js";
 import { postReplyToEvent } from "./outbound/send.js";
 import { markdownToBasecampHtml } from "./outbound/format.js";
+import { chunkMarkdownText, BASECAMP_TEXT_CHUNK_LIMIT } from "./adapters/outbound.js";
 
 export type DispatchOptions = {
   /** The resolved account that received this event. */
@@ -79,6 +80,31 @@ export async function dispatchBasecampEvent(
       `peer=${msg.peer.id} policy=[${engagePolicy.join(",")}]`,
     );
     return false;
+  }
+
+  // ----- DM policy enforcement -----
+  // Even when engagement=dm passes the engage gate, verify the sender is
+  // allowed under the configured DM policy (SDK vocabulary:
+  // pairing | allowlist | open | disabled).
+  if (engagement === "dm") {
+    const dmPolicy = resolveBasecampDmPolicy(cfg);
+    if (dmPolicy === "disabled") {
+      log?.debug?.(
+        `[${account.accountId}] dm policy: dropping dm from sender=${msg.sender.id} (policy=disabled)`,
+      );
+      return false;
+    }
+    if (dmPolicy === "pairing" || dmPolicy === "allowlist") {
+      const allowFrom = resolveBasecampAllowFrom(cfg);
+      if (!allowFrom.includes(msg.sender.id)) {
+        log?.debug?.(
+          `[${account.accountId}] dm policy: dropping dm from sender=${msg.sender.id} ` +
+          `(policy=${dmPolicy}, not in allowFrom=[${allowFrom.join(",")}])`,
+        );
+        return false;
+      }
+    }
+    // dmPolicy === "open" → allow all DMs through
   }
 
   log?.info?.(
@@ -146,19 +172,28 @@ export async function dispatchBasecampEvent(
       deliver: async (payload, info) => {
         if (!payload.text) return;
 
-        // Convert agent markdown output to Basecamp HTML
-        const htmlContent = markdownToBasecampHtml(payload.text);
+        // Chunk long agent output to fit within Basecamp's character limit.
+        // Each chunk is converted to HTML and sent as a separate message.
+        const chunks = chunkMarkdownText(payload.text, BASECAMP_TEXT_CHUNK_LIMIT);
 
-        await postReplyToEvent({
-          bucketId: msg.meta.bucketId,
-          recordingId: msg.meta.recordingId,
-          recordableType: msg.meta.recordableType,
-          peerId: msg.peer.id,
-          content: htmlContent,
-          accountId: outboundBcqAccountId,
-          profile: outboundProfile,
-          retries: 2,
-        });
+        for (const chunk of chunks) {
+          const htmlContent = markdownToBasecampHtml(chunk);
+
+          const result = await postReplyToEvent({
+            bucketId: msg.meta.bucketId,
+            recordingId: msg.meta.recordingId,
+            recordableType: msg.meta.recordableType,
+            peerId: msg.peer.id,
+            content: htmlContent,
+            accountId: outboundBcqAccountId,
+            profile: outboundProfile,
+            retries: 2,
+          });
+
+          if (!result.ok) {
+            throw new Error(result.error ?? "Outbound delivery failed");
+          }
+        }
       },
       onError: (err) => {
         dispatchHadError = true;

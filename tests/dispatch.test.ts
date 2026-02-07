@@ -5,7 +5,7 @@ import type {
   ResolvedBasecampAccount,
 } from "../src/types.js";
 import { getBasecampRuntime } from "../src/runtime.js";
-import { resolvePersonaAccountId, resolveBasecampAccount } from "../src/config.js";
+import { resolvePersonaAccountId, resolveBasecampAccount, resolveBasecampDmPolicy, resolveBasecampAllowFrom } from "../src/config.js";
 import { postReplyToEvent } from "../src/outbound/send.js";
 import { markdownToBasecampHtml } from "../src/outbound/format.js";
 
@@ -19,6 +19,8 @@ vi.mock("../src/runtime.js", () => ({
 vi.mock("../src/config.js", () => ({
   resolvePersonaAccountId: vi.fn(),
   resolveBasecampAccount: vi.fn(),
+  resolveBasecampDmPolicy: vi.fn(() => "open"),
+  resolveBasecampAllowFrom: vi.fn(() => []),
 }));
 vi.mock("../src/outbound/send.js", () => ({
   postReplyToEvent: vi.fn(),
@@ -86,6 +88,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(getBasecampRuntime).mockReturnValue(mockRuntime as any);
   vi.mocked(resolvePersonaAccountId).mockReturnValue(undefined);
+  vi.mocked(postReplyToEvent).mockResolvedValue({ ok: true });
   mockRuntime.channel.routing.resolveAgentRoute.mockReturnValue({
     agentId: "agent-1",
     matchedBy: "peer",
@@ -494,6 +497,104 @@ describe("dispatchBasecampEvent", () => {
     };
 
     const result = await dispatchBasecampEvent(cardMsg, { account: mockAccount });
+    expect(result).toBe(true);
+  });
+
+  // -----------------------------------------------------------------------
+  // DM policy enforcement
+  // -----------------------------------------------------------------------
+
+  it("drops DMs when dmPolicy is 'disabled'", async () => {
+    vi.mocked(resolveBasecampDmPolicy).mockReturnValue("disabled");
+
+    const dmMsg: BasecampInboundMessage = {
+      ...mockMsg,
+      peer: { kind: "dm", id: "ping:789" },
+      meta: {
+        ...mockMsg.meta,
+        recordableType: "Chat::Line",
+        mentionsAgent: false,
+        sources: ["activity_feed"],
+      },
+    };
+
+    const result = await dispatchBasecampEvent(dmMsg, { account: mockAccount });
+    expect(result).toBe(false);
+  });
+
+  it("drops DMs when dmPolicy is 'pairing' and sender not in allowFrom", async () => {
+    vi.mocked(resolveBasecampDmPolicy).mockReturnValue("pairing");
+    vi.mocked(resolveBasecampAllowFrom).mockReturnValue(["111", "222"]);
+
+    const dmMsg: BasecampInboundMessage = {
+      ...mockMsg,
+      peer: { kind: "dm", id: "ping:789" },
+      sender: { id: "777", name: "Stranger" },
+      meta: {
+        ...mockMsg.meta,
+        recordableType: "Chat::Line",
+        mentionsAgent: false,
+        sources: ["activity_feed"],
+      },
+    };
+
+    const result = await dispatchBasecampEvent(dmMsg, { account: mockAccount });
+    expect(result).toBe(false);
+  });
+
+  it("allows DMs when dmPolicy is 'pairing' and sender in allowFrom", async () => {
+    vi.mocked(resolveBasecampDmPolicy).mockReturnValue("pairing");
+    vi.mocked(resolveBasecampAllowFrom).mockReturnValue(["777"]);
+
+    const dmMsg: BasecampInboundMessage = {
+      ...mockMsg,
+      peer: { kind: "dm", id: "ping:789" },
+      sender: { id: "777", name: "Paired User" },
+      meta: {
+        ...mockMsg.meta,
+        recordableType: "Chat::Line",
+        mentionsAgent: false,
+        sources: ["activity_feed"],
+      },
+    };
+
+    const result = await dispatchBasecampEvent(dmMsg, { account: mockAccount });
+    expect(result).toBe(true);
+  });
+
+  it("allows DMs when dmPolicy is 'open'", async () => {
+    vi.mocked(resolveBasecampDmPolicy).mockReturnValue("open");
+
+    const dmMsg: BasecampInboundMessage = {
+      ...mockMsg,
+      peer: { kind: "dm", id: "ping:789" },
+      sender: { id: "777", name: "Anyone" },
+      meta: {
+        ...mockMsg.meta,
+        recordableType: "Chat::Line",
+        mentionsAgent: false,
+        sources: ["activity_feed"],
+      },
+    };
+
+    const result = await dispatchBasecampEvent(dmMsg, { account: mockAccount });
+    expect(result).toBe(true);
+  });
+
+  it("allows DMs when mock dmPolicy defaults to 'open'", async () => {
+    // Default mock returns "open" — production default is "pairing"
+    const dmMsg: BasecampInboundMessage = {
+      ...mockMsg,
+      peer: { kind: "dm", id: "ping:789" },
+      meta: {
+        ...mockMsg.meta,
+        recordableType: "Chat::Line",
+        mentionsAgent: false,
+        sources: ["activity_feed"],
+      },
+    };
+
+    const result = await dispatchBasecampEvent(dmMsg, { account: mockAccount });
     expect(result).toBe(true);
   });
 });

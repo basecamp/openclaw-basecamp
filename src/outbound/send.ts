@@ -164,12 +164,18 @@ export async function postReplyToEvent(params: {
     return { ok: result.ok, messageId: result.recordingId, retryable: result.retryable, error: result.error };
   }
 
+  // For child events (Chat::Line, Comment), the peer points to the parent
+  // recording (transcript or commentable). Use it as the outbound target
+  // so replies land on the right thread.
+  const peerTarget = parsePeerId(peerId);
+  const parentId = peerTarget.prefix === "recording" ? peerTarget.id : undefined;
+
   // Chat lines go to the transcript
   if (
     recordableType === "Chat::Transcript" ||
     recordableType === "Chat::Line"
   ) {
-    const transcriptId = recordingId;
+    const transcriptId = parentId ?? recordingId;
     const result = await postCampfireLine({
       bucketId,
       transcriptId,
@@ -182,9 +188,10 @@ export async function postReplyToEvent(params: {
   }
 
   // Everything else gets a comment on the recording
+  const targetRecordingId = parentId ?? recordingId;
   const result = await postComment({
     bucketId,
-    recordingId,
+    recordingId: targetRecordingId,
     content,
     accountId,
     profile,

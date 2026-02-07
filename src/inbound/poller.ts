@@ -1,12 +1,17 @@
 /**
  * Composite event fabric orchestrator.
  *
- * Coordinates ActivityFeedPoller + ReadingsPoller with dedup,
- * cursor persistence, and configurable intervals.
+ * Coordinates three polling sources with dedup, cursor persistence,
+ * and configurable intervals:
  *
- * Polling cadence (defaults):
- * - Activity feed: every 120s
- * - Readings: every 60s
+ * - Activity feed (120s default): account-wide timeline events
+ * - Readings (60s default): Hey! inbox unreads
+ * - Assignments (300s default): set-diff of /my/assignments.json
+ *
+ * Activity and readings use timestamp cursors (events are streams).
+ * Assignments uses an ID-set cursor (API returns current state, not events).
+ * On first assignments poll, bootstraps by recording existing IDs without
+ * emitting events to avoid flooding agents with stale assignments.
  *
  * Respects AbortSignal for graceful shutdown. Uses exponential
  * backoff on errors (max 5 minutes).
@@ -18,6 +23,7 @@ import { EventDedup } from "./dedup.js";
 import { CursorStore } from "./cursors.js";
 import { pollActivityFeed } from "./activity.js";
 import { pollReadings } from "./readings.js";
+import { pollAssignments } from "./assignments.js";
 import { bcqMarkReadingsRead } from "../bcq.js";
 import { isSelfMessage } from "./normalize.js";
 
@@ -80,6 +86,7 @@ export async function startCompositePoller(
   const intervals = resolvePollingIntervals(cfg);
   const activityIntervalMs = intervals.activityIntervalMs;
   const readingsIntervalMs = intervals.readingsIntervalMs;
+  const assignmentsIntervalMs = intervals.assignmentsIntervalMs;
 
   const dedup = new EventDedup();
   const stateDir = opts.stateDir ?? "/tmp/openclaw-basecamp-state";
@@ -110,13 +117,32 @@ export async function startCompositePoller(
 
   let activityBackoff = 0;
   let readingsBackoff = 0;
+  let assignmentsBackoff = 0;
   const MAX_BACKOFF_MS = 5 * 60 * 1000;
 
   let lastActivityPoll = 0;
   let lastReadingsPoll = 0;
+  let lastAssignmentsPoll = 0;
+
+  // Assignments poller: set-diff cursor (known todo IDs, not timestamps).
+  // If the cursor has no stored IDs, the first poll is a bootstrap (snapshot only).
+  const storedIds = cursors.getCustom("assignmentIds");
+  let assignmentKnownIds: Set<string> = new Set();
+  let assignmentsBootstrapped = false;
+  if (storedIds !== undefined) {
+    try {
+      const parsed = JSON.parse(storedIds);
+      if (Array.isArray(parsed)) {
+        assignmentKnownIds = new Set(parsed as string[]);
+        assignmentsBootstrapped = true;
+      }
+    } catch {
+      log?.warn?.(`[${account.accountId}] corrupt assignment cursor — will re-bootstrap`);
+    }
+  }
 
   log?.info?.(
-    "[" + account.accountId + "] composite poller started (activity=" + activityIntervalMs + "ms, readings=" + readingsIntervalMs + "ms)",
+    "[" + account.accountId + "] composite poller started (activity=" + activityIntervalMs + "ms, readings=" + readingsIntervalMs + "ms, assignments=" + assignmentsIntervalMs + "ms)",
   );
 
   while (!abortSignal?.aborted) {
@@ -231,10 +257,57 @@ export async function startCompositePoller(
       }
     }
 
+    // Poll assignments (set-diff: detect newly assigned todos)
+    const assignmentsDue = now - lastAssignmentsPoll >= assignmentsIntervalMs + assignmentsBackoff;
+    if (assignmentsDue) {
+      lastAssignmentsPoll = now;
+      try {
+        const result = await pollAssignments({
+          account,
+          knownIds: assignmentKnownIds,
+          isBootstrap: !assignmentsBootstrapped,
+          log,
+        });
+
+        let dispatched = 0;
+        for (const event of result.events) {
+          if (dedup.isDuplicate(event.dedupKey)) continue;
+          if (isSelfMessage(event.sender.id, account)) continue;
+
+          try {
+            await onEvent(event);
+            dispatched++;
+          } catch (err) {
+            log?.error?.("[" + account.accountId + "] dispatch error for assignment " + event.dedupKey + ": " + String(err));
+          }
+        }
+
+        // Persist updated known-ID set
+        assignmentKnownIds = result.knownIds;
+        assignmentsBootstrapped = true;
+        cursors.setCustom("assignmentIds", JSON.stringify([...result.knownIds]));
+        await saveCursorsWithRetry(cursors, account.accountId, log);
+
+        if (dispatched > 0) {
+          log?.info?.("[" + account.accountId + "] assignments: " + result.events.length + " new, " + dispatched + " dispatched");
+        }
+
+        assignmentsBackoff = 0;
+      } catch (err) {
+        assignmentsBackoff = clamp(
+          assignmentsBackoff === 0 ? assignmentsIntervalMs : assignmentsBackoff * 2,
+          assignmentsIntervalMs,
+          MAX_BACKOFF_MS,
+        );
+        log?.error?.("[" + account.accountId + "] assignments error (backoff=" + assignmentsBackoff + "ms): " + String(err));
+      }
+    }
+
     // Sleep until next poll
     const nextActivityDue = lastActivityPoll + activityIntervalMs + activityBackoff - Date.now();
     const nextReadingsDue = lastReadingsPoll + readingsIntervalMs + readingsBackoff - Date.now();
-    const sleepMs = Math.max(1000, Math.min(nextActivityDue, nextReadingsDue));
+    const nextAssignmentsDue = lastAssignmentsPoll + assignmentsIntervalMs + assignmentsBackoff - Date.now();
+    const sleepMs = Math.max(1000, Math.min(nextActivityDue, nextReadingsDue, nextAssignmentsDue));
 
     await abortableSleep(sleepMs, abortSignal);
   }

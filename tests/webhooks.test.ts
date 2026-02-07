@@ -1,11 +1,21 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import type { IncomingMessage, ServerResponse } from "node:http";
 
 vi.mock("../src/dispatch.js", () => ({
   dispatchBasecampEvent: vi.fn().mockResolvedValue(true),
 }));
 vi.mock("../src/runtime.js", () => ({
   getBasecampRuntime: vi.fn(() => ({
-    config: { loadConfig: () => ({ channels: { basecamp: { accounts: { default: { personId: "1" } } } } }) },
+    config: {
+      loadConfig: () => ({
+        channels: {
+          basecamp: {
+            accounts: { default: { personId: "1" } },
+            webhookSecret: "test-secret-123",
+          },
+        },
+      }),
+    },
   })),
 }));
 vi.mock("../src/config.js", () => ({
@@ -17,23 +27,38 @@ vi.mock("../src/config.js", () => ({
     tokenSource: "none",
     config: { personId: "1" },
   })),
+  resolveDefaultBasecampAccountId: vi.fn(() => "default"),
+  resolveWebhookSecret: vi.fn(() => "test-secret-123"),
+  resolveAccountForBucket: vi.fn(() => undefined),
+  listBasecampAccountIds: vi.fn(() => ["default"]),
 }));
+let webhookDedupSeq = 0;
 vi.mock("../src/inbound/normalize.js", () => ({
-  normalizeWebhookPayload: vi.fn(() => ({
-    channel: "basecamp",
-    accountId: "default",
-    peer: { kind: "group", id: "recording:1" },
-    sender: { id: "2", name: "Tester" },
-    text: "hi",
-    html: "<p>hi</p>",
-    meta: { bucketId: "1", recordingId: "1", recordableType: "Chat::Line", eventKind: "line_created", mentions: [], mentionsAgent: false, attachments: [], sources: ["webhook"] },
-    dedupKey: "webhook:1",
-    createdAt: "2025-01-01T00:00:00Z",
-  })),
+  normalizeWebhookPayload: vi.fn(() => {
+    const seq = ++webhookDedupSeq;
+    return {
+      channel: "basecamp",
+      accountId: "default",
+      peer: { kind: "group", id: `recording:${seq}` },
+      sender: { id: "2", name: "Tester" },
+      text: "hi",
+      html: "<p>hi</p>",
+      meta: { bucketId: "1", recordingId: String(seq), recordableType: "Chat::Line", eventKind: "line_created", mentions: [], mentionsAgent: false, attachments: [], sources: ["webhook"] },
+      dedupKey: `webhook:${seq}`,
+      createdAt: `2025-01-01T00:00:${String(seq).padStart(2, "0")}Z`,
+    };
+  }),
   isSelfMessage: vi.fn(() => false),
 }));
 
-import { Semaphore } from "../src/inbound/webhooks.js";
+import { Semaphore, handleBasecampWebhook } from "../src/inbound/webhooks.js";
+import { resolveDefaultBasecampAccountId, resolveWebhookSecret, resolveAccountForBucket, listBasecampAccountIds } from "../src/config.js";
+import { dispatchBasecampEvent } from "../src/dispatch.js";
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.mocked(resolveWebhookSecret).mockReturnValue("test-secret-123");
+});
 
 // ---------------------------------------------------------------------------
 // L3: Semaphore concurrency limiter
@@ -144,5 +169,175 @@ describe("Semaphore", () => {
     const sem = new Semaphore(2);
 
     expect(() => sem.release()).toThrow("release() called without matching acquire()");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Webhook handler hardening
+// ---------------------------------------------------------------------------
+
+function mockReq(
+  method: string,
+  url: string,
+  body?: string,
+): IncomingMessage {
+  const { Readable } = require("node:stream");
+  const req = new Readable({
+    read() {
+      if (body) this.push(body);
+      this.push(null);
+    },
+  }) as IncomingMessage;
+  req.method = method;
+  req.url = url;
+  req.headers = { host: "localhost:18789" };
+  return req;
+}
+
+function mockRes(): ServerResponse & { status: number; body: string } {
+  const res = {
+    status: 0,
+    body: "",
+    writeHead(code: number, _headers?: Record<string, string>) {
+      res.status = code;
+    },
+    end(data?: string) {
+      res.body = data ?? "";
+    },
+  } as any;
+  return res;
+}
+
+describe("handleBasecampWebhook — hardening", () => {
+  it("rejects GET requests with 405", async () => {
+    const req = mockReq("GET", "/webhooks/basecamp?token=test-secret-123");
+    const res = mockRes();
+    await handleBasecampWebhook(req, res);
+    expect(res.status).toBe(405);
+  });
+
+  it("rejects requests when no webhookSecret configured", async () => {
+    vi.mocked(resolveWebhookSecret).mockReturnValue(undefined);
+    const req = mockReq("POST", "/webhooks/basecamp", "{}");
+    const res = mockRes();
+    await handleBasecampWebhook(req, res);
+    expect(res.status).toBe(403);
+    expect(res.body).toContain("webhookSecret");
+  });
+
+  it("rejects requests with wrong token", async () => {
+    const req = mockReq("POST", "/webhooks/basecamp?token=wrong", "{}");
+    const res = mockRes();
+    await handleBasecampWebhook(req, res);
+    expect(res.status).toBe(403);
+    expect(res.body).toContain("Invalid webhook token");
+  });
+
+  it("rejects requests with no token", async () => {
+    const req = mockReq("POST", "/webhooks/basecamp", "{}");
+    const res = mockRes();
+    await handleBasecampWebhook(req, res);
+    expect(res.status).toBe(403);
+  });
+
+  it("accepts requests with correct token and valid payload", async () => {
+    const payload = JSON.stringify({
+      kind: "comment_created",
+      created_at: "2025-01-01T00:00:00Z",
+      recording: { id: 1, type: "Comment", bucket: { id: 100, name: "Test" } },
+      creator: { id: 2, name: "Tester" },
+    });
+    const req = mockReq("POST", "/webhooks/basecamp?token=test-secret-123", payload);
+    const res = mockRes();
+    await handleBasecampWebhook(req, res);
+    expect(res.status).toBe(200);
+  });
+
+  it("rejects invalid JSON body with 400", async () => {
+    const req = mockReq("POST", "/webhooks/basecamp?token=test-secret-123", "not json");
+    const res = mockRes();
+    await handleBasecampWebhook(req, res);
+    expect(res.status).toBe(400);
+  });
+
+  it("rejects payload missing required fields with 422", async () => {
+    const payload = JSON.stringify({ kind: "comment_created" });
+    const req = mockReq("POST", "/webhooks/basecamp?token=test-secret-123", payload);
+    const res = mockRes();
+    await handleBasecampWebhook(req, res);
+    expect(res.status).toBe(422);
+  });
+
+  it("drops unmapped bucket in multi-account mode instead of falling to default", async () => {
+    // Multi-account: resolveAccountForBucket returns undefined (unmapped),
+    // listBasecampAccountIds returns multiple accounts → should drop.
+    vi.mocked(resolveAccountForBucket).mockReturnValue(undefined);
+    vi.mocked(listBasecampAccountIds).mockReturnValue(["acct-a", "acct-b"]);
+
+    const payload = JSON.stringify({
+      kind: "comment_created",
+      created_at: "2025-01-01T00:00:00Z",
+      recording: { id: 1, type: "Comment", bucket: { id: 999, name: "Unknown" } },
+      creator: { id: 2, name: "Tester" },
+    });
+    const req = mockReq("POST", "/webhooks/basecamp?token=test-secret-123", payload);
+    const res = mockRes();
+    await handleBasecampWebhook(req, res);
+
+    // Returns 200 (webhook acknowledged) but dispatch is NOT called
+    expect(res.status).toBe(200);
+    expect(dispatchBasecampEvent).not.toHaveBeenCalled();
+  });
+
+  it("allows unmapped bucket in single-account mode (unambiguous)", async () => {
+    vi.mocked(resolveAccountForBucket).mockReturnValue(undefined);
+    vi.mocked(listBasecampAccountIds).mockReturnValue(["default"]);
+
+    const payload = JSON.stringify({
+      kind: "comment_created",
+      created_at: "2025-01-01T00:00:00Z",
+      recording: { id: 1, type: "Comment", bucket: { id: 100, name: "Test" } },
+      creator: { id: 2, name: "Tester" },
+    });
+    const req = mockReq("POST", "/webhooks/basecamp?token=test-secret-123", payload);
+    const res = mockRes();
+    await handleBasecampWebhook(req, res);
+
+    expect(res.status).toBe(200);
+    expect(dispatchBasecampEvent).toHaveBeenCalled();
+  });
+
+  it("routes to sole non-default account when bucket is unmapped", async () => {
+    // Single account named "work" (not "default") — should resolve via
+    // resolveDefaultBasecampAccountId instead of falling to DEFAULT_ACCOUNT_ID.
+    vi.mocked(resolveAccountForBucket).mockReturnValue(undefined);
+    vi.mocked(listBasecampAccountIds).mockReturnValue(["work"]);
+    vi.mocked(resolveDefaultBasecampAccountId).mockReturnValue("work");
+    const { resolveBasecampAccount } = await import("../src/config.js");
+    vi.mocked(resolveBasecampAccount).mockReturnValue({
+      accountId: "work",
+      enabled: true,
+      personId: "1",
+      token: "",
+      tokenSource: "none",
+      config: { personId: "1" },
+    });
+
+    const payload = JSON.stringify({
+      kind: "comment_created",
+      created_at: "2025-01-01T00:00:00Z",
+      recording: { id: 1, type: "Comment", bucket: { id: 100, name: "Test" } },
+      creator: { id: 2, name: "Tester" },
+    });
+    const req = mockReq("POST", "/webhooks/basecamp?token=test-secret-123", payload);
+    const res = mockRes();
+    await handleBasecampWebhook(req, res);
+
+    expect(res.status).toBe(200);
+    expect(dispatchBasecampEvent).toHaveBeenCalled();
+    expect(resolveBasecampAccount).toHaveBeenCalledWith(
+      expect.anything(),
+      "work",
+    );
   });
 });

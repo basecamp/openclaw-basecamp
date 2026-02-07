@@ -383,6 +383,15 @@ export async function bcqReadings<T = unknown>(opts: BcqOptions = {}): Promise<B
 }
 
 /**
+ * Fetch current assignments via `GET /my/assignments.json`.
+ * Returns priorities + non_priorities arrays of assigned todos.
+ */
+export async function bcqAssignments<T = unknown>(opts: BcqOptions = {}): Promise<BcqResult<T>> {
+  const fn = () => execBcq<T>(["api", "get", "/my/assignments.json"], opts);
+  return opts.retry ? withRetry(fn, opts.retry) : fn();
+}
+
+/**
  * Mark readings as read via `PUT /my/unreads` with a list of readable SGIDs.
  * This is the bulk mark-as-read endpoint — accepts up to ~50 SGIDs per call.
  */

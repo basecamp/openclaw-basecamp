@@ -47,15 +47,17 @@ export const BasecampConfigSchema = z.object({
   accounts: z.record(z.string(), BasecampAccountConfigSchema).optional(),
   virtualAccounts: z.record(z.string(), BasecampVirtualAccountSchema).optional(),
   personas: z.record(z.string(), z.string()).optional(),
-  dmPolicy: z.enum(["open", "pairing", "closed"]).optional(),
+  dmPolicy: z.enum(["pairing", "allowlist", "open", "disabled"]).optional(),
   allowFrom: z.array(z.union([z.string(), z.number()])).optional(),
   buckets: z.record(z.string(), BasecampBucketConfigSchema).optional(),
   engage: z.array(EngagementTypeSchema).optional(),
+  /** Secret token for webhook URL verification. Required to accept webhook requests. */
+  webhookSecret: z.string().optional(),
   polling: z
     .object({
       activityIntervalMs: z.number().positive().optional(),
       readingsIntervalMs: z.number().positive().optional(),
-      directPollIntervalMs: z.number().positive().optional(),
+      assignmentsIntervalMs: z.number().positive().optional(),
     })
     .optional(),
   retry: z
@@ -98,21 +100,13 @@ function listConfiguredAccountIds(cfg: OpenClawConfig): string[] {
 }
 
 /**
- * List all account IDs configured under channels.basecamp.accounts,
- * including virtual (project-scoped) account keys.
+ * List concrete account IDs configured under channels.basecamp.accounts.
+ * Virtual (project-scoped) account aliases are excluded — they are routing
+ * aliases for real accounts, not independent accounts that need workers.
  * Returns [DEFAULT_ACCOUNT_ID] if none are configured.
  */
 export function listBasecampAccountIds(cfg: OpenClawConfig): string[] {
   const ids = new Set(listConfiguredAccountIds(cfg));
-
-  // Include virtual account (project-scope) keys
-  const section = getBasecampSection(cfg);
-  const virtualAccounts = section?.virtualAccounts;
-  if (virtualAccounts && typeof virtualAccounts === "object") {
-    for (const key of Object.keys(virtualAccounts)) {
-      if (key) ids.add(normalizeAccountId(key));
-    }
-  }
 
   if (ids.size === 0) {
     return [DEFAULT_ACCOUNT_ID];
@@ -291,7 +285,7 @@ export function resolvePollingIntervals(cfg: unknown) {
   return {
     activityIntervalMs: section?.polling?.activityIntervalMs ?? 120_000,
     readingsIntervalMs: section?.polling?.readingsIntervalMs ?? 60_000,
-    directPollIntervalMs: section?.polling?.directPollIntervalMs ?? 300_000,
+    assignmentsIntervalMs: section?.polling?.assignmentsIntervalMs ?? 300_000,
   };
 }
 
@@ -315,14 +309,40 @@ export function resolveCircuitBreakerConfig(cfg: OpenClawConfig): { threshold: n
   };
 }
 
-/** Get the DM policy for Basecamp Pings. */
+/** Get the DM policy for Basecamp Pings. Defaults to "pairing". */
 export function resolveBasecampDmPolicy(cfg: OpenClawConfig) {
   const section = getBasecampSection(cfg);
-  return section?.dmPolicy ?? "open";
+  return section?.dmPolicy ?? "pairing";
 }
 
 /** Get the allow-from list. */
 export function resolveBasecampAllowFrom(cfg: OpenClawConfig): string[] {
   const section = getBasecampSection(cfg);
   return (section?.allowFrom ?? []).map((entry) => String(entry));
+}
+
+/** Get the webhook secret (undefined = webhooks disabled). */
+export function resolveWebhookSecret(cfg: OpenClawConfig): string | undefined {
+  const section = getBasecampSection(cfg);
+  return section?.webhookSecret;
+}
+
+/**
+ * Resolve the account for a given bucket ID.
+ * Checks virtualAccounts for a scope mapping, then falls back to the
+ * first concrete account. Returns undefined if no account found.
+ */
+export function resolveAccountForBucket(
+  cfg: OpenClawConfig,
+  bucketId: string,
+): string | undefined {
+  const section = getBasecampSection(cfg);
+  // Check virtualAccounts for a scope mapping to this bucket
+  if (section?.virtualAccounts) {
+    for (const [key, va] of Object.entries(section.virtualAccounts)) {
+      if (va.bucketId === bucketId) return key;
+    }
+  }
+  // No virtual account mapping for this bucket
+  return undefined;
 }

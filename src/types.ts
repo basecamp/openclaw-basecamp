@@ -91,6 +91,7 @@ export type BasecampEventKind =
 export type BasecampEventSource =
   | "activity_feed"
   | "readings"
+  | "assignments"
   | "webhook"
   | "action_cable"
   | "direct_poll";
@@ -307,6 +308,48 @@ export type BasecampWebhookPayload = {
   };
 };
 
+/**
+ * Raw todo entry from GET /my/assignments.json.
+ * The response is `{ priorities: Todo[], non_priorities: Todo[] }`.
+ * Each todo represents a currently-assigned (incomplete) task.
+ */
+export type BasecampAssignmentTodo = {
+  id: number;
+  content?: string;
+  title?: string;
+  app_url?: string;
+  starts_on?: string | null;
+  due_on?: string | null;
+  completed?: boolean;
+  created_at?: string;
+  updated_at?: string;
+  /** Recordable type name from short_recordable_name(), e.g. "Todo", "Schedule". */
+  type?: string;
+  bucket: {
+    id: number;
+    name: string;
+    app_url?: string;
+  };
+  assignees?: Array<{
+    id: number;
+    name: string;
+    avatar_url?: string;
+  }>;
+  creator?: {
+    id: number;
+    name: string;
+    email_address?: string;
+    avatar_url?: string;
+  };
+  parent?: {
+    id: number;
+    title?: string;
+    app_url?: string;
+  };
+  /** Nested child assignments (recursive). */
+  children?: BasecampAssignmentTodo[];
+};
+
 // ---------------------------------------------------------------------------
 // Raw API entity shapes (for directory / resolver adapters)
 // ---------------------------------------------------------------------------
@@ -393,8 +436,15 @@ export type BasecampChannelConfig = {
   virtualAccounts?: Record<string, BasecampVirtualAccountConfig>;
   /** Agent ID → account ID mapping for multi-persona outbound. */
   personas?: Record<string, string>;
-  /** DM policy for Ping conversations. */
-  dmPolicy?: "open" | "pairing" | "closed";
+  /**
+   * DM policy for Ping conversations.
+   * Uses the SDK's standard vocabulary:
+   *   pairing  — DMs allowed through the pairing flow (default)
+   *   allowlist — DMs allowed only from sender IDs in allowFrom
+   *   open     — DMs allowed from anyone
+   *   disabled — DMs completely blocked
+   */
+  dmPolicy?: "pairing" | "allowlist" | "open" | "disabled";
   /** Allowed sender person IDs for DM/pairing. */
   allowFrom?: Array<string | number>;
   /** Per-bucket behavior overrides. Key is bucket ID or "*" for wildcard. */
@@ -405,11 +455,13 @@ export type BasecampChannelConfig = {
    * Per-bucket overrides in `buckets.<id>.engage` take precedence.
    */
   engage?: BasecampEngagementType[];
+  /** Secret token for webhook URL verification. Webhook requests are rejected when unset. */
+  webhookSecret?: string;
   /** Polling cadence overrides (milliseconds). */
   polling?: {
     activityIntervalMs?: number;
     readingsIntervalMs?: number;
-    directPollIntervalMs?: number;
+    assignmentsIntervalMs?: number;
   };
   /** Retry options for bcq API calls. */
   retry?: {

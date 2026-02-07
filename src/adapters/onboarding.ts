@@ -49,7 +49,7 @@ const dmPolicy: ChannelOnboardingDmPolicy = {
   channel,
   policyKey: "channels.basecamp.dmPolicy",
   allowFromKey: "channels.basecamp.allowFrom",
-  getCurrent: (cfg) => (getBasecampSection(cfg)?.dmPolicy as DmPolicy) ?? "open",
+  getCurrent: (cfg) => (getBasecampSection(cfg)?.dmPolicy as DmPolicy) ?? "pairing",
   setPolicy: (cfg, policy) => setBasecampDmPolicy(cfg, policy),
 };
 

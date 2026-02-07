@@ -11,6 +11,7 @@
 
 import type {
   BasecampActivityEvent,
+  BasecampAssignmentTodo,
   BasecampInboundMessage,
   BasecampInboundMeta,
   BasecampPeer,
@@ -313,14 +314,22 @@ export function normalizeActivityEvent(
 
   const effectiveRecordableType = recordableType ?? "Document";
 
+  // Detect Pings: activity events for Pings use /circles/<id> URLs
+  // instead of /buckets/<id>. Also check recording.type if available.
+  const isPing =
+    raw.app_url?.includes("/circles/") === true ||
+    raw.recording?.type === "Ping" ||
+    raw.recording?.recordable_type === "Ping";
+
   const peer = resolveBasecampPeer({
     recordableType: effectiveRecordableType,
     recordingId,
     parentRecordingId,
     bucketId,
+    isPing,
   });
 
-  const parentPeer = resolveParentPeer(bucketId, false);
+  const parentPeer = resolveParentPeer(bucketId, isPing);
 
   // Detect assignment events directed at the agent.
   // bc3 assignment event kinds put the assignee's display name in `target`.
@@ -463,6 +472,81 @@ export function normalizeReadingsEvent(
     meta,
     dedupKey: dedupPrimary,
     createdAt: raw.unread_at ?? raw.created_at,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Assignment normalization
+// ---------------------------------------------------------------------------
+
+/**
+ * Normalize a newly-discovered assignment todo into a BasecampInboundMessage.
+ *
+ * Called by the assignments poller when a todo ID appears that wasn't in the
+ * previous known-set. The event is always classified as an assignment directed
+ * at the agent (assignedToAgent=true).
+ */
+export function normalizeAssignmentTodo(
+  raw: BasecampAssignmentTodo,
+  account: ResolvedBasecampAccount,
+): BasecampInboundMessage {
+  const bucketId = String(raw.bucket.id);
+  const recordingId = String(raw.id);
+  const text = raw.content ?? raw.title ?? "";
+  const html = text;
+
+  const sender: BasecampSender = raw.creator
+    ? {
+        id: String(raw.creator.id),
+        name: raw.creator.name,
+        email: raw.creator.email_address,
+        avatarUrl: raw.creator.avatar_url,
+      }
+    : { id: "unknown", name: "Unknown" };
+
+  // Use the actual type from the API response when available (e.g. "Todo",
+  // "Schedule"). Fall back to "Todo" for legacy/untyped payloads.
+  const recordableType: BasecampRecordableType =
+    (raw.type && normalizeRecordingType(raw.type)) || "Todo";
+
+  const peer = resolveBasecampPeer({
+    recordableType,
+    recordingId,
+    bucketId,
+  });
+
+  const parentPeer = resolveParentPeer(bucketId, false);
+
+  const meta: BasecampInboundMeta = {
+    bucketId,
+    recordingId,
+    recordableType,
+    eventKind: "assigned" as BasecampInboundMeta["eventKind"],
+    mentions: [],
+    mentionsAgent: false,
+    assignedToAgent: true,
+    assignees: raw.assignees?.map((a) => String(a.id)),
+    attachments: [],
+    dueOn: raw.due_on ?? undefined,
+    sources: ["assignments"],
+  };
+
+  // Include updated_at in the dedup key so re-assignments after a previous
+  // unassign→reassign cycle within the 24h TTL produce distinct keys.
+  const updatedSuffix = raw.updated_at ? `:${raw.updated_at}` : "";
+  const dedupPrimary = EventDedup.primaryKey("direct", `assign:${recordingId}${updatedSuffix}`);
+
+  return {
+    channel: "basecamp",
+    accountId: account.accountId,
+    peer,
+    parentPeer,
+    sender,
+    text,
+    html,
+    meta,
+    dedupKey: dedupPrimary,
+    createdAt: raw.updated_at ?? raw.created_at ?? new Date().toISOString(),
   };
 }
 

@@ -255,4 +255,14 @@ describe("configSchema.uiHints", () => {
       expect(hint.help, `${key} missing help`).toBeTruthy();
     }
   });
+
+  it("dmPolicy help text matches SDK vocabulary", () => {
+    const hints = basecampChannel.configSchema!.uiHints!;
+    const help = hints["dmPolicy"]?.help ?? "";
+    expect(help).toContain("pairing");
+    expect(help).toContain("allowlist");
+    expect(help).toContain("open");
+    expect(help).toContain("disabled");
+    expect(help).not.toContain("closed");
+  });
 });
