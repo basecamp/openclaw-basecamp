@@ -173,15 +173,19 @@ export class EventDedup {
    */
   flush(): void {
     if (!this.store) return;
-    const primary: Record<string, DedupStoreEntry> = {};
-    for (const [key, entry] of this.primary) {
-      primary[key] = entry;
+    try {
+      const primary: Record<string, DedupStoreEntry> = {};
+      for (const [key, entry] of this.primary) {
+        primary[key] = entry;
+      }
+      const secondary: Record<string, string> = {};
+      for (const [key, value] of this.secondary) {
+        secondary[key] = value;
+      }
+      this.store.save({ primary, secondary });
+    } catch {
+      // Best-effort — in-memory state is authoritative.
     }
-    const secondary: Record<string, string> = {};
-    for (const [key, value] of this.secondary) {
-      secondary[key] = value;
-    }
-    this.store.save({ primary, secondary });
   }
 
   /** Number of entries currently tracked. */

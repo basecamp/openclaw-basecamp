@@ -9,8 +9,8 @@
  *   { primary: { [key]: { seenAt, source } }, secondary: { [key]: primaryKey } }
  */
 
-import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
-import { dirname } from "node:path";
+import { readFileSync, writeFileSync, mkdirSync, renameSync } from "node:fs";
+import { dirname, join } from "node:path";
 
 export interface DedupStoreEntry {
   seenAt: number;
@@ -43,12 +43,12 @@ export class JsonFileDedupStore implements DedupStore {
     try {
       const raw = readFileSync(this.filePath, "utf-8");
       const data = JSON.parse(raw);
-      // Validate shape
+      // Validate shape — guard against null (typeof null === "object") and arrays
       if (
         data &&
         typeof data === "object" &&
-        typeof data.primary === "object" &&
-        typeof data.secondary === "object"
+        data.primary !== null && typeof data.primary === "object" && !Array.isArray(data.primary) &&
+        data.secondary !== null && typeof data.secondary === "object" && !Array.isArray(data.secondary)
       ) {
         return data as DedupSnapshot;
       }
@@ -60,8 +60,13 @@ export class JsonFileDedupStore implements DedupStore {
 
   save(snapshot: DedupSnapshot): void {
     try {
-      mkdirSync(dirname(this.filePath), { recursive: true });
-      writeFileSync(this.filePath, JSON.stringify(snapshot), "utf-8");
+      const dir = dirname(this.filePath);
+      mkdirSync(dir, { recursive: true });
+      // Atomic write: write to temp file then rename into place.
+      // Prevents partial writes from corrupting the store on crash.
+      const tmp = join(dir, `.dedup-${Date.now()}.tmp`);
+      writeFileSync(tmp, JSON.stringify(snapshot), "utf-8");
+      renameSync(tmp, this.filePath);
     } catch {
       // Best-effort persistence — if the write fails (e.g., read-only fs),
       // the in-memory state is still authoritative.

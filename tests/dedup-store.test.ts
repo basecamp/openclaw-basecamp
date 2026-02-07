@@ -1,8 +1,8 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { EventDedup } from "../src/inbound/dedup.js";
 import type { DedupStore, DedupSnapshot } from "../src/inbound/dedup-store.js";
 import { JsonFileDedupStore } from "../src/inbound/dedup-store.js";
-import { writeFileSync, readFileSync, mkdirSync, rmSync } from "node:fs";
+import { writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -181,6 +181,22 @@ describe("JsonFileDedupStore", () => {
 
   it("handles missing shape fields gracefully on load", () => {
     writeFileSync(testFile, JSON.stringify({ foo: "bar" }), "utf-8");
+    const store = new JsonFileDedupStore(testFile);
+    const snapshot = store.load();
+    expect(snapshot.primary).toEqual({});
+    expect(snapshot.secondary).toEqual({});
+  });
+
+  it("handles null primary gracefully on load", () => {
+    writeFileSync(testFile, JSON.stringify({ primary: null, secondary: {} }), "utf-8");
+    const store = new JsonFileDedupStore(testFile);
+    const snapshot = store.load();
+    expect(snapshot.primary).toEqual({});
+    expect(snapshot.secondary).toEqual({});
+  });
+
+  it("handles null secondary gracefully on load", () => {
+    writeFileSync(testFile, JSON.stringify({ primary: {}, secondary: null }), "utf-8");
     const store = new JsonFileDedupStore(testFile);
     const snapshot = store.load();
     expect(snapshot.primary).toEqual({});

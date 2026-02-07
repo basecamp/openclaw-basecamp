@@ -321,7 +321,7 @@ export async function startCompositePoller(
   try {
     dedup.flush();
     await saveCursorsWithRetry(cursors, account.accountId, log);
-    log?.info?.("[" + account.accountId + "] composite poller stopped, cursors and dedup state saved");
+    log?.info?.("[" + account.accountId + "] composite poller stopped, cursors saved, dedup flush attempted");
   } catch (err) {
     log?.warn?.("[" + account.accountId + "] failed to save final state: " + String(err));
   }
