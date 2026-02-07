@@ -130,11 +130,11 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
       bcqProfile: account.bcqProfile,
     }),
     setAccountEnabled: ({ cfg, accountId, enabled }) =>
-      setAccountEnabledInConfigSection({ cfg, sectionKey: "channels.basecamp", accountId, enabled }),
+      setAccountEnabledInConfigSection({ cfg, sectionKey: "basecamp", accountId, enabled }),
     deleteAccount: ({ cfg, accountId }) => {
       const updated = deleteAccountFromConfigSection({
         cfg,
-        sectionKey: "channels.basecamp",
+        sectionKey: "basecamp",
         accountId,
       });
       // Clean up persona entries pointing to the deleted account

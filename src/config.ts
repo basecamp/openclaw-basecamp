@@ -98,21 +98,13 @@ function listConfiguredAccountIds(cfg: OpenClawConfig): string[] {
 }
 
 /**
- * List all account IDs configured under channels.basecamp.accounts,
- * including virtual (project-scoped) account keys.
+ * List concrete account IDs configured under channels.basecamp.accounts.
+ * Virtual (project-scoped) account aliases are excluded — they are routing
+ * aliases for real accounts, not independent accounts that need workers.
  * Returns [DEFAULT_ACCOUNT_ID] if none are configured.
  */
 export function listBasecampAccountIds(cfg: OpenClawConfig): string[] {
   const ids = new Set(listConfiguredAccountIds(cfg));
-
-  // Include virtual account (project-scope) keys
-  const section = getBasecampSection(cfg);
-  const virtualAccounts = section?.virtualAccounts;
-  if (virtualAccounts && typeof virtualAccounts === "object") {
-    for (const key of Object.keys(virtualAccounts)) {
-      if (key) ids.add(normalizeAccountId(key));
-    }
-  }
 
   if (ids.size === 0) {
     return [DEFAULT_ACCOUNT_ID];

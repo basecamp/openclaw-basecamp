@@ -56,7 +56,7 @@ describe("resolveProjectScope", () => {
 // ---------------------------------------------------------------------------
 
 describe("listBasecampAccountIds (with virtual accounts)", () => {
-  it("includes virtual account keys alongside real account keys", () => {
+  it("excludes virtual account keys (they are routing aliases, not workers)", () => {
     const result = listBasecampAccountIds(
       cfg({
         accounts: { primary: { personId: "1" } },
@@ -67,10 +67,10 @@ describe("listBasecampAccountIds (with virtual accounts)", () => {
     );
 
     expect(result).toContain("primary");
-    expect(result).toContain("design-project");
+    expect(result).not.toContain("design-project");
   });
 
-  it("sorts all IDs alphabetically", () => {
+  it("returns only concrete account IDs sorted alphabetically", () => {
     const result = listBasecampAccountIds(
       cfg({
         accounts: { zulu: { personId: "1" } },
@@ -80,7 +80,7 @@ describe("listBasecampAccountIds (with virtual accounts)", () => {
       }),
     );
 
-    expect(result).toEqual(["alpha", "zulu"]);
+    expect(result).toEqual(["zulu"]);
   });
 });
 
