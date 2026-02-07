@@ -20,6 +20,7 @@
 import type { BasecampInboundMessage, ResolvedBasecampAccount } from "../types.js";
 import { resolvePollingIntervals } from "../config.js";
 import { EventDedup } from "./dedup.js";
+import { JsonFileDedupStore } from "./dedup-store.js";
 import { CursorStore } from "./cursors.js";
 import { pollActivityFeed } from "./activity.js";
 import { pollReadings } from "./readings.js";
@@ -88,12 +89,12 @@ export async function startCompositePoller(
   const readingsIntervalMs = intervals.readingsIntervalMs;
   const assignmentsIntervalMs = intervals.assignmentsIntervalMs;
 
-  const dedup = new EventDedup();
   const stateDir = opts.stateDir ?? "/tmp/openclaw-basecamp-state";
 
   // Validate state directory
   const { mkdir, access } = await import("node:fs/promises");
   const { constants } = await import("node:fs");
+  const { join } = await import("node:path");
   try {
     await mkdir(stateDir, { recursive: true });
     await access(stateDir, constants.W_OK);
@@ -102,6 +103,11 @@ export async function startCompositePoller(
     log?.error?.(`[${account.accountId}] state directory not writable: ${stateDir}: ${String(err)}`);
     throw err;
   }
+
+  // Persistent dedup store — survives gateway restarts
+  const dedupStore = new JsonFileDedupStore(join(stateDir, `dedup-${account.accountId}.json`));
+  const dedup = new EventDedup({ store: dedupStore });
+  log?.info?.(`[${account.accountId}] dedup store: ${dedup.size} entries loaded`);
 
   const cursors = new CursorStore(stateDir, account.accountId);
 
@@ -313,9 +319,10 @@ export async function startCompositePoller(
   }
 
   try {
+    dedup.flush();
     await saveCursorsWithRetry(cursors, account.accountId, log);
-    log?.info?.("[" + account.accountId + "] composite poller stopped, cursors saved");
+    log?.info?.("[" + account.accountId + "] composite poller stopped, cursors and dedup state saved");
   } catch (err) {
-    log?.warn?.("[" + account.accountId + "] failed to save final cursors: " + String(err));
+    log?.warn?.("[" + account.accountId + "] failed to save final state: " + String(err));
   }
 }
