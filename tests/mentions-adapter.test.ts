@@ -28,6 +28,7 @@ describe("mentions.stripPatterns", () => {
       cfg: cfg({
         accounts: { main: { personId: "42", displayName: "Coworker" } },
       }),
+      agentId: "main",
     });
     expect(patterns).toHaveLength(1);
     expect(patterns[0]).toContain("Coworker");
@@ -46,6 +47,23 @@ describe("mentions.stripPatterns", () => {
     });
     expect(patterns).toHaveLength(1);
     expect(patterns[0]).toContain("Bob");
+  });
+
+  it("resolves persona mapping: agentId → accountId → displayName", () => {
+    const patterns = basecampMentionAdapter.stripPatterns!({
+      ctx: mockCtx,
+      cfg: cfg({
+        accounts: {
+          "service-acct": { personId: "1", displayName: "Helper Bot" },
+        },
+        personas: {
+          "my-agent": "service-acct",
+        },
+      }),
+      agentId: "my-agent",
+    });
+    expect(patterns).toHaveLength(1);
+    expect(patterns[0]).toContain("Helper Bot");
   });
 
   it("returns empty array when no displayName configured", () => {
@@ -70,6 +88,7 @@ describe("mentions.stripPatterns", () => {
       cfg: cfg({
         accounts: { main: { personId: "42", displayName: "Agent (v2.0)" } },
       }),
+      agentId: "main",
     });
     expect(patterns).toHaveLength(1);
     expect(patterns[0]).toContain("\\(");
@@ -90,6 +109,7 @@ describe("mentions.stripMentions", () => {
       cfg: cfg({
         accounts: { main: { personId: "42", displayName: "Coworker" } },
       }),
+      agentId: "main",
     });
     expect(result).toBe("can you review this?");
   });
@@ -101,6 +121,7 @@ describe("mentions.stripMentions", () => {
       cfg: cfg({
         accounts: { main: { personId: "42", displayName: "Coworker" } },
       }),
+      agentId: "main",
     });
     expect(result).toBe("please help");
   });
@@ -112,6 +133,7 @@ describe("mentions.stripMentions", () => {
       cfg: cfg({
         accounts: { main: { personId: "42", displayName: "Coworker" } },
       }),
+      agentId: "main",
     });
     expect(result).toBe("what do you think?");
   });
@@ -123,6 +145,7 @@ describe("mentions.stripMentions", () => {
       cfg: cfg({
         accounts: { main: { personId: "42", displayName: "Coworker" } },
       }),
+      agentId: "main",
     });
     expect(result).toBe("can you review?");
   });
@@ -165,5 +188,22 @@ describe("mentions.stripMentions", () => {
       }),
     });
     expect(result).toBe("");
+  });
+
+  it("strips persona-mapped display name via agentId → accountId", () => {
+    const result = basecampMentionAdapter.stripMentions!({
+      text: "Helper Bot can you help?",
+      ctx: mockCtx,
+      cfg: cfg({
+        accounts: {
+          "service-acct": { personId: "1", displayName: "Helper Bot" },
+        },
+        personas: {
+          "my-agent": "service-acct",
+        },
+      }),
+      agentId: "my-agent",
+    });
+    expect(result).toBe("can you help?");
   });
 });
