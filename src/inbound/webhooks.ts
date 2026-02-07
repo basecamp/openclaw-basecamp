@@ -176,9 +176,9 @@ export async function handleBasecampWebhook(
   }
 
   // Validate minimal required fields
-  if (!payload.kind || !payload.recording?.id || !payload.creator?.id) {
+  if (!payload.kind || !payload.recording?.id || !payload.creator?.id || !payload.recording?.bucket?.id) {
     res.writeHead(422, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: "Missing required fields: kind, recording.id, creator.id" }));
+    res.end(JSON.stringify({ error: "Missing required fields: kind, recording.id, recording.bucket.id, creator.id" }));
     return;
   }
 

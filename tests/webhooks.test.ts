@@ -45,7 +45,7 @@ vi.mock("../src/inbound/normalize.js", () => ({
       html: "<p>hi</p>",
       meta: { bucketId: "1", recordingId: String(seq), recordableType: "Chat::Line", eventKind: "line_created", mentions: [], mentionsAgent: false, attachments: [], sources: ["webhook"] },
       dedupKey: `webhook:${seq}`,
-      createdAt: `2025-01-01T00:00:0${seq}Z`,
+      createdAt: `2025-01-01T00:00:${String(seq).padStart(2, "0")}Z`,
     };
   }),
   isSelfMessage: vi.fn(() => false),

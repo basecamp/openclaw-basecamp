@@ -343,6 +343,6 @@ export function resolveAccountForBucket(
       if (va.bucketId === bucketId) return key;
     }
   }
-  // Fall back to the default account
+  // No virtual account mapping for this bucket
   return undefined;
 }

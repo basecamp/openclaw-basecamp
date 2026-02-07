@@ -581,8 +581,8 @@ describe("dispatchBasecampEvent", () => {
     expect(result).toBe(true);
   });
 
-  it("defaults dmPolicy to 'open' when unset (allows DMs)", async () => {
-    // Default mock returns "open"
+  it("allows DMs when mock dmPolicy defaults to 'open'", async () => {
+    // Default mock returns "open" — production default is "pairing"
     const dmMsg: BasecampInboundMessage = {
       ...mockMsg,
       peer: { kind: "dm", id: "ping:789" },
