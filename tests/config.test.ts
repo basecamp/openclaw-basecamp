@@ -419,7 +419,7 @@ describe("resolvePollingIntervals", () => {
     expect(result).toEqual({
       activityIntervalMs: 120_000,
       readingsIntervalMs: 60_000,
-      directPollIntervalMs: 300_000,
+      assignmentsIntervalMs: 300_000,
     });
   });
 
@@ -428,7 +428,7 @@ describe("resolvePollingIntervals", () => {
     expect(result).toEqual({
       activityIntervalMs: 120_000,
       readingsIntervalMs: 60_000,
-      directPollIntervalMs: 300_000,
+      assignmentsIntervalMs: 300_000,
     });
   });
 
@@ -438,7 +438,7 @@ describe("resolvePollingIntervals", () => {
     );
     expect(result.activityIntervalMs).toBe(30_000);
     expect(result.readingsIntervalMs).toBe(60_000);
-    expect(result.directPollIntervalMs).toBe(300_000);
+    expect(result.assignmentsIntervalMs).toBe(300_000);
   });
 
   it("overrides readingsIntervalMs", () => {
@@ -448,27 +448,20 @@ describe("resolvePollingIntervals", () => {
     expect(result.readingsIntervalMs).toBe(10_000);
   });
 
-  it("overrides directPollIntervalMs", () => {
-    const result = resolvePollingIntervals(
-      cfg({ polling: { directPollIntervalMs: 500_000 } }),
-    );
-    expect(result.directPollIntervalMs).toBe(500_000);
-  });
-
   it("overrides all intervals at once", () => {
     const result = resolvePollingIntervals(
       cfg({
         polling: {
           activityIntervalMs: 1000,
           readingsIntervalMs: 2000,
-          directPollIntervalMs: 3000,
+          assignmentsIntervalMs: 4000,
         },
       }),
     );
     expect(result).toEqual({
       activityIntervalMs: 1000,
       readingsIntervalMs: 2000,
-      directPollIntervalMs: 3000,
+      assignmentsIntervalMs: 4000,
     });
   });
 });

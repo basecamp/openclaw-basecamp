@@ -57,7 +57,7 @@ export const BasecampConfigSchema = z.object({
     .object({
       activityIntervalMs: z.number().positive().optional(),
       readingsIntervalMs: z.number().positive().optional(),
-      directPollIntervalMs: z.number().positive().optional(),
+      assignmentsIntervalMs: z.number().positive().optional(),
     })
     .optional(),
   retry: z
@@ -285,7 +285,7 @@ export function resolvePollingIntervals(cfg: unknown) {
   return {
     activityIntervalMs: section?.polling?.activityIntervalMs ?? 120_000,
     readingsIntervalMs: section?.polling?.readingsIntervalMs ?? 60_000,
-    directPollIntervalMs: section?.polling?.directPollIntervalMs ?? 300_000,
+    assignmentsIntervalMs: section?.polling?.assignmentsIntervalMs ?? 300_000,
   };
 }
 

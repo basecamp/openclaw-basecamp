@@ -91,6 +91,7 @@ export type BasecampEventKind =
 export type BasecampEventSource =
   | "activity_feed"
   | "readings"
+  | "assignments"
   | "webhook"
   | "action_cable"
   | "direct_poll";
@@ -307,6 +308,48 @@ export type BasecampWebhookPayload = {
   };
 };
 
+/**
+ * Raw todo entry from GET /my/assignments.json.
+ * The response is `{ priorities: Todo[], non_priorities: Todo[] }`.
+ * Each todo represents a currently-assigned (incomplete) task.
+ */
+export type BasecampAssignmentTodo = {
+  id: number;
+  content?: string;
+  title?: string;
+  app_url?: string;
+  starts_on?: string | null;
+  due_on?: string | null;
+  completed?: boolean;
+  created_at?: string;
+  updated_at?: string;
+  /** Recordable type name from short_recordable_name(), e.g. "Todo", "Schedule". */
+  type?: string;
+  bucket: {
+    id: number;
+    name: string;
+    app_url?: string;
+  };
+  assignees?: Array<{
+    id: number;
+    name: string;
+    avatar_url?: string;
+  }>;
+  creator?: {
+    id: number;
+    name: string;
+    email_address?: string;
+    avatar_url?: string;
+  };
+  parent?: {
+    id: number;
+    title?: string;
+    app_url?: string;
+  };
+  /** Nested child assignments (recursive). */
+  children?: BasecampAssignmentTodo[];
+};
+
 // ---------------------------------------------------------------------------
 // Raw API entity shapes (for directory / resolver adapters)
 // ---------------------------------------------------------------------------
@@ -418,7 +461,7 @@ export type BasecampChannelConfig = {
   polling?: {
     activityIntervalMs?: number;
     readingsIntervalMs?: number;
-    directPollIntervalMs?: number;
+    assignmentsIntervalMs?: number;
   };
   /** Retry options for bcq API calls. */
   retry?: {
