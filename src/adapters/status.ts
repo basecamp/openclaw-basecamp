@@ -13,6 +13,8 @@ import type { ResolvedBasecampAccount, BasecampChannelConfig, BasecampProject } 
 import { bcqAuthStatus, bcqMe, bcqApiGet } from "../bcq.js";
 import type { BcqOptions } from "../bcq.js";
 import { resolveBasecampAccount } from "../config.js";
+import { getAccountMetrics } from "../metrics.js";
+import type { AccountMetrics, PollerSourceMetrics } from "../metrics.js";
 
 export type BasecampProbe = {
   ok: boolean;
@@ -20,6 +22,8 @@ export type BasecampProbe = {
   personName?: string;
   accountCount?: number;
   error?: string;
+  /** Operational metrics snapshot (populated from in-memory metrics registry). */
+  metrics?: AccountMetrics;
 };
 
 export type BasecampAudit = {
@@ -27,7 +31,31 @@ export type BasecampAudit = {
   personasMapped: number;
   personasValid: number;
   errors: string[];
+  /** Poller lag per source (seconds since last successful poll, null if never polled). */
+  pollerLag?: {
+    activity: number | null;
+    readings: number | null;
+    assignments: number | null;
+  };
+  /** Circuit breaker states for outbound delivery. */
+  circuitBreakers?: Record<string, { state: string; failures: number }>;
+  /** Dedup store sizes. */
+  dedupSize?: number;
+  webhookDedupSize?: number;
+  /** Webhook handler stats. */
+  webhookStats?: {
+    received: number;
+    dispatched: number;
+    dropped: number;
+    errors: number;
+  };
 };
+
+/** Seconds since last successful poll, or null if never succeeded. */
+function pollerLagSeconds(source: PollerSourceMetrics): number | null {
+  if (!source.lastSuccessAt) return null;
+  return Math.round((Date.now() - source.lastSuccessAt) / 1000);
+}
 
 function getBasecampSection(cfg: OpenClawConfig): BasecampChannelConfig | undefined {
   return cfg.channels?.basecamp as BasecampChannelConfig | undefined;
@@ -54,7 +82,8 @@ export const basecampStatusAdapter: ChannelStatusAdapter<ResolvedBasecampAccount
     try {
       const result = await bcqAuthStatus(bcqOpts);
       if (!result.data.authenticated) {
-        return { ok: false, authenticated: false };
+        const metrics = getAccountMetrics(account.accountId);
+        return { ok: false, authenticated: false, metrics };
       }
 
       // Also call bcqMe to get identity details
@@ -72,12 +101,15 @@ export const basecampStatusAdapter: ChannelStatusAdapter<ResolvedBasecampAccount
         // Identity fetch is best-effort
       }
 
-      return { ok: true, authenticated: true, personName, accountCount };
+      const metrics = getAccountMetrics(account.accountId);
+      return { ok: true, authenticated: true, personName, accountCount, metrics };
     } catch (err) {
+      const metrics = getAccountMetrics(account.accountId);
       return {
         ok: false,
         authenticated: false,
         error: String(err),
+        metrics,
       };
     }
   },
@@ -121,7 +153,36 @@ export const basecampStatusAdapter: ChannelStatusAdapter<ResolvedBasecampAccount
       }
     }
 
-    return { projectsAccessible, personasMapped, personasValid, errors };
+    // Enrich with operational metrics
+    const metrics = getAccountMetrics(account.accountId);
+    const result: BasecampAudit = { projectsAccessible, personasMapped, personasValid, errors };
+
+    if (metrics) {
+      result.pollerLag = {
+        activity: pollerLagSeconds(metrics.poller.activity),
+        readings: pollerLagSeconds(metrics.poller.readings),
+        assignments: pollerLagSeconds(metrics.poller.assignments),
+      };
+
+      if (Object.keys(metrics.circuitBreaker).length > 0) {
+        result.circuitBreakers = {};
+        for (const [key, cb] of Object.entries(metrics.circuitBreaker)) {
+          result.circuitBreakers[key] = { state: cb.state, failures: cb.failures };
+        }
+      }
+
+      result.dedupSize = metrics.dedupSize;
+      result.webhookDedupSize = metrics.webhookDedupSize;
+
+      result.webhookStats = {
+        received: metrics.webhook.receivedCount,
+        dispatched: metrics.webhook.dispatchedCount,
+        dropped: metrics.webhook.droppedCount,
+        errors: metrics.webhook.errorCount,
+      };
+    }
+
+    return result;
   },
 
   buildAccountSnapshot: ({ account, runtime, probe, audit }) => {
@@ -198,6 +259,36 @@ export const basecampStatusAdapter: ChannelStatusAdapter<ResolvedBasecampAccount
           message: "Account is configured but has never started",
           fix: "Start the channel with `openclaw start` or check gateway logs",
         });
+      }
+
+      // Operational issues from audit metrics
+      const audit = s.audit as BasecampAudit | undefined;
+      if (audit?.pollerLag) {
+        const LAG_THRESHOLD_S = 600; // 10 minutes
+        for (const [source, lag] of Object.entries(audit.pollerLag)) {
+          if (lag !== null && lag > LAG_THRESHOLD_S) {
+            issues.push({
+              channel: "basecamp",
+              accountId: s.accountId,
+              kind: "runtime",
+              message: `Poller source "${source}" is lagging (${lag}s since last success)`,
+              fix: "Check gateway logs for errors or network issues",
+            });
+          }
+        }
+      }
+      if (audit?.circuitBreakers) {
+        for (const [key, cb] of Object.entries(audit.circuitBreakers)) {
+          if (cb.state === "open") {
+            issues.push({
+              channel: "basecamp",
+              accountId: s.accountId,
+              kind: "runtime",
+              message: `Circuit breaker "${key}" is open (${cb.failures} failures)`,
+              fix: "Check Basecamp API availability and authentication",
+            });
+          }
+        }
       }
     }
 

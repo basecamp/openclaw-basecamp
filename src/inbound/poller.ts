@@ -18,22 +18,23 @@
  */
 
 import type { BasecampInboundMessage, ResolvedBasecampAccount } from "../types.js";
-import { resolvePollingIntervals } from "../config.js";
+import { resolvePollingIntervals, resolveCircuitBreakerConfig } from "../config.js";
 import { EventDedup } from "./dedup.js";
 import { JsonFileDedupStore } from "./dedup-store.js";
 import { CursorStore } from "./cursors.js";
 import { pollActivityFeed } from "./activity.js";
 import { pollReadings } from "./readings.js";
 import { pollAssignments } from "./assignments.js";
-import { bcqMarkReadingsRead } from "../bcq.js";
+import { CircuitBreaker, bcqMarkReadingsRead } from "../bcq.js";
 import { isSelfMessage } from "./normalize.js";
 import { createStructuredLog } from "../logging.js";
+import { recordPollAttempt, recordPollSuccess, recordPollError, recordDedupSize, recordCircuitBreakerState } from "../metrics.js";
 
 export interface CompositePollerOptions {
   account: ResolvedBasecampAccount;
   cfg: unknown;
   abortSignal?: AbortSignal;
-  onEvent: (msg: BasecampInboundMessage) => Promise<void>;
+  onEvent: (msg: BasecampInboundMessage) => Promise<boolean>;
   log?: {
     info: (msg: string) => void;
     warn: (msg: string) => void;
@@ -120,6 +121,26 @@ export async function startCompositePoller(
     slog.warn("cursors_load_failed", { error: String(err) });
   }
 
+  // Circuit breaker: fail fast when Basecamp API is persistently down.
+  // One CB instance per account; separate keys per polling source.
+  const cbConfig = resolveCircuitBreakerConfig(cfg as any);
+  const cb = new CircuitBreaker({ threshold: cbConfig.threshold, cooldownMs: cbConfig.cooldownMs });
+
+  /** Sync a circuit breaker key's state to the metrics registry. */
+  function syncCircuitBreakerMetrics(key: string): void {
+    const state = cb.getState(key);
+    if (!state) return;
+    let derived: "closed" | "open" | "half-open" = "closed";
+    if (state.trippedAt != null) {
+      derived = Date.now() - state.trippedAt >= cbConfig.cooldownMs ? "half-open" : "open";
+    }
+    recordCircuitBreakerState(account.accountId, key, {
+      state: derived,
+      failures: state.failures,
+      trippedAt: state.trippedAt,
+    });
+  }
+
   let activityBackoff = 0;
   let readingsBackoff = 0;
   let assignmentsBackoff = 0;
@@ -156,14 +177,17 @@ export async function startCompositePoller(
     // Poll activity feed
     if (activityDue) {
       lastActivityPoll = now;
+      recordPollAttempt(account.accountId, "activity");
       try {
         const result = await pollActivityFeed({
           account,
           since: cursors.get().activitySince,
+          circuitBreaker: { instance: cb, key: "activity" },
           log,
         });
 
         let dispatched = 0;
+        let dropped = 0;
         for (const event of result.events) {
           const secondaryKey = event.meta.recordingId
             ? EventDedup.secondaryKey(event.meta.recordingId, event.meta.eventKind, event.createdAt)
@@ -173,8 +197,12 @@ export async function startCompositePoller(
           if (isSelfMessage(event.sender.id, account)) continue;
 
           try {
-            await onEvent(event);
-            dispatched++;
+            const delivered = await onEvent(event);
+            if (delivered) {
+              dispatched++;
+            } else {
+              dropped++;
+            }
           } catch (err) {
             slog.error("dispatch_error", { feed: "activity", key: event.dedupKey, error: String(err) });
           }
@@ -185,10 +213,13 @@ export async function startCompositePoller(
           await saveCursorsWithRetry(cursors, slog);
         }
 
-        if (dispatched > 0) {
-          slog.info("poll_dispatched", { feed: "activity", total: result.events.length, dispatched });
+        if (dispatched > 0 || dropped > 0) {
+          slog.info("poll_dispatched", { feed: "activity", total: result.events.length, dispatched, dropped });
         }
 
+        recordPollSuccess(account.accountId, "activity", dispatched, dropped);
+        recordDedupSize(account.accountId, dedup.size);
+        syncCircuitBreakerMetrics("activity");
         activityBackoff = 0;
       } catch (err) {
         activityBackoff = clamp(
@@ -196,6 +227,8 @@ export async function startCompositePoller(
           activityIntervalMs,
           MAX_BACKOFF_MS,
         );
+        recordPollError(account.accountId, "activity", String(err), activityBackoff);
+        syncCircuitBreakerMetrics("activity");
         slog.error("poll_error", { feed: "activity", backoff: activityBackoff, error: String(err) });
       }
     }
@@ -203,14 +236,17 @@ export async function startCompositePoller(
     // Poll readings
     if (readingsDue) {
       lastReadingsPoll = now;
+      recordPollAttempt(account.accountId, "readings");
       try {
         const result = await pollReadings({
           account,
           since: cursors.get().readingsSince,
+          circuitBreaker: { instance: cb, key: "readings" },
           log,
         });
 
         let dispatched = 0;
+        let dropped = 0;
         for (const event of result.events) {
           const secondaryKey = event.meta.recordingId
             ? EventDedup.secondaryKey(event.meta.recordingId, event.meta.eventKind, event.createdAt)
@@ -220,8 +256,12 @@ export async function startCompositePoller(
           if (isSelfMessage(event.sender.id, account)) continue;
 
           try {
-            await onEvent(event);
-            dispatched++;
+            const delivered = await onEvent(event);
+            if (delivered) {
+              dispatched++;
+            } else {
+              dropped++;
+            }
           } catch (err) {
             slog.error("dispatch_error", { feed: "readings", key: event.dedupKey, error: String(err) });
           }
@@ -233,6 +273,7 @@ export async function startCompositePoller(
             await bcqMarkReadingsRead(result.processedSgids, {
               accountId: account.config.bcqAccountId,
               profile: account.bcqProfile,
+              circuitBreaker: { instance: cb, key: "readings:mark-read" },
             });
             slog.debug("readings_marked_read", { count: result.processedSgids.length });
           } catch (err) {
@@ -245,10 +286,13 @@ export async function startCompositePoller(
           await saveCursorsWithRetry(cursors, slog);
         }
 
-        if (dispatched > 0) {
-          slog.info("poll_dispatched", { feed: "readings", total: result.events.length, dispatched });
+        if (dispatched > 0 || dropped > 0) {
+          slog.info("poll_dispatched", { feed: "readings", total: result.events.length, dispatched, dropped });
         }
 
+        recordPollSuccess(account.accountId, "readings", dispatched, dropped);
+        recordDedupSize(account.accountId, dedup.size);
+        syncCircuitBreakerMetrics("readings");
         readingsBackoff = 0;
       } catch (err) {
         readingsBackoff = clamp(
@@ -256,6 +300,8 @@ export async function startCompositePoller(
           readingsIntervalMs,
           MAX_BACKOFF_MS,
         );
+        recordPollError(account.accountId, "readings", String(err), readingsBackoff);
+        syncCircuitBreakerMetrics("readings");
         slog.error("poll_error", { feed: "readings", backoff: readingsBackoff, error: String(err) });
       }
     }
@@ -264,22 +310,29 @@ export async function startCompositePoller(
     const assignmentsDue = now - lastAssignmentsPoll >= assignmentsIntervalMs + assignmentsBackoff;
     if (assignmentsDue) {
       lastAssignmentsPoll = now;
+      recordPollAttempt(account.accountId, "assignments");
       try {
         const result = await pollAssignments({
           account,
           knownIds: assignmentKnownIds,
           isBootstrap: !assignmentsBootstrapped,
+          circuitBreaker: { instance: cb, key: "assignments" },
           log,
         });
 
         let dispatched = 0;
+        let dropped = 0;
         for (const event of result.events) {
           if (dedup.isDuplicate(event.dedupKey)) continue;
           if (isSelfMessage(event.sender.id, account)) continue;
 
           try {
-            await onEvent(event);
-            dispatched++;
+            const delivered = await onEvent(event);
+            if (delivered) {
+              dispatched++;
+            } else {
+              dropped++;
+            }
           } catch (err) {
             slog.error("dispatch_error", { feed: "assignments", key: event.dedupKey, error: String(err) });
           }
@@ -291,10 +344,13 @@ export async function startCompositePoller(
         cursors.setCustom("assignmentIds", JSON.stringify([...result.knownIds]));
         await saveCursorsWithRetry(cursors, slog);
 
-        if (dispatched > 0) {
-          slog.info("poll_dispatched", { feed: "assignments", total: result.events.length, dispatched });
+        if (dispatched > 0 || dropped > 0) {
+          slog.info("poll_dispatched", { feed: "assignments", total: result.events.length, dispatched, dropped });
         }
 
+        recordPollSuccess(account.accountId, "assignments", dispatched, dropped);
+        recordDedupSize(account.accountId, dedup.size);
+        syncCircuitBreakerMetrics("assignments");
         assignmentsBackoff = 0;
       } catch (err) {
         assignmentsBackoff = clamp(
@@ -302,6 +358,8 @@ export async function startCompositePoller(
           assignmentsIntervalMs,
           MAX_BACKOFF_MS,
         );
+        recordPollError(account.accountId, "assignments", String(err), assignmentsBackoff);
+        syncCircuitBreakerMetrics("assignments");
         slog.error("poll_error", { feed: "assignments", backoff: assignmentsBackoff, error: String(err) });
       }
     }
