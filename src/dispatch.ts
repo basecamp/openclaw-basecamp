@@ -15,11 +15,26 @@ import type { BasecampInboundMessage, BasecampChannelConfig, BasecampEngagementT
 import { DEFAULT_ENGAGE } from "./types.js";
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import { getBasecampRuntime } from "./runtime.js";
-import { resolvePersonaAccountId, resolveBasecampAccount, resolveBasecampDmPolicy, resolveBasecampAllowFrom } from "./config.js";
+import { resolvePersonaAccountId, resolveBasecampAccount, resolveBasecampDmPolicy, resolveBasecampAllowFrom, resolveCircuitBreakerConfig } from "./config.js";
 import { postReplyToEvent } from "./outbound/send.js";
 import { markdownToBasecampHtml } from "./outbound/format.js";
 import { chunkMarkdownText, BASECAMP_TEXT_CHUNK_LIMIT } from "./adapters/outbound.js";
 import { createStructuredLog } from "./logging.js";
+import { CircuitBreaker } from "./bcq.js";
+import { recordCircuitBreakerState } from "./metrics.js";
+
+/** Per-account outbound circuit breakers. Separate from poller CBs. */
+const outboundCircuitBreakers = new Map<string, CircuitBreaker>();
+
+function getOutboundCircuitBreaker(cfg: OpenClawConfig, accountId: string): CircuitBreaker {
+  let cb = outboundCircuitBreakers.get(accountId);
+  if (!cb) {
+    const cbConfig = resolveCircuitBreakerConfig(cfg);
+    cb = new CircuitBreaker({ threshold: cbConfig.threshold, cooldownMs: cbConfig.cooldownMs });
+    outboundCircuitBreakers.set(accountId, cb);
+  }
+  return cb;
+}
 
 export type DispatchOptions = {
   /** The resolved account that received this event. */
@@ -170,6 +185,10 @@ export async function dispatchBasecampEvent(
   // ----- Dispatch with buffered block dispatcher -----
   let dispatchHadError = false;
 
+  // Outbound circuit breaker: fail fast when Basecamp API is persistently down.
+  const outboundCb = getOutboundCircuitBreaker(cfg, outboundAccount.accountId);
+  const outboundCbKey = "outbound";
+
   await runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
     ctx,
     cfg,
@@ -193,6 +212,7 @@ export async function dispatchBasecampEvent(
             accountId: outboundBcqAccountId,
             profile: outboundProfile,
             retries: 2,
+            circuitBreaker: { instance: outboundCb, key: outboundCbKey },
           });
 
           if (!result.ok) {
@@ -211,11 +231,13 @@ export async function dispatchBasecampEvent(
           type: errorType,
           error: String(err),
         });
+        syncOutboundCircuitBreakerMetrics(outboundCb, outboundCbKey, account.accountId, cfg);
       },
     },
   });
 
   if (!dispatchHadError) {
+    syncOutboundCircuitBreakerMetrics(outboundCb, outboundCbKey, account.accountId, cfg);
     slog.info("delivered", {
       agent: route.agentId,
       event: msg.meta.eventKind,
@@ -383,5 +405,28 @@ function buildUntrustedContext(msg: BasecampInboundMessage): string[] {
   }
 
   return lines;
+}
+
+/**
+ * Sync outbound circuit breaker state to the metrics registry.
+ */
+function syncOutboundCircuitBreakerMetrics(
+  cb: CircuitBreaker,
+  key: string,
+  accountId: string,
+  cfg: OpenClawConfig,
+): void {
+  const state = cb.getState(key);
+  if (!state) return;
+  const cbConfig = resolveCircuitBreakerConfig(cfg);
+  let derived: "closed" | "open" | "half-open" = "closed";
+  if (state.trippedAt != null) {
+    derived = Date.now() - state.trippedAt >= cbConfig.cooldownMs ? "half-open" : "open";
+  }
+  recordCircuitBreakerState(accountId, key, {
+    state: derived,
+    failures: state.failures,
+    trippedAt: state.trippedAt,
+  });
 }
 

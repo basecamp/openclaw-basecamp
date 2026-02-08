@@ -21,6 +21,7 @@ vi.mock("../src/config.js", () => ({
   resolveBasecampAccount: vi.fn(),
   resolveBasecampDmPolicy: vi.fn(() => "open"),
   resolveBasecampAllowFrom: vi.fn(() => []),
+  resolveCircuitBreakerConfig: vi.fn(() => ({ threshold: 5, cooldownMs: 300000 })),
 }));
 vi.mock("../src/outbound/send.js", () => ({
   postReplyToEvent: vi.fn(),
@@ -319,5 +320,48 @@ describe("dispatch outbound reliability", () => {
         recordingId: "LINE_99",
       }),
     );
+  });
+
+  it("passes outbound circuit breaker to postReplyToEvent", async () => {
+    vi.mocked(postReplyToEvent).mockResolvedValue({ ok: true, messageId: "1" });
+
+    await dispatchBasecampEvent(mockMsg, { account: mockAccount });
+
+    const call =
+      mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock
+        .calls[0][0];
+    const deliver = call.dispatcherOptions.deliver;
+    await deliver({ text: "CB test" }, {});
+
+    expect(postReplyToEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        circuitBreaker: expect.objectContaining({
+          key: "outbound",
+          instance: expect.anything(),
+        }),
+      }),
+    );
+  });
+
+  it("uses same circuit breaker key 'outbound' across multiple dispatches", async () => {
+    vi.mocked(postReplyToEvent).mockResolvedValue({ ok: true, messageId: "1" });
+
+    await dispatchBasecampEvent(mockMsg, { account: mockAccount });
+    await dispatchBasecampEvent(mockMsg, { account: mockAccount });
+
+    const calls =
+      mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock.calls;
+    const deliver1 = calls[0][0].dispatcherOptions.deliver;
+    const deliver2 = calls[1][0].dispatcherOptions.deliver;
+    await deliver1({ text: "First" }, {});
+    await deliver2({ text: "Second" }, {});
+
+    // Both calls should use the same CB key
+    const call1Args = vi.mocked(postReplyToEvent).mock.calls[0][0] as any;
+    const call2Args = vi.mocked(postReplyToEvent).mock.calls[1][0] as any;
+    expect(call1Args.circuitBreaker.key).toBe("outbound");
+    expect(call2Args.circuitBreaker.key).toBe("outbound");
+    // Same CB instance (shared per account)
+    expect(call1Args.circuitBreaker.instance).toBe(call2Args.circuitBreaker.instance);
   });
 });
