@@ -19,6 +19,7 @@ import { resolvePersonaAccountId, resolveBasecampAccount, resolveBasecampDmPolic
 import { postReplyToEvent } from "./outbound/send.js";
 import { markdownToBasecampHtml } from "./outbound/format.js";
 import { chunkMarkdownText, BASECAMP_TEXT_CHUNK_LIMIT } from "./adapters/outbound.js";
+import { createStructuredLog } from "./logging.js";
 
 export type DispatchOptions = {
   /** The resolved account that received this event. */
@@ -40,11 +41,12 @@ export async function dispatchBasecampEvent(
   const runtime = getBasecampRuntime();
   const cfg = runtime.config.loadConfig();
   const { account, log } = options;
+  const slog = createStructuredLog(log, { accountId: account.accountId, source: "dispatch" });
 
   // ----- Self-message filtering -----
   // Skip messages from our own service account to avoid loops.
   if (msg.sender.id === account.personId) {
-    log?.debug?.(`[${account.accountId}] skipping self-message from personId=${msg.sender.id}`);
+    slog.debug("self_message_skipped", { personId: msg.sender.id });
     return false;
   }
 
@@ -63,7 +65,7 @@ export async function dispatchBasecampEvent(
   });
 
   if (!route) {
-    log?.debug?.(`[${account.accountId}] no agent route for peer=${msg.peer.id}`);
+    slog.debug("no_route", { peer: msg.peer.id });
     return false;
   }
 
@@ -74,11 +76,13 @@ export async function dispatchBasecampEvent(
   const engagement = classifyEngagement(msg);
   const engagePolicy = resolveEngagePolicy(cfg, msg.meta.bucketId);
   if (!engagePolicy.includes(engagement)) {
-    log?.debug?.(
-      `[${account.accountId}] engagement gate: dropping ` +
-      `engagement=${engagement} event=${msg.meta.eventKind} type=${msg.meta.recordableType} ` +
-      `peer=${msg.peer.id} policy=[${engagePolicy.join(",")}]`,
-    );
+    slog.debug("engagement_gate_dropped", {
+      engagement,
+      event: msg.meta.eventKind,
+      type: msg.meta.recordableType,
+      peer: msg.peer.id,
+      policy: engagePolicy.join(","),
+    });
     return false;
   }
 
@@ -89,28 +93,29 @@ export async function dispatchBasecampEvent(
   if (engagement === "dm") {
     const dmPolicy = resolveBasecampDmPolicy(cfg);
     if (dmPolicy === "disabled") {
-      log?.debug?.(
-        `[${account.accountId}] dm policy: dropping dm from sender=${msg.sender.id} (policy=disabled)`,
-      );
+      slog.debug("dm_policy_dropped", { sender: msg.sender.id, policy: "disabled" });
       return false;
     }
     if (dmPolicy === "pairing" || dmPolicy === "allowlist") {
       const allowFrom = resolveBasecampAllowFrom(cfg);
       if (!allowFrom.includes(msg.sender.id)) {
-        log?.debug?.(
-          `[${account.accountId}] dm policy: dropping dm from sender=${msg.sender.id} ` +
-          `(policy=${dmPolicy}, not in allowFrom=[${allowFrom.join(",")}])`,
-        );
+        slog.debug("dm_policy_dropped", {
+          sender: msg.sender.id,
+          policy: dmPolicy,
+          allowFrom: allowFrom.join(","),
+        });
         return false;
       }
     }
     // dmPolicy === "open" → allow all DMs through
   }
 
-  log?.info?.(
-    `[${account.accountId}] dispatching to agent=${route.agentId} via ${route.matchedBy} ` +
-    `peer=${msg.peer.kind}:${msg.peer.id} recordableType=${msg.meta.recordableType}`,
-  );
+  slog.info("dispatching", {
+    agent: route.agentId,
+    matchedBy: route.matchedBy,
+    peer: `${msg.peer.kind}:${msg.peer.id}`,
+    recordableType: msg.meta.recordableType,
+  });
 
   // ----- Resolve persona for outbound -----
   // The agent may have a dedicated Basecamp persona (service account).
@@ -126,10 +131,10 @@ export async function dispatchBasecampEvent(
     outboundAccount.config.bcqAccountId ??
     (/^\d+$/.test(outboundAccount.accountId) ? outboundAccount.accountId : undefined);
   if (!outboundBcqAccountId) {
-    log?.error(
-      `[${account.accountId}] outbound dispatch: unable to resolve bcq account id for outbound account ` +
-      `"${outboundAccount.accountId}". Set config.bcqAccountId to a valid Basecamp account id.`,
-    );
+    slog.error("outbound_account_id_missing", {
+      outboundAccount: outboundAccount.accountId,
+      hint: "Set config.bcqAccountId to a valid Basecamp account id",
+    });
     return false;
   }
 
@@ -198,26 +203,24 @@ export async function dispatchBasecampEvent(
       onError: (err) => {
         dispatchHadError = true;
         const errorType = classifyDispatchError(err);
-        log?.error?.(
-          `[basecamp:dispatch] failed — ` +
-          `agent=${route.agentId} ` +
-          `event=${msg.meta.eventKind} ` +
-          `recording=${msg.meta.recordingId} ` +
-          `account=${account.accountId} ` +
-          `sender=${msg.sender.id} ` +
-          `type=${errorType} ` +
-          `error=${String(err)}`,
-        );
+        slog.error("delivery_failed", {
+          agent: route.agentId,
+          event: msg.meta.eventKind,
+          recording: msg.meta.recordingId,
+          sender: msg.sender.id,
+          type: errorType,
+          error: String(err),
+        });
       },
     },
   });
 
   if (!dispatchHadError) {
-    log?.info?.(
-      `[basecamp:dispatch] delivered — ` +
-      `agent=${route.agentId} event=${msg.meta.eventKind} ` +
-      `account=${account.accountId} recording=${msg.meta.recordingId}`,
-    );
+    slog.info("delivered", {
+      agent: route.agentId,
+      event: msg.meta.eventKind,
+      recording: msg.meta.recordingId,
+    });
   }
 
   return true;
