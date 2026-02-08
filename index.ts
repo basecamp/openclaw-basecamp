@@ -3,6 +3,7 @@ import { emptyPluginConfigSchema } from "openclaw/plugin-sdk";
 import { basecampChannel } from "./src/channel.js";
 import { setBasecampRuntime } from "./src/runtime.js";
 import { handleBasecampWebhook } from "./src/inbound/webhooks.js";
+import { getSurfacePrompt } from "./src/hooks/agent-prompt-context.js";
 
 const plugin = {
   id: "openclaw-basecamp",
@@ -17,6 +18,13 @@ const plugin = {
     api.registerHttpRoute({
       path: "/webhooks/basecamp",
       handler: handleBasecampWebhook,
+    });
+    api.on("before_agent_start", (event) => {
+      const lines = event.prompt.split(/\r?\n/).filter((l) => l.startsWith("[basecamp] "));
+      const surfacePrompt = getSurfacePrompt(lines);
+      if (surfacePrompt) {
+        return { prependContext: surfacePrompt };
+      }
     });
   },
 };
