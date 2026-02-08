@@ -245,6 +245,7 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
 
       // Auto-register webhooks for configured projects
       const whConfig = resolveWebhooksConfig(ctx.cfg);
+      let webhookActiveProjects: Set<string> | undefined;
       if (whConfig.autoRegister && whConfig.payloadUrl && whConfig.projects.length > 0) {
         const registry = getWebhookSecretRegistry(account.accountId);
         try {
@@ -266,6 +267,11 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
           ctx.log?.info(
             `[${account.accountId}] webhook reconciliation: ${result.created.length} created, ${result.existing.length} existing, ${result.failed.length} failed`,
           );
+          // Projects with active webhooks (created or already existing)
+          const active = [...result.created, ...result.existing];
+          if (active.length > 0) {
+            webhookActiveProjects = new Set(active);
+          }
         } catch (err) {
           ctx.log?.error(
             `[${account.accountId}] webhook reconciliation failed: ${String(err)}`,
@@ -306,6 +312,7 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
           abortSignal: ctx.abortSignal,
           onEvent,
           stateDir,
+          webhookActiveProjects,
           log: {
             info: (msg) => ctx.log?.info?.(msg),
             warn: (msg) => ctx.log?.warn?.(msg),

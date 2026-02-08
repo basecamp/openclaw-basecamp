@@ -42,6 +42,10 @@ export interface CompositePollerOptions {
     error: (msg: string) => void;
   };
   stateDir?: string;
+  /** Projects with active webhook subscriptions. When non-empty, the activity
+   *  poll interval is extended (5x) since webhooks provide real-time delivery
+   *  and polling becomes a reconciliation mechanism. */
+  webhookActiveProjects?: Set<string>;
 }
 
 function abortableSleep(ms: number, signal?: AbortSignal): Promise<void> {
@@ -87,7 +91,12 @@ export async function startCompositePoller(
   const slog = createStructuredLog(log, { accountId: account.accountId, source: "poller" });
 
   const intervals = resolvePollingIntervals(cfg);
-  const activityIntervalMs = intervals.activityIntervalMs;
+  const webhookActive = opts.webhookActiveProjects && opts.webhookActiveProjects.size > 0;
+  // When webhooks are active, activity polling becomes reconciliation — extend interval 5x
+  const WEBHOOK_RECONCILIATION_MULTIPLIER = 5;
+  const activityIntervalMs = webhookActive
+    ? intervals.activityIntervalMs * WEBHOOK_RECONCILIATION_MULTIPLIER
+    : intervals.activityIntervalMs;
   const readingsIntervalMs = intervals.readingsIntervalMs;
   const assignmentsIntervalMs = intervals.assignmentsIntervalMs;
 
@@ -167,7 +176,12 @@ export async function startCompositePoller(
     }
   }
 
-  slog.info("started", { activityMs: activityIntervalMs, readingsMs: readingsIntervalMs, assignmentsMs: assignmentsIntervalMs });
+  slog.info("started", {
+    activityMs: activityIntervalMs,
+    readingsMs: readingsIntervalMs,
+    assignmentsMs: assignmentsIntervalMs,
+    ...(webhookActive ? { mode: "reconciliation", webhookProjects: opts.webhookActiveProjects!.size } : { mode: "primary" }),
+  });
 
   while (!abortSignal?.aborted) {
     const now = Date.now();
