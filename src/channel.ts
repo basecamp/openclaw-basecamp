@@ -35,7 +35,7 @@ import { resolveOutboundTarget, chunkMarkdownText, BASECAMP_TEXT_CHUNK_LIMIT } f
 import { basecampMentionAdapter } from "./adapters/mentions.js";
 import { basecampActionsAdapter } from "./adapters/actions.js";
 import { basecampAgentTools } from "./adapters/agent-tools.js";
-import { setWebhookStateDir, flushWebhookDedup } from "./inbound/webhooks.js";
+import { setWebhookStateDir, flushWebhookDedup, flushWebhookSecrets } from "./inbound/webhooks.js";
 
 export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampProbe, BasecampAudit> = {
   id: "basecamp",
@@ -282,8 +282,9 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
           },
         });
       } finally {
-        // Flush webhook dedup stores before marking as stopped
+        // Flush webhook dedup + secret stores before marking as stopped
         flushWebhookDedup();
+        flushWebhookSecrets();
         ctx.setStatus({
           accountId: account.accountId,
           running: false,
