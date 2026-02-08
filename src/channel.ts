@@ -15,6 +15,7 @@ import {
   resolveBasecampAccountAsync,
   resolveDefaultBasecampAccountId,
   resolveBasecampAllowFrom,
+  resolveWebhooksConfig,
 } from "./config.js";
 import { getBasecampRuntime } from "./runtime.js";
 import { sendBasecampText } from "./outbound/send.js";
@@ -35,7 +36,8 @@ import { resolveOutboundTarget, chunkMarkdownText, BASECAMP_TEXT_CHUNK_LIMIT } f
 import { basecampMentionAdapter } from "./adapters/mentions.js";
 import { basecampActionsAdapter } from "./adapters/actions.js";
 import { basecampAgentTools } from "./adapters/agent-tools.js";
-import { setWebhookStateDir, flushWebhookDedup, flushWebhookSecrets } from "./inbound/webhooks.js";
+import { setWebhookStateDir, flushWebhookDedup, flushWebhookSecrets, getWebhookSecretRegistry } from "./inbound/webhooks.js";
+import { reconcileWebhooks, deactivateWebhooks } from "./inbound/webhook-lifecycle.js";
 
 export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampProbe, BasecampAudit> = {
   id: "basecamp",
@@ -241,6 +243,36 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
       // Share state directory with webhook handler for persistent dedup
       setWebhookStateDir(stateDir);
 
+      // Auto-register webhooks for configured projects
+      const whConfig = resolveWebhooksConfig(ctx.cfg);
+      if (whConfig.autoRegister && whConfig.payloadUrl && whConfig.projects.length > 0) {
+        const registry = getWebhookSecretRegistry(account.accountId);
+        try {
+          const result = await reconcileWebhooks(
+            {
+              payloadUrl: whConfig.payloadUrl,
+              projects: whConfig.projects,
+              types: whConfig.types,
+              bcqOpts: { accountId: account.config.bcqAccountId, profile: account.bcqProfile },
+            },
+            registry,
+            ctx.log ? {
+              info: (e, d) => ctx.log?.info?.(`[${account.accountId}] ${e} ${d ? JSON.stringify(d) : ""}`),
+              warn: (e, d) => ctx.log?.warn?.(`[${account.accountId}] ${e} ${d ? JSON.stringify(d) : ""}`),
+              error: (e, d) => ctx.log?.error?.(`[${account.accountId}] ${e} ${d ? JSON.stringify(d) : ""}`),
+              debug: (e, d) => ctx.log?.debug?.(`[${account.accountId}] ${e} ${d ? JSON.stringify(d) : ""}`),
+            } : undefined,
+          );
+          ctx.log?.info(
+            `[${account.accountId}] webhook reconciliation: ${result.created.length} created, ${result.existing.length} existing, ${result.failed.length} failed`,
+          );
+        } catch (err) {
+          ctx.log?.error(
+            `[${account.accountId}] webhook reconciliation failed: ${String(err)}`,
+          );
+        }
+      }
+
       // Event handler: filter self-messages, then dispatch to OpenClaw agents.
       // Returns true if dispatched to an agent, false if dropped (no route,
       // engagement gate, DM policy, etc.).
@@ -282,6 +314,33 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
           },
         });
       } finally {
+        // Deactivate webhooks on shutdown if configured
+        const whShutdownConfig = resolveWebhooksConfig(ctx.cfg);
+        if (whShutdownConfig.deactivateOnStop && whShutdownConfig.payloadUrl && whShutdownConfig.projects.length > 0) {
+          const registry = getWebhookSecretRegistry(account.accountId);
+          try {
+            await deactivateWebhooks(
+              {
+                payloadUrl: whShutdownConfig.payloadUrl,
+                projects: whShutdownConfig.projects,
+                types: whShutdownConfig.types,
+                bcqOpts: { accountId: account.config.bcqAccountId, profile: account.bcqProfile },
+              },
+              registry,
+              ctx.log ? {
+                info: (e, d) => ctx.log?.info?.(`[${account.accountId}] ${e} ${d ? JSON.stringify(d) : ""}`),
+                warn: (e, d) => ctx.log?.warn?.(`[${account.accountId}] ${e} ${d ? JSON.stringify(d) : ""}`),
+                error: (e, d) => ctx.log?.error?.(`[${account.accountId}] ${e} ${d ? JSON.stringify(d) : ""}`),
+                debug: (e, d) => ctx.log?.debug?.(`[${account.accountId}] ${e} ${d ? JSON.stringify(d) : ""}`),
+              } : undefined,
+            );
+          } catch (err) {
+            ctx.log?.error(
+              `[${account.accountId}] webhook deactivation failed: ${String(err)}`,
+            );
+          }
+        }
+
         // Flush webhook dedup + secret stores before marking as stopped
         flushWebhookDedup();
         flushWebhookSecrets();

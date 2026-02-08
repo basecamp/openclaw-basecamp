@@ -498,6 +498,71 @@ export async function bcqProfileList(opts: BcqOptions = {}): Promise<BcqResult<s
 }
 
 // ---------------------------------------------------------------------------
+// Webhook CRUD wrappers (bcq webhooks commands)
+// ---------------------------------------------------------------------------
+
+/** Shape returned by `bcq webhooks list` and `bcq webhooks create`. */
+export interface BcqWebhook {
+  id: number;
+  active: boolean;
+  payload_url: string;
+  types?: string[];
+  kinds?: string[];
+  /** Only returned on create. */
+  secret?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+/**
+ * List webhooks for a project.
+ * `bcq webhooks list --in <projectId> --json`
+ */
+export async function bcqWebhookList(
+  projectId: string,
+  opts: BcqOptions = {},
+): Promise<BcqResult<BcqWebhook[]>> {
+  const fn = () =>
+    execBcq<BcqWebhook[]>(["webhooks", "list", "--in", projectId], opts);
+  return opts.retry ? withRetry(fn, opts.retry) : fn();
+}
+
+/**
+ * Create a webhook for a project.
+ * `bcq webhooks create --in <projectId> --url <url> [--types <types>]`
+ *
+ * IMPORTANT: The `secret` field is only returned in the create response.
+ * Callers must persist it immediately.
+ */
+export async function bcqWebhookCreate(
+  projectId: string,
+  payloadUrl: string,
+  types?: string[],
+  opts: BcqOptions = {},
+): Promise<BcqResult<BcqWebhook>> {
+  const args = ["webhooks", "create", "--in", projectId, "--url", payloadUrl];
+  if (types && types.length > 0) {
+    args.push("--types", types.join(","));
+  }
+  const fn = () => execBcq<BcqWebhook>(args, opts);
+  return opts.retry ? withRetry(fn, opts.retry) : fn();
+}
+
+/**
+ * Delete a webhook.
+ * `bcq webhooks delete <webhookId> --in <projectId>`
+ */
+export async function bcqWebhookDelete(
+  projectId: string,
+  webhookId: string | number,
+  opts: BcqOptions = {},
+): Promise<BcqResult<unknown>> {
+  const fn = () =>
+    execBcq(["webhooks", "delete", String(webhookId), "--in", projectId], opts);
+  return opts.retry ? withRetry(fn, opts.retry) : fn();
+}
+
+// ---------------------------------------------------------------------------
 // Interactive auth helpers (used by channel auth adapter)
 // ---------------------------------------------------------------------------
 
