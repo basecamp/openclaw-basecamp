@@ -17,6 +17,7 @@ import type {
   BasecampInboundMessage,
   ResolvedBasecampAccount,
 } from "../types.js";
+import type { CircuitBreaker } from "../bcq.js";
 import { bcqAssignments } from "../bcq.js";
 import { normalizeAssignmentTodo } from "./normalize.js";
 
@@ -32,6 +33,8 @@ export interface AssignmentsPollerOptions {
   knownIds: Set<string>;
   /** True if this is the first poll (bootstrap — don't emit events). */
   isBootstrap: boolean;
+  /** Circuit breaker for fail-fast on repeated API failures. */
+  circuitBreaker?: { instance: CircuitBreaker; key: string };
   log?: {
     info: (msg: string) => void;
     warn: (msg: string) => void;
@@ -95,6 +98,7 @@ export async function pollAssignments(
   const result = await bcqAssignments({
     accountId: account.config.bcqAccountId,
     profile: account.bcqProfile,
+    circuitBreaker: opts.circuitBreaker,
   });
 
   const todos = extractTodos(result.data);

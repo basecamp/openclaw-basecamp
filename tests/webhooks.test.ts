@@ -54,6 +54,7 @@ vi.mock("../src/inbound/normalize.js", () => ({
 import { Semaphore, handleBasecampWebhook, setWebhookStateDir, flushWebhookDedup } from "../src/inbound/webhooks.js";
 import { resolveDefaultBasecampAccountId, resolveWebhookSecret, resolveAccountForBucket, listBasecampAccountIds } from "../src/config.js";
 import { dispatchBasecampEvent } from "../src/dispatch.js";
+import { getAccountMetrics, clearMetrics } from "../src/metrics.js";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -401,5 +402,111 @@ describe("webhook dedup persistence", () => {
     // Clean up temp directory
     const { rmSync } = await import("node:fs");
     rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Webhook metrics recording
+// ---------------------------------------------------------------------------
+
+describe("handleBasecampWebhook — metrics", () => {
+  beforeEach(async () => {
+    clearMetrics();
+    // Ensure resolveBasecampAccount returns the expected default mock
+    const { resolveBasecampAccount } = await import("../src/config.js");
+    vi.mocked(resolveBasecampAccount).mockReturnValue({
+      accountId: "default",
+      enabled: true,
+      personId: "1",
+      token: "",
+      tokenSource: "none",
+      config: { personId: "1" },
+    } as any);
+  });
+
+  afterEach(() => {
+    clearMetrics();
+  });
+
+  it("records received and dispatched metrics on successful webhook", async () => {
+    const payload = JSON.stringify({
+      kind: "comment_created",
+      created_at: "2025-01-01T00:00:00Z",
+      recording: { id: 1, type: "Comment", bucket: { id: 100, name: "Test" } },
+      creator: { id: 2, name: "Tester" },
+    });
+    const req = mockReq("POST", "/webhooks/basecamp?token=test-secret-123", payload);
+    const res = mockRes();
+    await handleBasecampWebhook(req, res);
+    expect(res.status).toBe(200);
+
+    const metrics = getAccountMetrics("default");
+    expect(metrics).toBeDefined();
+    expect(metrics!.webhook.receivedCount).toBe(1);
+    expect(metrics!.webhook.dispatchedCount).toBe(1);
+    expect(metrics!.webhook.droppedCount).toBe(0);
+    expect(metrics!.webhook.errorCount).toBe(0);
+  });
+
+  it("records dropped metric when self-message is filtered", async () => {
+    const { isSelfMessage } = await import("../src/inbound/normalize.js");
+    vi.mocked(isSelfMessage).mockReturnValueOnce(true);
+
+    const payload = JSON.stringify({
+      kind: "comment_created",
+      created_at: "2025-01-01T00:00:00Z",
+      recording: { id: 1, type: "Comment", bucket: { id: 100, name: "Test" } },
+      creator: { id: 2, name: "Tester" },
+    });
+    const req = mockReq("POST", "/webhooks/basecamp?token=test-secret-123", payload);
+    const res = mockRes();
+    await handleBasecampWebhook(req, res);
+
+    const metrics = getAccountMetrics("default");
+    expect(metrics).toBeDefined();
+    expect(metrics!.webhook.receivedCount).toBe(1);
+    expect(metrics!.webhook.droppedCount).toBe(1);
+    expect(metrics!.webhook.dispatchedCount).toBe(0);
+  });
+
+  it("records dropped metric when dispatch returns false (route miss / policy drop)", async () => {
+    vi.mocked(dispatchBasecampEvent).mockResolvedValueOnce(false);
+
+    const payload = JSON.stringify({
+      kind: "comment_created",
+      created_at: "2025-01-01T00:00:00Z",
+      recording: { id: 1, type: "Comment", bucket: { id: 100, name: "Test" } },
+      creator: { id: 2, name: "Tester" },
+    });
+    const req = mockReq("POST", "/webhooks/basecamp?token=test-secret-123", payload);
+    const res = mockRes();
+    await handleBasecampWebhook(req, res);
+
+    const metrics = getAccountMetrics("default");
+    expect(metrics).toBeDefined();
+    expect(metrics!.webhook.receivedCount).toBe(1);
+    expect(metrics!.webhook.droppedCount).toBe(1);
+    expect(metrics!.webhook.dispatchedCount).toBe(0);
+    expect(metrics!.webhook.errorCount).toBe(0);
+  });
+
+  it("records error metric on dispatch failure", async () => {
+    vi.mocked(dispatchBasecampEvent).mockRejectedValueOnce(new Error("dispatch failed"));
+
+    const payload = JSON.stringify({
+      kind: "comment_created",
+      created_at: "2025-01-01T00:00:00Z",
+      recording: { id: 1, type: "Comment", bucket: { id: 100, name: "Test" } },
+      creator: { id: 2, name: "Tester" },
+    });
+    const req = mockReq("POST", "/webhooks/basecamp?token=test-secret-123", payload);
+    const res = mockRes();
+    await handleBasecampWebhook(req, res);
+
+    const metrics = getAccountMetrics("default");
+    expect(metrics).toBeDefined();
+    expect(metrics!.webhook.receivedCount).toBe(1);
+    expect(metrics!.webhook.errorCount).toBe(1);
+    expect(metrics!.webhook.dispatchedCount).toBe(0);
   });
 });

@@ -20,6 +20,7 @@ import { dispatchBasecampEvent } from "../dispatch.js";
 import { getBasecampRuntime } from "../runtime.js";
 import { resolveBasecampAccount, resolveDefaultBasecampAccountId, resolveWebhookSecret, resolveAccountForBucket, listBasecampAccountIds } from "../config.js";
 import { createConsoleStructuredLog } from "../logging.js";
+import { recordWebhookReceived, recordWebhookDispatched, recordWebhookDropped, recordWebhookError, recordWebhookDedupSize } from "../metrics.js";
 
 // ---------------------------------------------------------------------------
 // Concurrency limiter
@@ -255,6 +256,7 @@ export async function handleBasecampWebhook(
   }
 
   const slog = createConsoleStructuredLog({ accountId: account.accountId, source: "webhook" });
+  recordWebhookReceived(account.accountId);
 
   // Normalize
   let msg;
@@ -262,11 +264,13 @@ export async function handleBasecampWebhook(
     msg = normalizeWebhookPayload(payload, account);
   } catch (err) {
     slog.error("normalization_error", { error: String(err), stack: err instanceof Error ? err.stack : undefined });
+    recordWebhookError(account.accountId);
     return;
   }
 
   // Self-message filter
   if (isSelfMessage(msg.sender.id, account)) {
+    recordWebhookDropped(account.accountId);
     return;
   }
 
@@ -276,12 +280,16 @@ export async function handleBasecampWebhook(
     ? EventDedup.secondaryKey(msg.meta.recordingId, msg.meta.eventKind, msg.createdAt)
     : undefined;
   if (dedup.isDuplicate(msg.dedupKey, secondaryKey)) {
+    recordWebhookDropped(account.accountId);
+    recordWebhookDedupSize(account.accountId, dedup.size);
     return;
   }
 
   // Check backpressure before processing
   if (dispatchSemaphore.pending >= MAX_QUEUED_DISPATCHES) {
     slog.error("queue_full");
+    recordWebhookDropped(account.accountId);
+    recordWebhookDedupSize(account.accountId, dedup.size);
     return;
   }
   if (dispatchSemaphore.pending > 0) {
@@ -291,10 +299,17 @@ export async function handleBasecampWebhook(
   // Dispatch with concurrency limit
   await dispatchSemaphore.acquire();
   try {
-    await dispatchBasecampEvent(msg, { account });
+    const delivered = await dispatchBasecampEvent(msg, { account });
+    if (delivered) {
+      recordWebhookDispatched(account.accountId);
+    } else {
+      recordWebhookDropped(account.accountId);
+    }
   } catch (err) {
     slog.error("dispatch_error", { error: String(err), stack: err instanceof Error ? err.stack : undefined });
+    recordWebhookError(account.accountId);
   } finally {
+    recordWebhookDedupSize(account.accountId, dedup.size);
     dispatchSemaphore.release();
   }
 }

@@ -19,10 +19,22 @@ vi.mock("../src/config.js", () => ({
 }));
 
 import { basecampStatusAdapter } from "../src/adapters/status.js";
-import type { BasecampProbe } from "../src/adapters/status.js";
+import type { BasecampProbe, BasecampAudit } from "../src/adapters/status.js";
 import { bcqAuthStatus, bcqMe, bcqApiGet } from "../src/bcq.js";
 import { resolveBasecampAccount } from "../src/config.js";
 import type { ResolvedBasecampAccount } from "../src/types.js";
+import {
+  recordPollAttempt,
+  recordPollSuccess,
+  recordWebhookReceived,
+  recordWebhookDispatched,
+  recordWebhookDropped,
+  recordWebhookError,
+  recordDedupSize,
+  recordWebhookDedupSize,
+  recordCircuitBreakerState,
+  clearMetrics,
+} from "../src/metrics.js";
 
 function cfg(basecamp?: Record<string, unknown>) {
   if (!basecamp) return {} as any;
@@ -41,6 +53,7 @@ const mockAccount: ResolvedBasecampAccount = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  clearMetrics();
   vi.mocked(resolveBasecampAccount).mockReturnValue(mockAccount);
 });
 
@@ -346,5 +359,259 @@ describe("buildAccountSnapshot (enhanced)", () => {
 
     expect(snapshot.personName).toBe("Jeremy");
     expect(snapshot.accountCount).toBe(3);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Operational metrics in probe
+// ---------------------------------------------------------------------------
+
+describe("probeAccount operational metrics", () => {
+  it("attaches metrics snapshot to probe when available", async () => {
+    vi.mocked(bcqAuthStatus).mockResolvedValue({
+      data: { authenticated: true },
+      raw: "",
+    });
+    vi.mocked(bcqMe).mockResolvedValue({
+      data: { name: "Jeremy", accounts: [{}] },
+      raw: "",
+    } as any);
+
+    // Seed some metrics for the test account
+    recordPollAttempt("test", "activity");
+    recordPollSuccess("test", "activity", 5);
+    recordWebhookReceived("test");
+
+    const probe = await basecampStatusAdapter.probeAccount!({
+      account: mockAccount,
+      timeoutMs: 5000,
+      cfg: cfg({}),
+    });
+
+    expect(probe.metrics).toBeDefined();
+    expect(probe.metrics!.poller.activity.pollCount).toBe(1);
+    expect(probe.metrics!.poller.activity.dispatchCount).toBe(5);
+    expect(probe.metrics!.webhook.receivedCount).toBe(1);
+  });
+
+  it("returns undefined metrics when no data recorded", async () => {
+    vi.mocked(bcqAuthStatus).mockResolvedValue({
+      data: { authenticated: true },
+      raw: "",
+    });
+    vi.mocked(bcqMe).mockResolvedValue({
+      data: { name: "Jeremy" },
+      raw: "",
+    } as any);
+
+    const probe = await basecampStatusAdapter.probeAccount!({
+      account: mockAccount,
+      timeoutMs: 5000,
+      cfg: cfg({}),
+    });
+
+    expect(probe.metrics).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Operational metrics in audit
+// ---------------------------------------------------------------------------
+
+describe("auditAccount operational metrics", () => {
+  it("includes poller lag in audit", async () => {
+    vi.mocked(bcqApiGet).mockResolvedValue([]);
+
+    // Simulate successful polls with known timestamps
+    recordPollSuccess("test", "activity", 1);
+    recordPollSuccess("test", "readings", 2);
+    // assignments never polled — should be null
+
+    const audit = await basecampStatusAdapter.auditAccount!({
+      account: mockAccount,
+      timeoutMs: 5000,
+      cfg: cfg({ accounts: { test: { personId: "42" } } }),
+    });
+
+    expect(audit.pollerLag).toBeDefined();
+    // Activity and readings should have a lag >= 0 (just polled)
+    expect(audit.pollerLag!.activity).toBeTypeOf("number");
+    expect(audit.pollerLag!.activity).toBeGreaterThanOrEqual(0);
+    expect(audit.pollerLag!.readings).toBeTypeOf("number");
+    // Assignments never polled
+    expect(audit.pollerLag!.assignments).toBeNull();
+  });
+
+  it("includes webhook stats in audit", async () => {
+    vi.mocked(bcqApiGet).mockResolvedValue([]);
+
+    recordWebhookReceived("test");
+    recordWebhookReceived("test");
+    recordWebhookDispatched("test");
+    recordWebhookDropped("test");
+    recordWebhookError("test");
+
+    const audit = await basecampStatusAdapter.auditAccount!({
+      account: mockAccount,
+      timeoutMs: 5000,
+      cfg: cfg({ accounts: { test: { personId: "42" } } }),
+    });
+
+    expect(audit.webhookStats).toEqual({
+      received: 2,
+      dispatched: 1,
+      dropped: 1,
+      errors: 1,
+    });
+  });
+
+  it("includes dedup sizes in audit", async () => {
+    vi.mocked(bcqApiGet).mockResolvedValue([]);
+
+    recordDedupSize("test", 100);
+    recordWebhookDedupSize("test", 25);
+
+    const audit = await basecampStatusAdapter.auditAccount!({
+      account: mockAccount,
+      timeoutMs: 5000,
+      cfg: cfg({ accounts: { test: { personId: "42" } } }),
+    });
+
+    expect(audit.dedupSize).toBe(100);
+    expect(audit.webhookDedupSize).toBe(25);
+  });
+
+  it("includes circuit breaker state in audit", async () => {
+    vi.mocked(bcqApiGet).mockResolvedValue([]);
+
+    recordCircuitBreakerState("test", "outbound", {
+      state: "open",
+      failures: 5,
+      trippedAt: Date.now(),
+    });
+
+    const audit = await basecampStatusAdapter.auditAccount!({
+      account: mockAccount,
+      timeoutMs: 5000,
+      cfg: cfg({ accounts: { test: { personId: "42" } } }),
+    });
+
+    expect(audit.circuitBreakers).toBeDefined();
+    expect(audit.circuitBreakers!["outbound"]).toEqual({
+      state: "open",
+      failures: 5,
+    });
+  });
+
+  it("omits circuit breakers when none recorded", async () => {
+    vi.mocked(bcqApiGet).mockResolvedValue([]);
+
+    recordPollAttempt("test", "activity");
+
+    const audit = await basecampStatusAdapter.auditAccount!({
+      account: mockAccount,
+      timeoutMs: 5000,
+      cfg: cfg({ accounts: { test: { personId: "42" } } }),
+    });
+
+    expect(audit.circuitBreakers).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// collectStatusIssues — operational issues
+// ---------------------------------------------------------------------------
+
+describe("collectStatusIssues (operational)", () => {
+  it("flags lagging poller sources", () => {
+    const audit: BasecampAudit = {
+      projectsAccessible: 1,
+      personasMapped: 0,
+      personasValid: 0,
+      errors: [],
+      pollerLag: {
+        activity: 700, // > 600s threshold
+        readings: 30,
+        assignments: null,
+      },
+    };
+
+    const issues = basecampStatusAdapter.collectStatusIssues!([
+      {
+        accountId: "test",
+        running: true,
+        configured: true,
+        enabled: true,
+        lastStartAt: Date.now(),
+        lastStopAt: null,
+        lastError: null,
+        probe: { ok: true, authenticated: true },
+        audit,
+      },
+    ]);
+
+    const lagIssues = issues.filter((i) => i.message.includes("lagging"));
+    expect(lagIssues).toHaveLength(1);
+    expect(lagIssues[0]!.message).toContain("activity");
+    expect(lagIssues[0]!.message).toContain("700s");
+  });
+
+  it("flags open circuit breakers", () => {
+    const audit: BasecampAudit = {
+      projectsAccessible: 1,
+      personasMapped: 0,
+      personasValid: 0,
+      errors: [],
+      circuitBreakers: {
+        outbound: { state: "open", failures: 5 },
+        "api-read": { state: "closed", failures: 0 },
+      },
+    };
+
+    const issues = basecampStatusAdapter.collectStatusIssues!([
+      {
+        accountId: "test",
+        running: true,
+        configured: true,
+        enabled: true,
+        lastStartAt: Date.now(),
+        lastStopAt: null,
+        lastError: null,
+        probe: { ok: true, authenticated: true },
+        audit,
+      },
+    ]);
+
+    const cbIssues = issues.filter((i) => i.message.includes("Circuit breaker"));
+    expect(cbIssues).toHaveLength(1);
+    expect(cbIssues[0]!.message).toContain("outbound");
+    expect(cbIssues[0]!.message).toContain("5 failures");
+  });
+
+  it("does not flag closed circuit breakers or healthy pollers", () => {
+    const audit: BasecampAudit = {
+      projectsAccessible: 1,
+      personasMapped: 0,
+      personasValid: 0,
+      errors: [],
+      pollerLag: { activity: 60, readings: 30, assignments: 120 },
+      circuitBreakers: { outbound: { state: "closed", failures: 0 } },
+    };
+
+    const issues = basecampStatusAdapter.collectStatusIssues!([
+      {
+        accountId: "test",
+        running: true,
+        configured: true,
+        enabled: true,
+        lastStartAt: Date.now(),
+        lastStopAt: null,
+        lastError: null,
+        probe: { ok: true, authenticated: true },
+        audit,
+      },
+    ]);
+
+    expect(issues).toHaveLength(0);
   });
 });
