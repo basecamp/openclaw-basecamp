@@ -120,11 +120,11 @@ describe("dispatchBasecampEvent enhanced onError logging", () => {
 
     expect(log.error).toHaveBeenCalledTimes(1);
     const errorMsg = log.error.mock.calls[0][0];
-    expect(errorMsg).toContain("agent=agent-1");
-    expect(errorMsg).toContain("recording=123");
-    expect(errorMsg).toContain("event=created");
-    expect(errorMsg).toContain("sender=777");
-    expect(errorMsg).toContain("type=network");
+    expect(errorMsg).toContain('"agent":"agent-1"');
+    expect(errorMsg).toContain('"recording":"123"');
+    expect(errorMsg).toContain('"event":"created"');
+    expect(errorMsg).toContain('"sender":"777"');
+    expect(errorMsg).toContain('"type":"network"');
   });
 
   it("classifies auth errors correctly", async () => {
@@ -145,7 +145,7 @@ describe("dispatchBasecampEvent enhanced onError logging", () => {
     onError(new Error("401 Unauthorized"));
 
     const errorMsg = log.error.mock.calls[0][0];
-    expect(errorMsg).toContain("type=auth");
+    expect(errorMsg).toContain('"type":"auth"');
   });
 
   it("classifies routing errors correctly", async () => {
@@ -166,7 +166,7 @@ describe("dispatchBasecampEvent enhanced onError logging", () => {
     onError(new Error("no route matched"));
 
     const errorMsg = log.error.mock.calls[0][0];
-    expect(errorMsg).toContain("type=routing");
+    expect(errorMsg).toContain('"type":"routing"');
   });
 
   it("classifies unknown errors correctly", async () => {
@@ -187,7 +187,7 @@ describe("dispatchBasecampEvent enhanced onError logging", () => {
     onError(new Error("something unexpected happened"));
 
     const errorMsg = log.error.mock.calls[0][0];
-    expect(errorMsg).toContain("type=unknown");
+    expect(errorMsg).toContain('"type":"unknown"');
   });
 
   it("classifies 403 Forbidden as auth", async () => {
@@ -195,7 +195,7 @@ describe("dispatchBasecampEvent enhanced onError logging", () => {
     await dispatchBasecampEvent(mockMsg, { account: mockAccount, log });
     const call = mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock.calls[0][0];
     call.dispatcherOptions.onError(new Error("403 Forbidden"));
-    expect(log.error.mock.calls[0][0]).toContain("type=auth");
+    expect(log.error.mock.calls[0][0]).toContain('"type":"auth"');
   });
 
   it("classifies ECONNRESET as network", async () => {
@@ -203,7 +203,7 @@ describe("dispatchBasecampEvent enhanced onError logging", () => {
     await dispatchBasecampEvent(mockMsg, { account: mockAccount, log });
     const call = mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock.calls[0][0];
     call.dispatcherOptions.onError(new Error("ECONNRESET"));
-    expect(log.error.mock.calls[0][0]).toContain("type=network");
+    expect(log.error.mock.calls[0][0]).toContain('"type":"network"');
   });
 
   it("classifies errors with structured status property as auth", async () => {
@@ -213,7 +213,7 @@ describe("dispatchBasecampEvent enhanced onError logging", () => {
     const err = new Error("request failed") as any;
     err.status = 401;
     call.dispatcherOptions.onError(err);
-    expect(log.error.mock.calls[0][0]).toContain("type=auth");
+    expect(log.error.mock.calls[0][0]).toContain('"type":"auth"');
   });
 
   it("classifies HTTP 404 as unknown (not routing)", async () => {
@@ -221,6 +221,6 @@ describe("dispatchBasecampEvent enhanced onError logging", () => {
     await dispatchBasecampEvent(mockMsg, { account: mockAccount, log });
     const call = mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock.calls[0][0];
     call.dispatcherOptions.onError(new Error("HTTP 404 Not Found"));
-    expect(log.error.mock.calls[0][0]).toContain("type=unknown");
+    expect(log.error.mock.calls[0][0]).toContain('"type":"unknown"');
   });
 });

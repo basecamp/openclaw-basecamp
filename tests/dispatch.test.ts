@@ -194,7 +194,7 @@ describe("dispatchBasecampEvent", () => {
 
     expect(result).toBe(false);
     expect(log.error).toHaveBeenCalledTimes(1);
-    expect(log.error.mock.calls[0][0]).toContain("unable to resolve bcq account id");
+    expect(log.error.mock.calls[0][0]).toContain("outbound_account_id_missing");
     expect(
       mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher,
     ).not.toHaveBeenCalled();

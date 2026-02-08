@@ -27,6 +27,7 @@ import { pollReadings } from "./readings.js";
 import { pollAssignments } from "./assignments.js";
 import { bcqMarkReadingsRead } from "../bcq.js";
 import { isSelfMessage } from "./normalize.js";
+import { createStructuredLog } from "../logging.js";
 
 export interface CompositePollerOptions {
   account: ResolvedBasecampAccount;
@@ -60,18 +61,17 @@ function clamp(value: number, min: number, max: number): number {
 /** Save cursors with one retry after 1s delay on failure. */
 async function saveCursorsWithRetry(
   cursors: CursorStore,
-  accountId: string,
-  log?: CompositePollerOptions["log"],
+  slog: ReturnType<typeof createStructuredLog>,
 ): Promise<void> {
   try {
     await cursors.save();
   } catch (err) {
-    log?.warn?.(`[${accountId}] cursor save failed, retrying in 1s: ${String(err)}`);
+    slog.warn("cursor_save_failed", { error: String(err), retrying: true });
     await new Promise((r) => setTimeout(r, 1000));
     try {
       await cursors.save();
     } catch (retryErr) {
-      log?.error?.(`[${accountId}] cursor save retry failed, continuing: ${String(retryErr)}`);
+      slog.error("cursor_save_retry_failed", { error: String(retryErr) });
     }
   }
 }
@@ -83,6 +83,7 @@ export async function startCompositePoller(
   opts: CompositePollerOptions,
 ): Promise<void> {
   const { account, cfg, abortSignal, onEvent, log } = opts;
+  const slog = createStructuredLog(log, { accountId: account.accountId, source: "poller" });
 
   const intervals = resolvePollingIntervals(cfg);
   const activityIntervalMs = intervals.activityIntervalMs;
@@ -98,27 +99,25 @@ export async function startCompositePoller(
   try {
     await mkdir(stateDir, { recursive: true });
     await access(stateDir, constants.W_OK);
-    log?.info?.(`[${account.accountId}] state directory: ${stateDir}`);
+    slog.info("state_directory", { path: stateDir });
   } catch (err) {
-    log?.error?.(`[${account.accountId}] state directory not writable: ${stateDir}: ${String(err)}`);
+    slog.error("state_directory_not_writable", { path: stateDir, error: String(err) });
     throw err;
   }
 
   // Persistent dedup store — survives gateway restarts
   const dedupStore = new JsonFileDedupStore(join(stateDir, `dedup-${account.accountId}.json`));
   const dedup = new EventDedup({ store: dedupStore });
-  log?.info?.(`[${account.accountId}] dedup store: ${dedup.size} entries loaded`);
+  slog.info("dedup_loaded", { entries: dedup.size });
 
   const cursors = new CursorStore(stateDir, account.accountId);
 
   try {
     await cursors.load();
     const c = cursors.get();
-    log?.info?.(
-      "[" + account.accountId + "] loaded cursors: activity=" + (c.activitySince ?? "none") + " readings=" + (c.readingsSince ?? "none"),
-    );
+    slog.info("cursors_loaded", { activity: c.activitySince ?? "none", readings: c.readingsSince ?? "none" });
   } catch (err) {
-    log?.warn?.("[" + account.accountId + "] failed to load cursors, starting fresh: " + String(err));
+    slog.warn("cursors_load_failed", { error: String(err) });
   }
 
   let activityBackoff = 0;
@@ -143,13 +142,11 @@ export async function startCompositePoller(
         assignmentsBootstrapped = true;
       }
     } catch {
-      log?.warn?.(`[${account.accountId}] corrupt assignment cursor — will re-bootstrap`);
+      slog.warn("corrupt_assignment_cursor");
     }
   }
 
-  log?.info?.(
-    "[" + account.accountId + "] composite poller started (activity=" + activityIntervalMs + "ms, readings=" + readingsIntervalMs + "ms, assignments=" + assignmentsIntervalMs + "ms)",
-  );
+  slog.info("started", { activityMs: activityIntervalMs, readingsMs: readingsIntervalMs, assignmentsMs: assignmentsIntervalMs });
 
   while (!abortSignal?.aborted) {
     const now = Date.now();
@@ -179,17 +176,17 @@ export async function startCompositePoller(
             await onEvent(event);
             dispatched++;
           } catch (err) {
-            log?.error?.("[" + account.accountId + "] dispatch error for " + event.dedupKey + ": " + String(err));
+            slog.error("dispatch_error", { feed: "activity", key: event.dedupKey, error: String(err) });
           }
         }
 
         if (result.newestAt) {
           cursors.setActivitySince(result.newestAt);
-          await saveCursorsWithRetry(cursors, account.accountId, log);
+          await saveCursorsWithRetry(cursors, slog);
         }
 
         if (dispatched > 0) {
-          log?.info?.("[" + account.accountId + "] activity: " + result.events.length + " events, " + dispatched + " dispatched");
+          slog.info("poll_dispatched", { feed: "activity", total: result.events.length, dispatched });
         }
 
         activityBackoff = 0;
@@ -199,7 +196,7 @@ export async function startCompositePoller(
           activityIntervalMs,
           MAX_BACKOFF_MS,
         );
-        log?.error?.("[" + account.accountId + "] activity feed error (backoff=" + activityBackoff + "ms): " + String(err));
+        slog.error("poll_error", { feed: "activity", backoff: activityBackoff, error: String(err) });
       }
     }
 
@@ -226,7 +223,7 @@ export async function startCompositePoller(
             await onEvent(event);
             dispatched++;
           } catch (err) {
-            log?.error?.("[" + account.accountId + "] dispatch error for reading " + event.dedupKey + ": " + String(err));
+            slog.error("dispatch_error", { feed: "readings", key: event.dedupKey, error: String(err) });
           }
         }
 
@@ -237,19 +234,19 @@ export async function startCompositePoller(
               accountId: account.config.bcqAccountId,
               profile: account.bcqProfile,
             });
-            log?.debug?.("[" + account.accountId + "] marked " + result.processedSgids.length + " readings as read");
+            slog.debug("readings_marked_read", { count: result.processedSgids.length });
           } catch (err) {
-            log?.warn?.("[" + account.accountId + "] failed to mark readings as read: " + String(err));
+            slog.warn("readings_mark_read_failed", { error: String(err) });
           }
         }
 
         if (result.newestAt) {
           cursors.setReadingsSince(result.newestAt);
-          await saveCursorsWithRetry(cursors, account.accountId, log);
+          await saveCursorsWithRetry(cursors, slog);
         }
 
         if (dispatched > 0) {
-          log?.info?.("[" + account.accountId + "] readings: " + result.events.length + " unreads, " + dispatched + " dispatched");
+          slog.info("poll_dispatched", { feed: "readings", total: result.events.length, dispatched });
         }
 
         readingsBackoff = 0;
@@ -259,7 +256,7 @@ export async function startCompositePoller(
           readingsIntervalMs,
           MAX_BACKOFF_MS,
         );
-        log?.error?.("[" + account.accountId + "] readings error (backoff=" + readingsBackoff + "ms): " + String(err));
+        slog.error("poll_error", { feed: "readings", backoff: readingsBackoff, error: String(err) });
       }
     }
 
@@ -284,7 +281,7 @@ export async function startCompositePoller(
             await onEvent(event);
             dispatched++;
           } catch (err) {
-            log?.error?.("[" + account.accountId + "] dispatch error for assignment " + event.dedupKey + ": " + String(err));
+            slog.error("dispatch_error", { feed: "assignments", key: event.dedupKey, error: String(err) });
           }
         }
 
@@ -292,10 +289,10 @@ export async function startCompositePoller(
         assignmentKnownIds = result.knownIds;
         assignmentsBootstrapped = true;
         cursors.setCustom("assignmentIds", JSON.stringify([...result.knownIds]));
-        await saveCursorsWithRetry(cursors, account.accountId, log);
+        await saveCursorsWithRetry(cursors, slog);
 
         if (dispatched > 0) {
-          log?.info?.("[" + account.accountId + "] assignments: " + result.events.length + " new, " + dispatched + " dispatched");
+          slog.info("poll_dispatched", { feed: "assignments", total: result.events.length, dispatched });
         }
 
         assignmentsBackoff = 0;
@@ -305,7 +302,7 @@ export async function startCompositePoller(
           assignmentsIntervalMs,
           MAX_BACKOFF_MS,
         );
-        log?.error?.("[" + account.accountId + "] assignments error (backoff=" + assignmentsBackoff + "ms): " + String(err));
+        slog.error("poll_error", { feed: "assignments", backoff: assignmentsBackoff, error: String(err) });
       }
     }
 
@@ -320,9 +317,9 @@ export async function startCompositePoller(
 
   try {
     dedup.flush();
-    await saveCursorsWithRetry(cursors, account.accountId, log);
-    log?.info?.("[" + account.accountId + "] composite poller stopped, cursors saved, dedup flush attempted");
+    await saveCursorsWithRetry(cursors, slog);
+    slog.info("stopped");
   } catch (err) {
-    log?.warn?.("[" + account.accountId + "] failed to save final state: " + String(err));
+    slog.warn("final_state_save_failed", { error: String(err) });
   }
 }

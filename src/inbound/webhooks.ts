@@ -19,6 +19,7 @@ import { JsonFileDedupStore } from "./dedup-store.js";
 import { dispatchBasecampEvent } from "../dispatch.js";
 import { getBasecampRuntime } from "../runtime.js";
 import { resolveBasecampAccount, resolveDefaultBasecampAccountId, resolveWebhookSecret, resolveAccountForBucket, listBasecampAccountIds } from "../config.js";
+import { createConsoleStructuredLog } from "../logging.js";
 
 // ---------------------------------------------------------------------------
 // Concurrency limiter
@@ -231,30 +232,36 @@ export async function handleBasecampWebhook(
       // this is ambiguous — reject rather than guess wrong identity.
       const accountIds = listBasecampAccountIds(cfg);
       if (accountIds.length > 1) {
-        console.warn(
-          `[basecamp:webhook] unmapped bucket ${bucketId} with ${accountIds.length} accounts configured, dropping ` +
-          `(add a virtualAccounts entry to route this bucket to an account)`,
-        );
+        const preslog = createConsoleStructuredLog({ accountId: "unknown", source: "webhook" });
+        preslog.warn("unmapped_bucket", {
+          bucketId,
+          accountCount: accountIds.length,
+          hint: "add a virtualAccounts entry to route this bucket to an account",
+        });
         return;
       }
     }
     const effectiveAccountId = scopeAccountId ?? resolveDefaultBasecampAccountId(cfg);
     account = resolveBasecampAccount(cfg, effectiveAccountId);
     if (!account.enabled) {
-      console.warn(`[basecamp:webhook] resolved account "${account.accountId}" is disabled, dropping`);
+      const preslog = createConsoleStructuredLog({ accountId: effectiveAccountId, source: "webhook" });
+      preslog.warn("account_disabled");
       return;
     }
   } catch (err) {
-    console.error("[basecamp:webhook] failed to resolve account:", err);
+    const errlog = createConsoleStructuredLog({ accountId: "unknown", source: "webhook" });
+    errlog.error("account_resolution_failed", { error: String(err), stack: err instanceof Error ? err.stack : undefined });
     return;
   }
+
+  const slog = createConsoleStructuredLog({ accountId: account.accountId, source: "webhook" });
 
   // Normalize
   let msg;
   try {
     msg = normalizeWebhookPayload(payload, account);
   } catch (err) {
-    console.error("[basecamp:webhook] normalization error:", err);
+    slog.error("normalization_error", { error: String(err), stack: err instanceof Error ? err.stack : undefined });
     return;
   }
 
@@ -274,11 +281,11 @@ export async function handleBasecampWebhook(
 
   // Check backpressure before processing
   if (dispatchSemaphore.pending >= MAX_QUEUED_DISPATCHES) {
-    console.error("[basecamp:webhook] dispatch queue full, dropping event");
+    slog.error("queue_full");
     return;
   }
   if (dispatchSemaphore.pending > 0) {
-    console.warn(`[basecamp:webhook] backpressure: ${dispatchSemaphore.pending} queued dispatches`);
+    slog.warn("backpressure", { queued: dispatchSemaphore.pending });
   }
 
   // Dispatch with concurrency limit
@@ -286,7 +293,7 @@ export async function handleBasecampWebhook(
   try {
     await dispatchBasecampEvent(msg, { account });
   } catch (err) {
-    console.error("[basecamp:webhook] dispatch error:", err);
+    slog.error("dispatch_error", { error: String(err), stack: err instanceof Error ? err.stack : undefined });
   } finally {
     dispatchSemaphore.release();
   }

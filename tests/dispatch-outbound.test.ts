@@ -139,13 +139,12 @@ describe("dispatch outbound reliability", () => {
 
     expect(logError).toHaveBeenCalledTimes(1);
     const logged = logError.mock.calls[0][0];
-    expect(logged).toContain("[basecamp:dispatch] failed");
-    expect(logged).toContain("agent=agent-1");
-    expect(logged).toContain("event=created");
-    expect(logged).toContain("recording=123");
-    expect(logged).toContain("account=test-acct");
-    expect(logged).toContain("sender=777");
-    expect(logged).toContain("type=network");
+    expect(logged).toContain("delivery_failed");
+    expect(logged).toContain('"agent":"agent-1"');
+    expect(logged).toContain('"event":"created"');
+    expect(logged).toContain('"recording":"123"');
+    expect(logged).toContain('"sender":"777"');
+    expect(logged).toContain('"type":"network"');
     expect(logged).toContain("ETIMEDOUT");
   });
 
@@ -160,7 +159,7 @@ describe("dispatch outbound reliability", () => {
         .calls[0][0];
     call.dispatcherOptions.onError(new Error("401 Unauthorized"));
 
-    expect(logError.mock.calls[0][0]).toContain("type=auth");
+    expect(logError.mock.calls[0][0]).toContain('"type":"auth"');
   });
 
   it("onError classifies unknown errors", async () => {
@@ -174,7 +173,7 @@ describe("dispatch outbound reliability", () => {
         .calls[0][0];
     call.dispatcherOptions.onError(new Error("something unexpected"));
 
-    expect(logError.mock.calls[0][0]).toContain("type=unknown");
+    expect(logError.mock.calls[0][0]).toContain('"type":"unknown"');
   });
 
   it("logs delivery confirmation after successful dispatch", async () => {
@@ -185,13 +184,12 @@ describe("dispatch outbound reliability", () => {
 
     // The delivery log should be the last info call
     const deliveryLog = logInfo.mock.calls.find((c: string[]) =>
-      c[0].includes("[basecamp:dispatch] delivered"),
+      c[0].includes("delivered"),
     );
     expect(deliveryLog).toBeDefined();
-    expect(deliveryLog![0]).toContain("agent=agent-1");
-    expect(deliveryLog![0]).toContain("event=created");
-    expect(deliveryLog![0]).toContain("account=test-acct");
-    expect(deliveryLog![0]).toContain("recording=123");
+    expect(deliveryLog![0]).toContain('"agent":"agent-1"');
+    expect(deliveryLog![0]).toContain('"event":"created"');
+    expect(deliveryLog![0]).toContain('"recording":"123"');
   });
 
   it("does not log 'delivered' when onError was called", async () => {
@@ -209,7 +207,7 @@ describe("dispatch outbound reliability", () => {
     await dispatchBasecampEvent(mockMsg, { account: mockAccount, log });
 
     const deliveryLog = logInfo.mock.calls.find((c: string[]) =>
-      c[0].includes("[basecamp:dispatch] delivered"),
+      c[0].includes("delivered") && !c[0].includes("delivery_failed"),
     );
     expect(deliveryLog).toBeUndefined();
     expect(logError).toHaveBeenCalled();
