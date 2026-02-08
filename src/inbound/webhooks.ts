@@ -11,9 +11,11 @@
  */
 
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { join } from "node:path";
 import type { BasecampWebhookPayload, ResolvedBasecampAccount } from "../types.js";
 import { normalizeWebhookPayload, isSelfMessage } from "./normalize.js";
 import { EventDedup } from "./dedup.js";
+import { JsonFileDedupStore } from "./dedup-store.js";
 import { dispatchBasecampEvent } from "../dispatch.js";
 import { getBasecampRuntime } from "../runtime.js";
 import { resolveBasecampAccount, resolveDefaultBasecampAccountId, resolveWebhookSecret, resolveAccountForBucket, listBasecampAccountIds } from "../config.js";
@@ -69,13 +71,44 @@ export const dispatchSemaphore = new Semaphore(MAX_CONCURRENT_DISPATCHES);
 /** Per-account dedup instances for webhook events. */
 const dedupRegistry = new Map<string, EventDedup>();
 
+/** State directory for persistent dedup stores. Set via setWebhookStateDir(). */
+let webhookStateDir: string | undefined;
+
+/**
+ * Configure the state directory for persistent webhook dedup stores.
+ * Must be called before webhooks are processed to enable restart-safe dedup.
+ * Idempotent: if the directory hasn't changed, this is a no-op.
+ */
+export function setWebhookStateDir(dir: string): void {
+  const normalized = dir || undefined;
+  if (normalized === webhookStateDir) return;
+  // Flush existing instances before switching directories
+  for (const dedup of dedupRegistry.values()) {
+    dedup.flush();
+  }
+  dedupRegistry.clear();
+  webhookStateDir = normalized;
+}
+
 function getDedup(accountId: string): EventDedup {
   let dedup = dedupRegistry.get(accountId);
   if (!dedup) {
-    dedup = new EventDedup();
+    const store = webhookStateDir
+      ? new JsonFileDedupStore(join(webhookStateDir, `webhook-dedup-${accountId}.json`))
+      : undefined;
+    dedup = new EventDedup(store ? { store } : undefined);
     dedupRegistry.set(accountId, dedup);
   }
   return dedup;
+}
+
+/**
+ * Flush all webhook dedup stores to disk. Call on graceful shutdown.
+ */
+export function flushWebhookDedup(): void {
+  for (const dedup of dedupRegistry.values()) {
+    dedup.flush();
+  }
 }
 
 /** Maximum allowed webhook request body size (1 MiB). */
