@@ -31,8 +31,61 @@ export function markdownToBasecampHtml(md: string): string {
 
   // --- Fenced code blocks (``` ... ```) ---
   // Must run before inline transforms to avoid mangling code contents.
-  html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_match, _lang, code) => {
-    return `<pre>${escapeHtml(code.replace(/\n$/, ""))}</pre>`;
+  // Collect code block positions so table parsing can skip them.
+  const codeBlockRanges: Array<{ start: number; end: number }> = [];
+  html = html.replace(/```([\w.+#/-]*)\n([\s\S]*?)```/g, (_match, lang, code, offset) => {
+    const langAttr = lang ? ` class="language-${lang}"` : "";
+    const replacement = `<pre${langAttr}>${escapeHtml(code.replace(/\n$/, ""))}</pre>`;
+    codeBlockRanges.push({ start: offset, end: offset + _match.length });
+    return replacement;
+  });
+
+  // --- Tables (pipe tables) ---
+  // Must run after fenced code blocks but before inline transforms.
+  // Skip matches inside <pre> blocks (already converted from fenced code blocks).
+  html = html.replace(/(?:^|\n)((?:\|[^\n]+\|(?:\n|$))+)/g, (_match, block: string, offset: number) => {
+    // Check if this match falls inside a <pre> block
+    const matchStart = offset;
+    const matchEnd = offset + _match.length;
+    const preOpenRegex = /<pre[^>]*>/g;
+    let preMatch;
+    let insidePre = false;
+    const tempHtml = html;
+    while ((preMatch = preOpenRegex.exec(tempHtml)) !== null) {
+      const preStart = preMatch.index;
+      const preCloseIdx = tempHtml.indexOf("</pre>", preStart);
+      if (preCloseIdx !== -1 && matchStart >= preStart && matchEnd <= preCloseIdx + 6) {
+        insidePre = true;
+        break;
+      }
+    }
+    if (insidePre) return _match;
+    const rows = block.trim().split("\n");
+    if (rows.length < 2) return _match;
+    // Check if the second row is a separator (contains only |, -, :, spaces)
+    if (!/^[\s|:-]+$/.test(rows[1]!)) return _match;
+
+    const parseRow = (row: string) =>
+      row
+        .replace(/^\|/, "")
+        .replace(/\|$/, "")
+        .split("|")
+        .map((cell) => cell.trim());
+
+    const headerCells = parseRow(rows[0]!);
+    const thead = `<thead><tr>${headerCells.map((c) => `<th>${c}</th>`).join("")}</tr></thead>`;
+
+    const bodyRows = rows.slice(2);
+    const tbody = bodyRows.length
+      ? `<tbody>${bodyRows.map((row) => {
+          const cells = parseRow(row);
+          return `<tr>${cells.map((c) => `<td>${c}</td>`).join("")}</tr>`;
+        }).join("")}</tbody>`
+      : "";
+
+    return tbody
+      ? `\n<table>\n${thead}\n${tbody}\n</table>\n`
+      : `\n<table>\n${thead}\n</table>\n`;
   });
 
   // --- Inline code (`...`) ---
@@ -110,7 +163,7 @@ export function markdownToBasecampHtml(md: string): string {
       const trimmed = p.trim();
       if (!trimmed) return "";
       // Don't add <br> inside block-level elements
-      if (/^<(pre|ul|ol|blockquote|h[1-6]|hr)/i.test(trimmed)) {
+      if (/^<(pre|ul|ol|blockquote|h[1-6]|hr|table)/i.test(trimmed)) {
         return trimmed;
       }
       return trimmed.replace(/\n/g, "<br>\n");
@@ -127,7 +180,7 @@ export function markdownToBasecampHtml(md: string): string {
 export function stripHtml(html: string): string {
   return html
     .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<\/?(p|div|h[1-6]|blockquote|pre|ul|ol|li|hr)[^>]*>/gi, "\n")
+    .replace(/<\/?(p|div|h[1-6]|blockquote|pre|ul|ol|li|hr|table|thead|tbody|tr|th|td)[^>]*>/gi, "\n")
     .replace(/<[^>]+>/g, "")
     .replace(/&amp;/g, "&")
     .replace(/&lt;/g, "<")

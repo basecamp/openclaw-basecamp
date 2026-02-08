@@ -71,7 +71,7 @@ describe("markdownToBasecampHtml", () => {
   it("converts fenced code blocks to <pre>", () => {
     const md = "```js\nconst x = 1;\n```";
     const result = markdownToBasecampHtml(md);
-    expect(result).toContain("<pre>");
+    expect(result).toContain('<pre class="language-js">');
     expect(result).toContain("const x = 1;");
     expect(result).toContain("</pre>");
   });
@@ -154,6 +154,86 @@ describe("markdownToBasecampHtml", () => {
     expect(result).toContain("<hr>");
   });
 
+  // Fenced code block language attribute
+  it("adds language class to code block when language is specified", () => {
+    const md = "```typescript\nconst x = 1;\n```";
+    const result = markdownToBasecampHtml(md);
+    expect(result).toContain('<pre class="language-typescript">');
+    expect(result).toContain("const x = 1;");
+    expect(result).toContain("</pre>");
+  });
+
+  it("handles code block languages with special chars (c++, objective-c)", () => {
+    const md = "```c++\nint main() {}\n```";
+    const result = markdownToBasecampHtml(md);
+    expect(result).toContain('<pre class="language-c++">');
+  });
+
+  it("produces plain <pre> when no language is specified", () => {
+    const md = "```\nconst x = 1;\n```";
+    const result = markdownToBasecampHtml(md);
+    expect(result).toBe("<pre>const x = 1;</pre>");
+  });
+
+  // Tables
+  it("converts a simple 2-column table", () => {
+    const md = "| Header 1 | Header 2 |\n|----------|----------|\n| Cell 1   | Cell 2   |";
+    const result = markdownToBasecampHtml(md);
+    expect(result).toContain("<table>");
+    expect(result).toContain("<thead><tr><th>Header 1</th><th>Header 2</th></tr></thead>");
+    expect(result).toContain("<tbody><tr><td>Cell 1</td><td>Cell 2</td></tr></tbody>");
+    expect(result).toContain("</table>");
+  });
+
+  it("converts a table with 3+ columns", () => {
+    const md = "| A | B | C |\n|---|---|---|\n| 1 | 2 | 3 |\n| 4 | 5 | 6 |";
+    const result = markdownToBasecampHtml(md);
+    expect(result).toContain("<th>A</th><th>B</th><th>C</th>");
+    expect(result).toContain("<tr><td>1</td><td>2</td><td>3</td></tr>");
+    expect(result).toContain("<tr><td>4</td><td>5</td><td>6</td></tr>");
+  });
+
+  it("converts table cells containing inline formatting", () => {
+    const md = "| Name | Status |\n|------|--------|\n| **bold** | `code` |";
+    const result = markdownToBasecampHtml(md);
+    expect(result).toContain("<table>");
+    // Inline transforms run after table conversion, so bold/code are converted
+    expect(result).toContain("<strong>bold</strong>");
+    expect(result).toContain("<code>code</code>");
+  });
+
+  it("converts a table with empty cells", () => {
+    const md = "| A | B |\n|---|---|\n|   | x |";
+    const result = markdownToBasecampHtml(md);
+    expect(result).toContain("<td></td><td>x</td>");
+  });
+
+  it("handles a table mixed with other markdown content", () => {
+    const md = "# Title\n\n| H1 | H2 |\n|----|----|\n| a  | b  |\n\nSome text after.";
+    const result = markdownToBasecampHtml(md);
+    expect(result).toContain("<h1>Title</h1>");
+    expect(result).toContain("<table>");
+    expect(result).toContain("<th>H1</th>");
+    expect(result).toContain("<td>a</td>");
+    expect(result).toContain("Some text after.");
+  });
+
+  it("does not convert pipe-table-like text inside a fenced code block", () => {
+    const md = "```\n| A | B |\n|---|---|\n| x | y |\n```";
+    const result = markdownToBasecampHtml(md);
+    expect(result).toContain("<pre>");
+    expect(result).not.toContain("<table>");
+    expect(result).not.toContain("<th>");
+  });
+
+  it("handles a table with header only (no body rows)", () => {
+    const md = "| H1 | H2 |\n|---|---|";
+    const result = markdownToBasecampHtml(md);
+    expect(result).toContain("<table>");
+    expect(result).toContain("<thead>");
+    expect(result).not.toContain("<tbody>");
+  });
+
   // Nested formatting
   it("handles nested bold and italic", () => {
     const result = markdownToBasecampHtml("**bold and *italic***");
@@ -200,6 +280,16 @@ describe("stripHtml", () => {
 
   it("decodes &quot; entity", () => {
     expect(stripHtml("say &quot;hello&quot;")).toBe('say "hello"');
+  });
+
+  it("strips table elements to plain text", () => {
+    const html = "<table><thead><tr><th>A</th><th>B</th></tr></thead><tbody><tr><td>1</td><td>2</td></tr></tbody></table>";
+    const result = stripHtml(html);
+    expect(result).toContain("A");
+    expect(result).toContain("B");
+    expect(result).toContain("1");
+    expect(result).toContain("2");
+    expect(result).not.toContain("<");
   });
 
   it("collapses three or more consecutive newlines to two", () => {
