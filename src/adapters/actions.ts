@@ -1,12 +1,11 @@
 /**
  * Basecamp message actions adapter — agent write operations.
  *
- * Implements ChannelMessageActionAdapter for Basecamp. The "send" action
- * lets agents post campfire lines and comments via bcq. Additional write
- * actions (createTodo, completeTodo, etc.) will be added in future PRs.
+ * Implements ChannelMessageActionAdapter for Basecamp.
  *
  * Supported actions:
- *   send — Post a campfire line or comment to a Basecamp recording.
+ *   send  — Post a campfire line or comment to a Basecamp recording.
+ *   react — Add a boost (reaction) to any Basecamp recording.
  */
 
 import type {
@@ -19,13 +18,14 @@ import { jsonResult, readStringParam } from "openclaw/plugin-sdk";
 import { postCampfireLine, postComment } from "../outbound/send.js";
 import { markdownToBasecampHtml } from "../outbound/format.js";
 import { resolveBasecampAccount } from "../config.js";
+import { bcqApiPost } from "../bcq.js";
 
 // ---------------------------------------------------------------------------
 // Supported action set
 // ---------------------------------------------------------------------------
 
 /** Actions this adapter handles. */
-const SUPPORTED_ACTIONS: ChannelMessageActionName[] = ["send"];
+const SUPPORTED_ACTIONS: ChannelMessageActionName[] = ["send", "react"];
 
 // ---------------------------------------------------------------------------
 // Adapter
@@ -51,11 +51,28 @@ export const basecampActionsAdapter: ChannelMessageActionAdapter = {
     switch (ctx.action) {
       case "send":
         return handleSend(ctx);
+      case "react":
+        return handleReact(ctx);
       default:
         return jsonResult({ ok: false, error: `Unsupported action: ${ctx.action}` });
     }
   },
 };
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve the bcq numeric account ID for API calls.
+ * Prefers explicit bcqAccountId config, falls back to accountId only if numeric.
+ */
+function resolveBcqAccountId(account: ReturnType<typeof resolveBasecampAccount>): string | undefined {
+  return (
+    account.config.bcqAccountId ??
+    (/^\d+$/.test(account.accountId) ? account.accountId : undefined)
+  );
+}
 
 // ---------------------------------------------------------------------------
 // send — post a campfire line or comment
@@ -92,12 +109,7 @@ async function handleSend(ctx: ChannelMessageActionContext) {
 
   const content = markdownToBasecampHtml(text);
   const account = resolveBasecampAccount(cfg, accountId);
-
-  // Resolve bcq account ID — NOT the OpenClaw account key.
-  // Prefer explicit bcqAccountId config, fall back to accountId only if numeric.
-  const bcqAccountId =
-    account.config.bcqAccountId ??
-    (/^\d+$/.test(account.accountId) ? account.accountId : undefined);
+  const bcqAccountId = resolveBcqAccountId(account);
 
   // Enforce virtual-account bucket scoping: if the account is scoped to a
   // specific bucket, reject sends targeting a different bucket.
@@ -151,4 +163,41 @@ async function handleSend(ctx: ChannelMessageActionContext) {
     commentId: result.commentId,
     error: result.error,
   });
+}
+
+// ---------------------------------------------------------------------------
+// react — add a boost (reaction) to any recording
+// ---------------------------------------------------------------------------
+
+async function handleReact(ctx: ChannelMessageActionContext) {
+  const { params, cfg, accountId, dryRun } = ctx;
+
+  const bucketId = readStringParam(params, "bucketId", { required: true, label: "Bucket ID" });
+  const recordingId = readStringParam(params, "recordingId", { required: true, label: "Recording ID" });
+  const emoji = readStringParam(params, "emoji") || "👍";
+
+  const account = resolveBasecampAccount(cfg, accountId);
+  const bcqAccountId = resolveBcqAccountId(account);
+
+  // Enforce virtual-account bucket scoping
+  if (account.scopedBucketId && bucketId !== String(account.scopedBucketId)) {
+    return jsonResult({
+      ok: false,
+      error: `Account "${account.accountId}" is scoped to bucket ${account.scopedBucketId}, cannot react in bucket ${bucketId}`,
+    });
+  }
+
+  if (dryRun) {
+    return jsonResult({ ok: true, dryRun: true, target: "boost", bucketId, recordingId, emoji });
+  }
+
+  const path = `/buckets/${bucketId}/recordings/${recordingId}/boosts.json`;
+  const body = JSON.stringify({ content: emoji });
+  try {
+    const result = await bcqApiPost<{ id?: number }>(path, body, bcqAccountId, account.bcqProfile);
+    return jsonResult({ ok: true, target: "boost", boostId: result?.id });
+  } catch (err) {
+    console.error(`[basecamp:${accountId}] react error: bucket=${bucketId} recording=${recordingId}`, err);
+    return jsonResult({ ok: false, error: String(err) });
+  }
 }

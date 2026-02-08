@@ -28,8 +28,8 @@ function findTool(name: string) {
 // ---------------------------------------------------------------------------
 
 describe("basecampAgentTools", () => {
-  it("exports four tools", () => {
-    expect(basecampAgentTools).toHaveLength(4);
+  it("exports five tools", () => {
+    expect(basecampAgentTools).toHaveLength(5);
   });
 
   it("has correct tool names", () => {
@@ -39,6 +39,7 @@ describe("basecampAgentTools", () => {
       "basecamp_complete_todo",
       "basecamp_reopen_todo",
       "basecamp_read_history",
+      "basecamp_add_boost",
     ]);
   });
 
@@ -380,5 +381,61 @@ describe("basecamp_read_history", () => {
     const parsed = JSON.parse(result.content[0].text);
     expect(parsed.messages[0].sender).toBe("unknown");
     expect(parsed.messages[0].senderId).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// basecamp_add_boost
+// ---------------------------------------------------------------------------
+
+describe("basecamp_add_boost", () => {
+  const tool = findTool("basecamp_add_boost");
+
+  it("boosts a recording with default content", async () => {
+    vi.mocked(bcqApiPost).mockResolvedValue({ id: 99 });
+
+    const result = await tool.execute("call-18", {
+      bucketId: "100",
+      recordingId: "500",
+    });
+
+    expect(bcqApiPost).toHaveBeenCalledWith(
+      "/buckets/100/recordings/500/boosts.json",
+      JSON.stringify({ content: "👍" }),
+    );
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed).toEqual({ ok: true, boostId: 99 });
+    expect(result.details).toEqual({ ok: true, boostId: 99 });
+  });
+
+  it("boosts a recording with custom emoji", async () => {
+    vi.mocked(bcqApiPost).mockResolvedValue({ id: 101 });
+
+    const result = await tool.execute("call-19", {
+      bucketId: "100",
+      recordingId: "500",
+      content: "🎉",
+    });
+
+    expect(bcqApiPost).toHaveBeenCalledWith(
+      "/buckets/100/recordings/500/boosts.json",
+      JSON.stringify({ content: "🎉" }),
+    );
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed).toEqual({ ok: true, boostId: 101 });
+  });
+
+  it("returns error on API failure", async () => {
+    vi.mocked(bcqApiPost).mockRejectedValue(new Error("422 Unprocessable"));
+
+    const result = await tool.execute("call-20", {
+      bucketId: "100",
+      recordingId: "500",
+    });
+
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("422 Unprocessable");
+    expect(result.details).toEqual({ ok: false, error: expect.stringContaining("422 Unprocessable") });
   });
 });

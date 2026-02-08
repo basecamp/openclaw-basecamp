@@ -52,7 +52,7 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
   capabilities: {
     chatTypes: ["direct", "group"],
     threads: false,
-    reactions: false,
+    reactions: true,
     media: false,
     nativeCommands: false,
     blockStreaming: false,

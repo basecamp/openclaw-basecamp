@@ -8,6 +8,7 @@
  *   basecamp_create_todo   — Create a new to-do in a to-do list
  *   basecamp_complete_todo — Mark a to-do as complete
  *   basecamp_reopen_todo   — Mark a to-do as incomplete
+ *   basecamp_add_boost     — Add a boost (reaction) to any recording
  *
  * Read tools:
  *   basecamp_read_history  — Fetch recent messages/comments for a recording
@@ -55,6 +56,12 @@ const ReadHistoryParams = Type.Object({
     minimum: 1,
     maximum: 50,
   })),
+});
+
+const AddBoostParams = Type.Object({
+  bucketId: Type.String({ description: "Basecamp project (bucket) ID" }),
+  recordingId: Type.String({ description: "Recording ID to boost (any recording: comment, todo, campfire line, etc.)" }),
+  content: Type.Optional(Type.String({ description: "Boost content — an emoji or short celebratory text (e.g., '👍', '🎉', 'Congrats!'). Defaults to '👍'." })),
 });
 
 // ---------------------------------------------------------------------------
@@ -131,6 +138,38 @@ async function executeReopenTodo(
     return {
       content: [{ type: "text" as const, text: JSON.stringify({ ok: true, todoId }) }],
       details: { ok: true, todoId },
+    };
+  } catch (err) {
+    return {
+      content: [{ type: "text" as const, text: JSON.stringify({ ok: false, error: String(err) }) }],
+      details: { ok: false, error: String(err) },
+    };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// addBoost — react to any recording with an emoji or text
+// ---------------------------------------------------------------------------
+
+type AddBoostInput = Static<typeof AddBoostParams>;
+
+async function executeAddBoost(
+  _toolCallId: string,
+  rawParams: unknown,
+) {
+  const params = rawParams as AddBoostInput;
+  const { bucketId, recordingId } = params;
+  const content = params.content || "👍";
+  const path = `/buckets/${bucketId}/recordings/${recordingId}/boosts.json`;
+
+  try {
+    const result = await bcqApiPost<{ id?: number }>(
+      path,
+      JSON.stringify({ content }),
+    );
+    return {
+      content: [{ type: "text" as const, text: JSON.stringify({ ok: true, boostId: result?.id }) }],
+      details: { ok: true, boostId: result?.id },
     };
   } catch (err) {
     return {
@@ -229,5 +268,14 @@ export const basecampAgentTools: ChannelAgentTool[] = [
       "Returns up to 50 entries with sender, text, and timestamp.",
     parameters: ReadHistoryParams,
     execute: executeReadHistory,
+  },
+  {
+    name: "basecamp_add_boost",
+    label: "Add Basecamp Boost",
+    description:
+      "Add a boost (reaction) to any Basecamp recording — comment, to-do, campfire line, message, etc. " +
+      "Content can be an emoji or short celebratory text. Defaults to '👍' if not specified.",
+    parameters: AddBoostParams,
+    execute: executeAddBoost,
   },
 ];
