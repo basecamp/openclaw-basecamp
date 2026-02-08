@@ -186,7 +186,9 @@ export async function dispatchBasecampEvent(
   let dispatchHadError = false;
 
   // Outbound circuit breaker: fail fast when Basecamp API is persistently down.
-  const outboundCb = getOutboundCircuitBreaker(cfg, outboundAccount.accountId);
+  // Key by effective bcq account ID so virtual accounts sharing the same real
+  // Basecamp account share a single breaker instance.
+  const outboundCb = getOutboundCircuitBreaker(cfg, outboundBcqAccountId);
   const outboundCbKey = "outbound";
 
   await runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
@@ -231,13 +233,13 @@ export async function dispatchBasecampEvent(
           type: errorType,
           error: String(err),
         });
-        syncOutboundCircuitBreakerMetrics(outboundCb, outboundCbKey, account.accountId, cfg);
+        syncOutboundCircuitBreakerMetrics(outboundCb, outboundCbKey, outboundBcqAccountId, cfg);
       },
     },
   });
 
   if (!dispatchHadError) {
-    syncOutboundCircuitBreakerMetrics(outboundCb, outboundCbKey, account.accountId, cfg);
+    syncOutboundCircuitBreakerMetrics(outboundCb, outboundCbKey, outboundBcqAccountId, cfg);
     slog.info("delivered", {
       agent: route.agentId,
       event: msg.meta.eventKind,
