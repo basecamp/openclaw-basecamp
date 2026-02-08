@@ -119,23 +119,34 @@ export function flushWebhookDedup(): void {
 // HMAC-SHA256 verification (Stripe-style: X-Basecamp-Signature + Timestamp)
 // ---------------------------------------------------------------------------
 
-/** Per-account webhook secret registries. */
-const secretRegistries = new Map<string, WebhookSecretRegistry>();
+/** Per-account webhook secret registries, keyed by account and bound to a state dir. */
+const secretRegistries = new Map<string, { registry: WebhookSecretRegistry; stateDir: string | undefined }>();
 
 /**
  * Get or create a webhook secret registry for an account.
  * The registry is backed by a persistent JSON file when a state dir is set.
+ * If the state dir has changed since the registry was created, the old one
+ * is flushed and a new one is created for the new path.
  */
 export function getWebhookSecretRegistry(accountId: string): WebhookSecretRegistry {
-  let reg = secretRegistries.get(accountId);
-  if (!reg) {
-    const store = webhookStateDir
-      ? new JsonFileWebhookSecretStore(join(webhookStateDir, `webhook-secrets-${accountId}.json`))
-      : undefined;
-    reg = new WebhookSecretRegistry(store);
-    secretRegistries.set(accountId, reg);
+  const currentStateDir = webhookStateDir;
+  const entry = secretRegistries.get(accountId);
+
+  if (entry && entry.stateDir === currentStateDir) {
+    return entry.registry;
   }
-  return reg;
+
+  // State dir changed or first access — flush old registry if present
+  if (entry) {
+    entry.registry.flush();
+  }
+
+  const store = currentStateDir
+    ? new JsonFileWebhookSecretStore(join(currentStateDir, `webhook-secrets-${accountId}.json`))
+    : undefined;
+  const registry = new WebhookSecretRegistry(store);
+  secretRegistries.set(accountId, { registry, stateDir: currentStateDir });
+  return registry;
 }
 
 /** Maximum age (in seconds) for timestamp replay protection. Default: 5 minutes. */
@@ -188,8 +199,8 @@ export function verifyWebhookSignature(params: {
  * Flush all webhook secret registries to disk. Call on graceful shutdown.
  */
 export function flushWebhookSecrets(): void {
-  for (const reg of secretRegistries.values()) {
-    reg.flush();
+  for (const { registry } of secretRegistries.values()) {
+    registry.flush();
   }
 }
 
@@ -282,17 +293,40 @@ export async function handleBasecampWebhook(
   let authenticated = false;
 
   if (hmacSignature && hmacTimestamp) {
-    // HMAC path: collect all known secrets from registered webhooks
-    const allSecrets: string[] = [];
-    for (const reg of secretRegistries.values()) {
-      allSecrets.push(...reg.getAllSecrets());
+    // HMAC path: scope verification to the specific bucket/account when possible.
+    // Parse the payload first to extract bucketId, then use only the secrets
+    // for the account that owns that bucket. Falls back to all secrets if
+    // bucket resolution fails.
+    let candidateSecrets: string[] = [];
+    try {
+      const parsed = JSON.parse(rawBody) as { recording?: { bucket?: { id?: number } } };
+      const bucketId = parsed?.recording?.bucket?.id;
+      if (bucketId != null) {
+        const bucketAccountId = resolveAccountForBucket(cfg, String(bucketId));
+        if (bucketAccountId) {
+          const entry = secretRegistries.get(bucketAccountId);
+          if (entry) {
+            candidateSecrets = entry.registry.getAllSecrets().filter(s => s.length > 0);
+          }
+        }
+      }
+    } catch {
+      // JSON parse failed — fall through to all secrets
     }
-    if (allSecrets.length > 0) {
+
+    // Fall back to all known secrets if bucket-scoped resolution didn't yield any
+    if (candidateSecrets.length === 0) {
+      for (const { registry } of secretRegistries.values()) {
+        candidateSecrets.push(...registry.getAllSecrets().filter(s => s.length > 0));
+      }
+    }
+
+    if (candidateSecrets.length > 0) {
       authenticated = verifyWebhookSignature({
         signature: hmacSignature,
         timestamp: hmacTimestamp,
         rawBody,
-        secrets: allSecrets,
+        secrets: candidateSecrets,
       });
     }
   }
@@ -310,7 +344,7 @@ export async function handleBasecampWebhook(
 
   if (!authenticated) {
     // No valid authentication — check if webhooks are configured at all
-    const hasAnySecrets = [...secretRegistries.values()].some(r => r.size > 0);
+    const hasAnySecrets = [...secretRegistries.values()].some(({ registry }) => registry.size > 0);
     if (!webhookSecret && !hasAnySecrets) {
       res.writeHead(403, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ error: "Webhooks not configured (set channels.basecamp.webhookSecret or configure webhooks.payloadUrl)" }));

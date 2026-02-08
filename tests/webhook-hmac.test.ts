@@ -66,7 +66,6 @@ import {
   handleBasecampWebhook,
   getWebhookSecretRegistry,
   setWebhookStateDir,
-  flushWebhookSecrets,
 } from "../src/inbound/webhooks.js";
 import { WebhookSecretRegistry, JsonFileWebhookSecretStore } from "../src/inbound/webhook-secrets.js";
 
@@ -282,7 +281,7 @@ describe("WebhookSecretRegistry", () => {
   });
 
   it("persists to backing store", () => {
-    const { mkdtempSync, readdirSync, rmSync } = require("node:fs");
+    const { mkdtempSync, rmSync } = require("node:fs");
     const { join } = require("node:path");
     const { tmpdir } = require("node:os");
     const dir = mkdtempSync(join(tmpdir(), "wh-secrets-test-"));

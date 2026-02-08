@@ -108,7 +108,7 @@ describe("reconcileWebhooks", () => {
           id: 42,
           active: true,
           payload_url: "https://example.com/webhooks/basecamp",
-          types: ["Todo"],
+          types: ["Comment", "Todo"],
         },
       ],
       raw: "[]",
@@ -120,7 +120,7 @@ describe("reconcileWebhooks", () => {
       webhookId: "42",
       secret: "known-secret",
       payloadUrl: "https://example.com/webhooks/basecamp",
-      types: ["Todo"],
+      types: ["Comment", "Todo"],
     });
 
     const result = await reconcileWebhooks(
@@ -131,6 +131,47 @@ describe("reconcileWebhooks", () => {
     expect(result.existing).toEqual(["100"]);
     // Secret should be preserved
     expect(registry.get("100")!.secret).toBe("known-secret");
+  });
+
+  it("deletes and recreates webhook when types differ", async () => {
+    vi.mocked(bcqWebhookList).mockResolvedValue({
+      data: [
+        {
+          id: 42,
+          active: true,
+          payload_url: "https://example.com/webhooks/basecamp",
+          types: ["Todo"],
+        },
+      ],
+      raw: "[]",
+    });
+    vi.mocked(bcqWebhookDelete).mockResolvedValue({ data: null, raw: "" });
+    vi.mocked(bcqWebhookCreate).mockResolvedValue({
+      data: {
+        id: 43,
+        active: true,
+        payload_url: "https://example.com/webhooks/basecamp",
+        types: ["Todo", "Comment"],
+        secret: "new-secret",
+      },
+      raw: "{}",
+    });
+
+    const registry = new WebhookSecretRegistry();
+    const log = mockLog();
+    const result = await reconcileWebhooks(
+      makeConfig({ projects: ["100"] }),
+      registry,
+      log,
+    );
+
+    // Old webhook should be deleted, new one created
+    expect(bcqWebhookDelete).toHaveBeenCalledWith("100", "42", expect.any(Object));
+    expect(bcqWebhookCreate).toHaveBeenCalledTimes(1);
+    expect(result.created).toEqual(["100"]);
+    expect(registry.get("100")!.secret).toBe("new-secret");
+    expect(registry.get("100")!.webhookId).toBe("43");
+    expect(log.info).toHaveBeenCalledWith("webhook_types_changed", expect.any(Object));
   });
 
   it("records failed projects when create returns no ID", async () => {
@@ -352,6 +393,23 @@ describe("deactivateWebhooks", () => {
 
     expect(log.error).toHaveBeenCalled();
     // Registry entry should NOT be removed on failure
+    expect(registry.get("100")).toBeDefined();
+  });
+
+  it("skips deletion when registry payloadUrl does not match config", async () => {
+    const registry = new WebhookSecretRegistry();
+    registry.set("100", {
+      webhookId: "w1",
+      secret: "s",
+      payloadUrl: "https://other-deployment.example.com/webhooks/basecamp",
+      types: [],
+    });
+
+    await deactivateWebhooks(makeConfig(), registry);
+
+    // Should NOT have called delete — different payloadUrl means different deployment
+    expect(bcqWebhookDelete).not.toHaveBeenCalled();
+    // Registry entry should be preserved
     expect(registry.get("100")).toBeDefined();
   });
 });

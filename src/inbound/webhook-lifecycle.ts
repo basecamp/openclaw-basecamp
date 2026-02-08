@@ -25,6 +25,17 @@ export interface WebhookLifecycleConfig {
   bcqOpts?: BcqOptions;
 }
 
+/**
+ * Check whether a webhook's subscribed types match the desired types.
+ * Empty array means "all types" — two empty arrays match.
+ */
+function typesMatch(webhookTypes: string[] | undefined, configTypes: string[]): boolean {
+  const wt = (webhookTypes ?? []).slice().sort();
+  const ct = configTypes.slice().sort();
+  if (wt.length !== ct.length) return false;
+  return wt.every((t, i) => t === ct[i]);
+}
+
 export interface ReconcileResult {
   created: string[];
   existing: string[];
@@ -61,14 +72,14 @@ export async function reconcileWebhooks(
       }
 
       // Check if a webhook with our payloadUrl already exists
-      const match = existing.find(
+      const urlMatch = existing.find(
         (wh) => wh.payload_url === config.payloadUrl && wh.active,
       );
 
-      if (match) {
+      if (urlMatch && typesMatch(urlMatch.types, config.types)) {
         log?.debug("webhook_exists", {
           project: projectId,
-          webhookId: match.id,
+          webhookId: urlMatch.id,
         });
 
         // If we don't have a secret stored for this project (e.g., first
@@ -76,15 +87,35 @@ export async function reconcileWebhooks(
         // We can't recover the secret from the API — it's only returned on create.
         if (!registry.get(projectId)) {
           registry.set(projectId, {
-            webhookId: String(match.id),
+            webhookId: String(urlMatch.id),
             secret: "", // Unknown — created before lifecycle management
-            payloadUrl: match.payload_url,
-            types: match.types ?? [],
+            payloadUrl: urlMatch.payload_url,
+            types: urlMatch.types ?? [],
           });
         }
 
         result.existing.push(projectId);
         continue;
+      }
+
+      // URL matches but types differ — delete stale webhook before creating new one
+      if (urlMatch) {
+        log?.info("webhook_types_changed", {
+          project: projectId,
+          webhookId: urlMatch.id,
+          oldTypes: (urlMatch.types ?? []).join(",") || "all",
+          newTypes: config.types.length > 0 ? config.types.join(",") : "all",
+        });
+        try {
+          await bcqWebhookDelete(projectId, String(urlMatch.id), config.bcqOpts ?? {});
+          registry.remove(projectId);
+        } catch (delErr) {
+          log?.warn("webhook_stale_delete_failed", {
+            project: projectId,
+            webhookId: urlMatch.id,
+            error: String(delErr),
+          });
+        }
       }
 
       // Create a new webhook
@@ -152,6 +183,18 @@ export async function deactivateWebhooks(
   for (const projectId of config.projects) {
     const entry = registry.get(projectId);
     if (!entry?.webhookId) continue;
+
+    // Only delete webhooks that match our current payloadUrl to avoid
+    // accidentally removing webhooks from a different deployment.
+    if (entry.payloadUrl && entry.payloadUrl !== config.payloadUrl) {
+      log?.debug("webhook_deactivate_skipped", {
+        project: projectId,
+        reason: "payloadUrl mismatch",
+        registered: entry.payloadUrl,
+        configured: config.payloadUrl,
+      });
+      continue;
+    }
 
     try {
       await bcqWebhookDelete(projectId, entry.webhookId, config.bcqOpts ?? {});

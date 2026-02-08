@@ -209,6 +209,12 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
         return;
       }
 
+      // Resolve the bcq numeric account ID for API calls.
+      // Prefers explicit bcqAccountId config, falls back to accountId only if numeric.
+      const bcqAccountId =
+        account.config.bcqAccountId ??
+        (/^\d+$/.test(account.accountId) ? account.accountId : undefined);
+
       ctx.log?.info(
         `[${account.accountId}] starting Basecamp channel (person: ${account.personId})`,
       );
@@ -254,7 +260,7 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
               payloadUrl: whConfig.payloadUrl,
               projects: whConfig.projects,
               types: whConfig.types,
-              bcqOpts: { accountId: account.config.bcqAccountId, profile: account.bcqProfile },
+              bcqOpts: { accountId: bcqAccountId, profile: account.bcqProfile },
             },
             registry,
             ctx.log ? {
@@ -331,7 +337,7 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
                 payloadUrl: whShutdownConfig.payloadUrl,
                 projects: whShutdownConfig.projects,
                 types: whShutdownConfig.types,
-                bcqOpts: { accountId: account.config.bcqAccountId, profile: account.bcqProfile },
+                bcqOpts: { accountId: bcqAccountId, profile: account.bcqProfile },
               },
               registry,
               ctx.log ? {
