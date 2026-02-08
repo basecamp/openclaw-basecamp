@@ -70,7 +70,7 @@ const AddBoostParams = Type.Object({
 const MoveCardParams = Type.Object({
   bucketId: Type.String({ description: "Basecamp project (bucket) ID" }),
   cardId: Type.String({ description: "Card recording ID to move" }),
-  columnId: Type.String({ description: "Target column ID to move the card to" }),
+  columnId: Type.Number({ description: "Target column ID to move the card to" }),
 });
 
 const PostMessageParams = Type.Object({
@@ -78,7 +78,7 @@ const PostMessageParams = Type.Object({
   messageBoardId: Type.String({ description: "Message board ID to post to" }),
   subject: Type.String({ description: "Message subject/title" }),
   content: Type.Optional(Type.String({ description: "Message body content (Basecamp HTML or plain text)" })),
-  categoryId: Type.Optional(Type.String({ description: "Message type/category ID" })),
+  categoryId: Type.Optional(Type.Number({ description: "Message type/category ID" })),
 });
 
 const AnswerCheckinParams = Type.Object({
@@ -216,8 +216,8 @@ async function executeMoveCard(
   const path = `/buckets/${bucketId}/card_tables/cards/${cardId}/moves.json`;
 
   try {
-    const result = await bcqPut<{ id?: number }>(path, {
-      extraFlags: ["-d", JSON.stringify({ column_id: Number(columnId) })],
+    await bcqPut(path, {
+      extraFlags: ["-d", JSON.stringify({ column_id: columnId })],
     });
     return {
       content: [{ type: "text" as const, text: JSON.stringify({ ok: true, cardId, columnId }) }],
@@ -245,7 +245,7 @@ async function executePostMessage(
   const path = `/buckets/${bucketId}/message_boards/${messageBoardId}/messages.json`;
   const body: Record<string, unknown> = { subject };
   if (content) body.content = content;
-  if (categoryId) body.category_id = Number(categoryId);
+  if (categoryId) body.category_id = categoryId;
 
   try {
     const result = await bcqApiPost<{ id?: number; subject?: string }>(

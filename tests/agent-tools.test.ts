@@ -457,7 +457,7 @@ describe("basecamp_move_card", () => {
     const result = await tool.execute("call-21", {
       bucketId: "100",
       cardId: "600",
-      columnId: "700",
+      columnId: 700,
     });
 
     expect(bcqPut).toHaveBeenCalledWith(
@@ -465,8 +465,8 @@ describe("basecamp_move_card", () => {
       { extraFlags: ["-d", JSON.stringify({ column_id: 700 })] },
     );
     const parsed = JSON.parse(result.content[0].text);
-    expect(parsed).toEqual({ ok: true, cardId: "600", columnId: "700" });
-    expect(result.details).toEqual({ ok: true, cardId: "600", columnId: "700" });
+    expect(parsed).toEqual({ ok: true, cardId: "600", columnId: 700 });
+    expect(result.details).toEqual({ ok: true, cardId: "600", columnId: 700 });
   });
 
   it("returns error on API failure", async () => {
@@ -475,7 +475,7 @@ describe("basecamp_move_card", () => {
     const result = await tool.execute("call-22", {
       bucketId: "100",
       cardId: "600",
-      columnId: "700",
+      columnId: 700,
     });
 
     const parsed = JSON.parse(result.content[0].text);
@@ -518,7 +518,7 @@ describe("basecamp_post_message", () => {
       messageBoardId: "200",
       subject: "Announcement",
       content: "<p>Big news!</p>",
-      categoryId: "5",
+      categoryId: 5,
     });
 
     expect(bcqApiPost).toHaveBeenCalledWith(
