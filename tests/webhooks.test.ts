@@ -231,7 +231,7 @@ describe("handleBasecampWebhook — hardening", () => {
     const res = mockRes();
     await handleBasecampWebhook(req, res);
     expect(res.status).toBe(403);
-    expect(res.body).toContain("Invalid webhook token");
+    expect(res.body).toContain("Invalid webhook signature or token");
   });
 
   it("rejects requests with no token", async () => {

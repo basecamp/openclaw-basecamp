@@ -457,6 +457,19 @@ export type BasecampChannelConfig = {
   engage?: BasecampEngagementType[];
   /** Secret token for webhook URL verification. Webhook requests are rejected when unset. */
   webhookSecret?: string;
+  /** Webhook subscription management. */
+  webhooks?: {
+    /** HTTPS URL where Basecamp sends webhook payloads. Required for auto-registration. */
+    payloadUrl?: string;
+    /** Bucket IDs to create webhooks for. Omit for manual-only management. */
+    projects?: string[];
+    /** Recordable types to subscribe to. Defaults to all types. */
+    types?: string[];
+    /** Auto-register webhooks on gateway startup. Default: true. */
+    autoRegister?: boolean;
+    /** Deactivate webhooks on gateway shutdown. Default: false. */
+    deactivateOnStop?: boolean;
+  };
   /** Polling cadence overrides (milliseconds). */
   polling?: {
     activityIntervalMs?: number;

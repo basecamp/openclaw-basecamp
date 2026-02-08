@@ -11,11 +11,13 @@
  */
 
 import type { IncomingMessage, ServerResponse } from "node:http";
+import crypto from "node:crypto";
 import { join } from "node:path";
 import type { BasecampWebhookPayload, ResolvedBasecampAccount } from "../types.js";
 import { normalizeWebhookPayload, isSelfMessage } from "./normalize.js";
 import { EventDedup } from "./dedup.js";
 import { JsonFileDedupStore } from "./dedup-store.js";
+import { WebhookSecretRegistry, JsonFileWebhookSecretStore } from "./webhook-secrets.js";
 import { dispatchBasecampEvent } from "../dispatch.js";
 import { getBasecampRuntime } from "../runtime.js";
 import { resolveBasecampAccount, resolveDefaultBasecampAccountId, resolveWebhookSecret, resolveAccountForBucket, listBasecampAccountIds } from "../config.js";
@@ -113,6 +115,95 @@ export function flushWebhookDedup(): void {
   }
 }
 
+// ---------------------------------------------------------------------------
+// HMAC-SHA256 verification (Stripe-style: X-Basecamp-Signature + Timestamp)
+// ---------------------------------------------------------------------------
+
+/** Per-account webhook secret registries, keyed by account and bound to a state dir. */
+const secretRegistries = new Map<string, { registry: WebhookSecretRegistry; stateDir: string | undefined }>();
+
+/**
+ * Get or create a webhook secret registry for an account.
+ * The registry is backed by a persistent JSON file when a state dir is set.
+ * If the state dir has changed since the registry was created, the old one
+ * is flushed and a new one is created for the new path.
+ */
+export function getWebhookSecretRegistry(accountId: string): WebhookSecretRegistry {
+  const currentStateDir = webhookStateDir;
+  const entry = secretRegistries.get(accountId);
+
+  if (entry && entry.stateDir === currentStateDir) {
+    return entry.registry;
+  }
+
+  // State dir changed or first access — flush old registry if present
+  if (entry) {
+    entry.registry.flush();
+  }
+
+  const store = currentStateDir
+    ? new JsonFileWebhookSecretStore(join(currentStateDir, `webhook-secrets-${accountId}.json`))
+    : undefined;
+  const registry = new WebhookSecretRegistry(store);
+  secretRegistries.set(accountId, { registry, stateDir: currentStateDir });
+  return registry;
+}
+
+/** Maximum age (in seconds) for timestamp replay protection. Default: 5 minutes. */
+const MAX_TIMESTAMP_AGE_S = 300;
+
+/**
+ * Verify a Basecamp webhook HMAC-SHA256 signature.
+ *
+ * Protocol (Stripe-style):
+ *   signed_payload = "{timestamp}.{body}"
+ *   expected = "sha256=" + HMAC-SHA256(secret, signed_payload).hex()
+ *
+ * Returns true if the signature is valid for any of the provided secrets.
+ */
+export function verifyWebhookSignature(params: {
+  signature: string;
+  timestamp: string;
+  rawBody: string;
+  secrets: string[];
+}): boolean {
+  const { signature, timestamp, rawBody, secrets } = params;
+  if (!signature || !timestamp || secrets.length === 0) return false;
+
+  // Replay protection: reject if timestamp is too old
+  const ts = parseInt(timestamp, 10);
+  if (isNaN(ts)) return false;
+  const age = Math.abs(Math.floor(Date.now() / 1000) - ts);
+  if (age > MAX_TIMESTAMP_AGE_S) return false;
+
+  const signedPayload = `${timestamp}.${rawBody}`;
+
+  for (const secret of secrets) {
+    const expected = "sha256=" + crypto
+      .createHmac("sha256", secret)
+      .update(signedPayload)
+      .digest("hex");
+
+    // Timing-safe comparison
+    if (expected.length === signature.length) {
+      const a = Buffer.from(expected);
+      const b = Buffer.from(signature);
+      if (crypto.timingSafeEqual(a, b)) return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Flush all webhook secret registries to disk. Call on graceful shutdown.
+ */
+export function flushWebhookSecrets(): void {
+  for (const { registry } of secretRegistries.values()) {
+    registry.flush();
+  }
+}
+
 /** Maximum allowed webhook request body size (1 MiB). */
 const MAX_WEBHOOK_BODY_BYTES = 1 * 1024 * 1024;
 
@@ -169,9 +260,7 @@ export async function handleBasecampWebhook(
     return;
   }
 
-  // ----- Webhook secret verification -----
-  // Reject requests when no webhookSecret is configured (disabled by default)
-  // or when the provided token doesn't match.
+  // ----- Load config -----
   let cfg;
   try {
     const runtime = getBasecampRuntime();
@@ -183,27 +272,93 @@ export async function handleBasecampWebhook(
     return;
   }
 
+  // ----- Read body first (needed for both HMAC and JSON parsing) -----
+  let rawBody: string;
+  try {
+    rawBody = await readBody(req);
+  } catch {
+    res.writeHead(400, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "Invalid request body" }));
+    return;
+  }
+
+  // ----- Authentication -----
+  // Try HMAC signature verification first (X-Basecamp-Signature header),
+  // then fall back to query-string token (?token=<secret>).
+  // At least one method must be configured and pass.
+  const hmacSignature = req.headers["x-basecamp-signature"] as string | undefined;
+  const hmacTimestamp = req.headers["x-basecamp-timestamp"] as string | undefined;
   const webhookSecret = resolveWebhookSecret(cfg);
-  if (!webhookSecret) {
-    res.writeHead(403, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: "Webhooks not configured (set channels.basecamp.webhookSecret)" }));
+
+  let authenticated = false;
+
+  if (hmacSignature && hmacTimestamp) {
+    // HMAC path: scope verification to the specific bucket/account when possible.
+    // Parse the payload first to extract bucketId, then use only the secrets
+    // for the account that owns that bucket. Falls back to all secrets if
+    // bucket resolution fails.
+    let candidateSecrets: string[] = [];
+    try {
+      const parsed = JSON.parse(rawBody) as { recording?: { bucket?: { id?: number } } };
+      const bucketId = parsed?.recording?.bucket?.id;
+      if (bucketId != null) {
+        const bucketAccountId = resolveAccountForBucket(cfg, String(bucketId));
+        if (bucketAccountId) {
+          const entry = secretRegistries.get(bucketAccountId);
+          if (entry) {
+            candidateSecrets = entry.registry.getAllSecrets().filter(s => s.length > 0);
+          }
+        }
+      }
+    } catch {
+      // JSON parse failed — fall through to all secrets
+    }
+
+    // Fall back to all known secrets if bucket-scoped resolution didn't yield any
+    if (candidateSecrets.length === 0) {
+      for (const { registry } of secretRegistries.values()) {
+        candidateSecrets.push(...registry.getAllSecrets().filter(s => s.length > 0));
+      }
+    }
+
+    if (candidateSecrets.length > 0) {
+      authenticated = verifyWebhookSignature({
+        signature: hmacSignature,
+        timestamp: hmacTimestamp,
+        rawBody,
+        secrets: candidateSecrets,
+      });
+    }
+  }
+
+  if (!authenticated) {
+    // Query-string token fallback
+    if (webhookSecret) {
+      const urlObj = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
+      const providedToken = urlObj.searchParams.get("token");
+      if (providedToken && providedToken === webhookSecret) {
+        authenticated = true;
+      }
+    }
+  }
+
+  if (!authenticated) {
+    // No valid authentication — check if webhooks are configured at all
+    const hasAnySecrets = [...secretRegistries.values()].some(({ registry }) => registry.size > 0);
+    if (!webhookSecret && !hasAnySecrets) {
+      res.writeHead(403, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Webhooks not configured (set channels.basecamp.webhookSecret or configure webhooks.payloadUrl)" }));
+    } else {
+      res.writeHead(403, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Invalid webhook signature or token" }));
+    }
     return;
   }
 
-  // Check token from query string: /webhooks/basecamp?token=<secret>
-  const urlObj = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
-  const providedToken = urlObj.searchParams.get("token");
-  if (!providedToken || providedToken !== webhookSecret) {
-    res.writeHead(403, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: "Invalid webhook token" }));
-    return;
-  }
-
-  // Read and parse body
+  // ----- Parse body -----
   let payload: BasecampWebhookPayload;
   try {
-    const body = await readBody(req);
-    payload = JSON.parse(body) as BasecampWebhookPayload;
+    payload = JSON.parse(rawBody) as BasecampWebhookPayload;
   } catch {
     res.writeHead(400, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ error: "Invalid JSON body" }));

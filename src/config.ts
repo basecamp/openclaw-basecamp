@@ -53,6 +53,16 @@ export const BasecampConfigSchema = z.object({
   engage: z.array(EngagementTypeSchema).optional(),
   /** Secret token for webhook URL verification. Required to accept webhook requests. */
   webhookSecret: z.string().optional(),
+  /** Webhook subscription management. */
+  webhooks: z
+    .object({
+      payloadUrl: z.string().url().optional(),
+      projects: z.array(z.string()).optional(),
+      types: z.array(z.string()).optional(),
+      autoRegister: z.boolean().optional(),
+      deactivateOnStop: z.boolean().optional(),
+    })
+    .optional(),
   polling: z
     .object({
       activityIntervalMs: z.number().positive().optional(),
@@ -325,6 +335,25 @@ export function resolveBasecampAllowFrom(cfg: OpenClawConfig): string[] {
 export function resolveWebhookSecret(cfg: OpenClawConfig): string | undefined {
   const section = getBasecampSection(cfg);
   return section?.webhookSecret;
+}
+
+/** Resolve webhook subscription config with defaults. */
+export function resolveWebhooksConfig(cfg: OpenClawConfig): {
+  payloadUrl?: string;
+  projects: string[];
+  types: string[];
+  autoRegister: boolean;
+  deactivateOnStop: boolean;
+} {
+  const section = getBasecampSection(cfg);
+  const wh = section?.webhooks;
+  return {
+    payloadUrl: wh?.payloadUrl,
+    projects: wh?.projects ?? [],
+    types: wh?.types ?? [],
+    autoRegister: wh?.autoRegister ?? true,
+    deactivateOnStop: wh?.deactivateOnStop ?? false,
+  };
 }
 
 /**
