@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 vi.mock("../src/bcq.js", () => ({
   bcqApiGet: vi.fn(),
   bcqApiPost: vi.fn(),
+  bcqPut: vi.fn(),
   bcqDelete: vi.fn(),
 }));
 
@@ -11,7 +12,7 @@ vi.mock("../src/outbound/format.js", () => ({
 }));
 
 import { basecampAgentTools } from "../src/adapters/agent-tools.js";
-import { bcqApiGet, bcqApiPost, bcqDelete } from "../src/bcq.js";
+import { bcqApiGet, bcqApiPost, bcqPut, bcqDelete } from "../src/bcq.js";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -28,8 +29,8 @@ function findTool(name: string) {
 // ---------------------------------------------------------------------------
 
 describe("basecampAgentTools", () => {
-  it("exports five tools", () => {
-    expect(basecampAgentTools).toHaveLength(5);
+  it("exports eight tools", () => {
+    expect(basecampAgentTools).toHaveLength(8);
   });
 
   it("has correct tool names", () => {
@@ -40,6 +41,9 @@ describe("basecampAgentTools", () => {
       "basecamp_reopen_todo",
       "basecamp_read_history",
       "basecamp_add_boost",
+      "basecamp_move_card",
+      "basecamp_post_message",
+      "basecamp_answer_checkin",
     ]);
   });
 
@@ -431,6 +435,162 @@ describe("basecamp_add_boost", () => {
     const result = await tool.execute("call-20", {
       bucketId: "100",
       recordingId: "500",
+    });
+
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("422 Unprocessable");
+    expect(result.details).toEqual({ ok: false, error: expect.stringContaining("422 Unprocessable") });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// basecamp_move_card
+// ---------------------------------------------------------------------------
+
+describe("basecamp_move_card", () => {
+  const tool = findTool("basecamp_move_card");
+
+  it("moves a card to the target column", async () => {
+    vi.mocked(bcqPut).mockResolvedValue({ data: { id: 1 }, raw: "" });
+
+    const result = await tool.execute("call-21", {
+      bucketId: "100",
+      cardId: "600",
+      columnId: "700",
+    });
+
+    expect(bcqPut).toHaveBeenCalledWith(
+      "/buckets/100/card_tables/cards/600/moves.json",
+      { extraFlags: ["-d", JSON.stringify({ column_id: 700 })] },
+    );
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed).toEqual({ ok: true, cardId: "600", columnId: "700" });
+    expect(result.details).toEqual({ ok: true, cardId: "600", columnId: "700" });
+  });
+
+  it("returns error on API failure", async () => {
+    vi.mocked(bcqPut).mockRejectedValue(new Error("404 Not Found"));
+
+    const result = await tool.execute("call-22", {
+      bucketId: "100",
+      cardId: "600",
+      columnId: "700",
+    });
+
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("404 Not Found");
+    expect(result.details).toEqual({ ok: false, error: expect.stringContaining("404 Not Found") });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// basecamp_post_message
+// ---------------------------------------------------------------------------
+
+describe("basecamp_post_message", () => {
+  const tool = findTool("basecamp_post_message");
+
+  it("posts a message with minimal params", async () => {
+    vi.mocked(bcqApiPost).mockResolvedValue({ id: 800, subject: "Weekly Update" });
+
+    const result = await tool.execute("call-23", {
+      bucketId: "100",
+      messageBoardId: "200",
+      subject: "Weekly Update",
+    });
+
+    expect(bcqApiPost).toHaveBeenCalledWith(
+      "/buckets/100/message_boards/200/messages.json",
+      JSON.stringify({ subject: "Weekly Update" }),
+    );
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed).toEqual({ ok: true, messageId: 800, subject: "Weekly Update" });
+    expect(result.details).toEqual({ ok: true, messageId: 800 });
+  });
+
+  it("posts a message with content and category", async () => {
+    vi.mocked(bcqApiPost).mockResolvedValue({ id: 801, subject: "Announcement" });
+
+    await tool.execute("call-24", {
+      bucketId: "100",
+      messageBoardId: "200",
+      subject: "Announcement",
+      content: "<p>Big news!</p>",
+      categoryId: "5",
+    });
+
+    expect(bcqApiPost).toHaveBeenCalledWith(
+      "/buckets/100/message_boards/200/messages.json",
+      JSON.stringify({ subject: "Announcement", content: "<p>Big news!</p>", category_id: 5 }),
+    );
+  });
+
+  it("omits optional fields when not provided", async () => {
+    vi.mocked(bcqApiPost).mockResolvedValue({ id: 802 });
+
+    await tool.execute("call-25", {
+      bucketId: "100",
+      messageBoardId: "200",
+      subject: "Simple",
+    });
+
+    const bodyArg = vi.mocked(bcqApiPost).mock.calls[0]![1];
+    const body = JSON.parse(bodyArg!);
+    expect(body).toEqual({ subject: "Simple" });
+    expect(body).not.toHaveProperty("content");
+    expect(body).not.toHaveProperty("category_id");
+  });
+
+  it("returns error on API failure", async () => {
+    vi.mocked(bcqApiPost).mockRejectedValue(new Error("403 Forbidden"));
+
+    const result = await tool.execute("call-26", {
+      bucketId: "100",
+      messageBoardId: "200",
+      subject: "Fail",
+    });
+
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("403 Forbidden");
+    expect(result.details).toEqual({ ok: false, error: expect.stringContaining("403 Forbidden") });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// basecamp_answer_checkin
+// ---------------------------------------------------------------------------
+
+describe("basecamp_answer_checkin", () => {
+  const tool = findTool("basecamp_answer_checkin");
+
+  it("answers a check-in question", async () => {
+    vi.mocked(bcqApiPost).mockResolvedValue({ id: 900 });
+
+    const result = await tool.execute("call-27", {
+      bucketId: "100",
+      questionId: "300",
+      content: "Everything is on track!",
+    });
+
+    expect(bcqApiPost).toHaveBeenCalledWith(
+      "/buckets/100/questions/300/answers.json",
+      JSON.stringify({ content: "Everything is on track!" }),
+    );
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed).toEqual({ ok: true, answerId: 900 });
+    expect(result.details).toEqual({ ok: true, answerId: 900 });
+  });
+
+  it("returns error on API failure", async () => {
+    vi.mocked(bcqApiPost).mockRejectedValue(new Error("422 Unprocessable"));
+
+    const result = await tool.execute("call-28", {
+      bucketId: "100",
+      questionId: "300",
+      content: "Fail",
     });
 
     const parsed = JSON.parse(result.content[0].text);
