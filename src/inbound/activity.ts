@@ -12,6 +12,7 @@ import type {
   BasecampInboundMessage,
   ResolvedBasecampAccount,
 } from "../types.js";
+import type { CircuitBreaker } from "../bcq.js";
 import { bcqTimeline } from "../bcq.js";
 import { normalizeActivityEvent } from "./normalize.js";
 
@@ -25,6 +26,8 @@ export interface ActivityPollerOptions {
   account: ResolvedBasecampAccount;
   /** Cursor — only process events created after this timestamp. */
   since?: string;
+  /** Circuit breaker for fail-fast on repeated API failures. */
+  circuitBreaker?: { instance: CircuitBreaker; key: string };
   log?: {
     info: (msg: string) => void;
     warn: (msg: string) => void;
@@ -46,6 +49,7 @@ export async function pollActivityFeed(
   const result = await bcqTimeline<BasecampActivityEvent[]>({
     accountId: account.config.bcqAccountId,
     profile: account.bcqProfile,
+    circuitBreaker: opts.circuitBreaker,
   });
 
   const rawEvents = result.data;

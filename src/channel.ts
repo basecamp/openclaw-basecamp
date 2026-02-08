@@ -241,14 +241,16 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
       // Share state directory with webhook handler for persistent dedup
       setWebhookStateDir(stateDir);
 
-      // Event handler: filter self-messages, then dispatch to OpenClaw agents
-      const onEvent = async (msg: BasecampInboundMessage) => {
+      // Event handler: filter self-messages, then dispatch to OpenClaw agents.
+      // Returns true if dispatched to an agent, false if dropped (no route,
+      // engagement gate, DM policy, etc.).
+      const onEvent = async (msg: BasecampInboundMessage): Promise<boolean> => {
         // Self-message filtering: skip events from our own service account
         if (msg.sender.id === account.personId) {
-          return;
+          return false;
         }
 
-        await dispatchBasecampEvent(msg, {
+        return dispatchBasecampEvent(msg, {
           account,
           log: ctx.log as any,
         });

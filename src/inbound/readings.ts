@@ -11,6 +11,7 @@ import type {
   BasecampReadingsEntry,
   ResolvedBasecampAccount,
 } from "../types.js";
+import type { CircuitBreaker } from "../bcq.js";
 import { bcqReadings as bcqReadingsCmd } from "../bcq.js";
 import { normalizeReadingsEvent } from "./normalize.js";
 
@@ -26,6 +27,8 @@ export interface ReadingsPollerOptions {
   account: ResolvedBasecampAccount;
   /** Initial cursor — only process readings newer than this. */
   since?: string;
+  /** Circuit breaker for fail-fast on repeated API failures. */
+  circuitBreaker?: { instance: CircuitBreaker; key: string };
   log?: {
     info: (msg: string) => void;
     warn: (msg: string) => void;
@@ -51,6 +54,7 @@ export async function pollReadings(
   }>({
     accountId: account.config.bcqAccountId,
     profile: account.bcqProfile,
+    circuitBreaker: opts.circuitBreaker,
   });
 
   const unreads = result.data?.unreads;
