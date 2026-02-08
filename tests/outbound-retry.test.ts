@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("../src/bcq.js", () => ({
   bcqApiPost: vi.fn(),
+  bcqPost: vi.fn(),
   withRetry: vi.fn(),
   isRetryableError: vi.fn(),
   BcqError: class BcqError extends Error {
@@ -15,6 +16,14 @@ vi.mock("../src/bcq.js", () => ({
       this.name = "BcqError";
     }
   },
+  CircuitBreaker: class CircuitBreaker {
+    private _open = false;
+    isOpen() { return this._open; }
+    recordFailure() {}
+    recordSuccess() {}
+    getState() { return { failures: 0, trippedAt: null }; }
+    setOpen(v: boolean) { this._open = v; }
+  },
 }));
 vi.mock("../src/outbound/format.js", () => ({
   markdownToBasecampHtml: vi.fn((t: string) => t),
@@ -27,7 +36,7 @@ vi.mock("../src/config.js", () => ({
 }));
 
 import { postCampfireLine, postComment, postReplyToEvent } from "../src/outbound/send.js";
-import { bcqApiPost, withRetry, isRetryableError, BcqError } from "../src/bcq.js";
+import { bcqApiPost, bcqPost, withRetry, isRetryableError, BcqError, CircuitBreaker } from "../src/bcq.js";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -216,5 +225,68 @@ describe("postReplyToEvent", () => {
 
     expect(result.ok).toBe(false);
     expect(result.retryable).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Circuit breaker integration
+// ---------------------------------------------------------------------------
+
+describe("postCampfireLine with circuit breaker", () => {
+  it("uses bcqPost instead of bcqApiPost when circuitBreaker is provided", async () => {
+    const cb = new (CircuitBreaker as any)();
+    vi.mocked(bcqPost).mockResolvedValue({ data: { id: 100 }, raw: "" });
+
+    const result = await postCampfireLine({
+      bucketId: "1",
+      transcriptId: "2",
+      content: "Hello",
+      circuitBreaker: { instance: cb, key: "outbound" },
+    });
+
+    expect(result).toEqual({ ok: true, recordingId: "100" });
+    expect(bcqPost).toHaveBeenCalledTimes(1);
+    expect(bcqApiPost).not.toHaveBeenCalled();
+    expect(bcqPost).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        circuitBreaker: { instance: cb, key: "outbound" },
+      }),
+    );
+  });
+
+  it("returns error when bcqPost fails with circuit breaker", async () => {
+    const cb = new (CircuitBreaker as any)();
+    const err = new (BcqError as any)("Circuit breaker open", null, "", ["bcq"]);
+    vi.mocked(bcqPost).mockRejectedValue(err);
+    vi.mocked(isRetryableError).mockReturnValue(false);
+
+    const result = await postCampfireLine({
+      bucketId: "1",
+      transcriptId: "2",
+      content: "Hello",
+      circuitBreaker: { instance: cb, key: "outbound" },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("Circuit breaker open");
+  });
+});
+
+describe("postComment with circuit breaker", () => {
+  it("uses bcqPost instead of bcqApiPost when circuitBreaker is provided", async () => {
+    const cb = new (CircuitBreaker as any)();
+    vi.mocked(bcqPost).mockResolvedValue({ data: { id: 200 }, raw: "" });
+
+    const result = await postComment({
+      bucketId: "1",
+      recordingId: "2",
+      content: "A comment",
+      circuitBreaker: { instance: cb, key: "outbound" },
+    });
+
+    expect(result).toEqual({ ok: true, commentId: "200" });
+    expect(bcqPost).toHaveBeenCalledTimes(1);
+    expect(bcqApiPost).not.toHaveBeenCalled();
   });
 });

@@ -21,6 +21,7 @@ vi.mock("../src/config.js", () => ({
   resolveBasecampAccount: vi.fn(),
   resolveBasecampDmPolicy: vi.fn(() => "open"),
   resolveBasecampAllowFrom: vi.fn(() => []),
+  resolveCircuitBreakerConfig: vi.fn(() => ({ threshold: 5, cooldownMs: 300000 })),
 }));
 vi.mock("../src/outbound/send.js", () => ({
   postReplyToEvent: vi.fn(),
@@ -240,6 +241,7 @@ describe("dispatchBasecampEvent", () => {
       accountId: "12345",
       profile: undefined,
       retries: 2,
+      circuitBreaker: expect.objectContaining({ key: "outbound" }),
     });
   });
 

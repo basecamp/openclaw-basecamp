@@ -9,7 +9,8 @@
  */
 
 import type { BasecampRecordableType } from "../types.js";
-import { bcqApiPost, withRetry, isRetryableError, BcqError, bcqResolvePingTranscript } from "../bcq.js";
+import { bcqPost, bcqApiPost, withRetry, isRetryableError, BcqError, bcqResolvePingTranscript } from "../bcq.js";
+import type { CircuitBreaker } from "../bcq.js";
 import { markdownToBasecampHtml } from "./format.js";
 import { getBasecampRuntime } from "../runtime.js";
 import { resolveBasecampAccount } from "../config.js";
@@ -47,12 +48,15 @@ export async function postCampfireLine(params: {
   accountId?: string;
   profile?: string;
   retries?: number;
+  circuitBreaker?: { instance: CircuitBreaker; key: string };
 }): Promise<{ ok: boolean; recordingId?: string; retryable?: boolean; error?: string }> {
-  const { bucketId, transcriptId, content, accountId, profile, retries } = params;
+  const { bucketId, transcriptId, content, accountId, profile, retries, circuitBreaker } = params;
   const path = `/buckets/${bucketId}/chats/${transcriptId}/lines.json`;
   const body = JSON.stringify({ content });
 
-  const doPost = () => bcqApiPost(path, body, accountId, profile);
+  const doPost = () => circuitBreaker
+    ? bcqPost(path, { accountId, profile, extraFlags: ["-d", body], circuitBreaker }).then(r => r.data)
+    : bcqApiPost(path, body, accountId, profile);
 
   try {
     const result = retries && retries > 0
@@ -86,12 +90,15 @@ export async function postComment(params: {
   accountId?: string;
   profile?: string;
   retries?: number;
+  circuitBreaker?: { instance: CircuitBreaker; key: string };
 }): Promise<{ ok: boolean; commentId?: string; retryable?: boolean; error?: string }> {
-  const { bucketId, recordingId, content, accountId, profile, retries } = params;
+  const { bucketId, recordingId, content, accountId, profile, retries, circuitBreaker } = params;
   const path = `/buckets/${bucketId}/recordings/${recordingId}/comments.json`;
   const body = JSON.stringify({ content });
 
-  const doPost = () => bcqApiPost(path, body, accountId, profile);
+  const doPost = () => circuitBreaker
+    ? bcqPost(path, { accountId, profile, extraFlags: ["-d", body], circuitBreaker }).then(r => r.data)
+    : bcqApiPost(path, body, accountId, profile);
 
   try {
     const result = retries && retries > 0
@@ -143,8 +150,9 @@ export async function postReplyToEvent(params: {
   accountId?: string;
   profile?: string;
   retries?: number;
+  circuitBreaker?: { instance: CircuitBreaker; key: string };
 }): Promise<{ ok: boolean; messageId?: string; retryable?: boolean; error?: string }> {
-  const { bucketId, recordingId, recordableType, peerId, content, accountId, profile, retries } = params;
+  const { bucketId, recordingId, recordableType, peerId, content, accountId, profile, retries, circuitBreaker } = params;
   const parsed = parsePeerId(peerId);
 
   // Pings: resolve the transcript ID from the circle's bucket ID
@@ -160,6 +168,7 @@ export async function postReplyToEvent(params: {
       accountId,
       profile,
       retries,
+      circuitBreaker,
     });
     return { ok: result.ok, messageId: result.recordingId, retryable: result.retryable, error: result.error };
   }
@@ -183,6 +192,7 @@ export async function postReplyToEvent(params: {
       accountId,
       profile,
       retries,
+      circuitBreaker,
     });
     return { ok: result.ok, messageId: result.recordingId, retryable: result.retryable, error: result.error };
   }
@@ -196,6 +206,7 @@ export async function postReplyToEvent(params: {
     accountId,
     profile,
     retries,
+    circuitBreaker,
   });
   return { ok: result.ok, messageId: result.commentId, retryable: result.retryable, error: result.error };
 }

@@ -17,6 +17,7 @@ vi.mock("../src/runtime.js", () => ({
 vi.mock("../src/config.js", () => ({
   resolvePersonaAccountId: vi.fn(),
   resolveBasecampAccount: vi.fn(),
+  resolveCircuitBreakerConfig: vi.fn(() => ({ threshold: 5, cooldownMs: 300000 })),
 }));
 vi.mock("../src/outbound/send.js", () => ({
   postReplyToEvent: vi.fn(),
