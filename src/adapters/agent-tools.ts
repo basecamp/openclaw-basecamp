@@ -5,10 +5,13 @@
  * agents perform Basecamp-specific operations during response generation.
  *
  * Write tools:
- *   basecamp_create_todo   — Create a new to-do in a to-do list
- *   basecamp_complete_todo — Mark a to-do as complete
- *   basecamp_reopen_todo   — Mark a to-do as incomplete
- *   basecamp_add_boost     — Add a boost (reaction) to any recording
+ *   basecamp_create_todo    — Create a new to-do in a to-do list
+ *   basecamp_complete_todo  — Mark a to-do as complete
+ *   basecamp_reopen_todo    — Mark a to-do as incomplete
+ *   basecamp_add_boost      — Add a boost (reaction) to any recording
+ *   basecamp_move_card      — Move a card to a different column in a card table
+ *   basecamp_post_message   — Post a new message to a message board
+ *   basecamp_answer_checkin — Answer a check-in question
  *
  * Read tools:
  *   basecamp_read_history  — Fetch recent messages/comments for a recording
@@ -17,7 +20,7 @@
 import type { ChannelAgentTool } from "openclaw/plugin-sdk";
 import { Type } from "@sinclair/typebox";
 import type { Static } from "@sinclair/typebox";
-import { bcqApiGet, bcqApiPost, bcqDelete } from "../bcq.js";
+import { bcqApiGet, bcqApiPost, bcqPut, bcqDelete } from "../bcq.js";
 import { basecampHtmlToPlainText } from "../outbound/format.js";
 
 // ---------------------------------------------------------------------------
@@ -62,6 +65,26 @@ const AddBoostParams = Type.Object({
   bucketId: Type.String({ description: "Basecamp project (bucket) ID" }),
   recordingId: Type.String({ description: "Recording ID to boost (any recording: comment, todo, campfire line, etc.)" }),
   content: Type.Optional(Type.String({ description: "Boost content — an emoji or short celebratory text (e.g., '👍', '🎉', 'Congrats!'). Defaults to '👍'." })),
+});
+
+const MoveCardParams = Type.Object({
+  bucketId: Type.String({ description: "Basecamp project (bucket) ID" }),
+  cardId: Type.String({ description: "Card recording ID to move" }),
+  columnId: Type.Number({ description: "Target column ID to move the card to" }),
+});
+
+const PostMessageParams = Type.Object({
+  bucketId: Type.String({ description: "Basecamp project (bucket) ID" }),
+  messageBoardId: Type.String({ description: "Message board ID to post to" }),
+  subject: Type.String({ description: "Message subject/title" }),
+  content: Type.Optional(Type.String({ description: "Message body content (Basecamp HTML or plain text)" })),
+  categoryId: Type.Optional(Type.Number({ description: "Message type/category ID" })),
+});
+
+const AnswerCheckinParams = Type.Object({
+  bucketId: Type.String({ description: "Basecamp project (bucket) ID" }),
+  questionId: Type.String({ description: "Check-in question ID to answer" }),
+  content: Type.String({ description: "Answer content (Basecamp HTML or plain text)" }),
 });
 
 // ---------------------------------------------------------------------------
@@ -180,6 +203,98 @@ async function executeAddBoost(
 }
 
 // ---------------------------------------------------------------------------
+// moveCard — move a card to a different column in a card table
+// ---------------------------------------------------------------------------
+
+type MoveCardInput = Static<typeof MoveCardParams>;
+
+async function executeMoveCard(
+  _toolCallId: string,
+  rawParams: unknown,
+) {
+  const { bucketId, cardId, columnId } = rawParams as MoveCardInput;
+  const path = `/buckets/${bucketId}/card_tables/cards/${cardId}/moves.json`;
+
+  try {
+    await bcqPut(path, {
+      extraFlags: ["-d", JSON.stringify({ column_id: columnId })],
+    });
+    return {
+      content: [{ type: "text" as const, text: JSON.stringify({ ok: true, cardId, columnId }) }],
+      details: { ok: true, cardId, columnId },
+    };
+  } catch (err) {
+    return {
+      content: [{ type: "text" as const, text: JSON.stringify({ ok: false, error: String(err) }) }],
+      details: { ok: false, error: String(err) },
+    };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// postMessage — post a new message to a message board
+// ---------------------------------------------------------------------------
+
+type PostMessageInput = Static<typeof PostMessageParams>;
+
+async function executePostMessage(
+  _toolCallId: string,
+  rawParams: unknown,
+) {
+  const { bucketId, messageBoardId, subject, content, categoryId } = rawParams as PostMessageInput;
+  const path = `/buckets/${bucketId}/message_boards/${messageBoardId}/messages.json`;
+  const body: Record<string, unknown> = { subject };
+  if (content) body.content = content;
+  if (categoryId) body.category_id = categoryId;
+
+  try {
+    const result = await bcqApiPost<{ id?: number; subject?: string }>(
+      path,
+      JSON.stringify(body),
+    );
+    return {
+      content: [{ type: "text" as const, text: JSON.stringify({ ok: true, messageId: result?.id, subject: result?.subject }) }],
+      details: { ok: true, messageId: result?.id },
+    };
+  } catch (err) {
+    return {
+      content: [{ type: "text" as const, text: JSON.stringify({ ok: false, error: String(err) }) }],
+      details: { ok: false, error: String(err) },
+    };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// answerCheckin — answer a check-in question
+// ---------------------------------------------------------------------------
+
+type AnswerCheckinInput = Static<typeof AnswerCheckinParams>;
+
+async function executeAnswerCheckin(
+  _toolCallId: string,
+  rawParams: unknown,
+) {
+  const { bucketId, questionId, content } = rawParams as AnswerCheckinInput;
+  const path = `/buckets/${bucketId}/questions/${questionId}/answers.json`;
+
+  try {
+    const result = await bcqApiPost<{ id?: number }>(
+      path,
+      JSON.stringify({ content }),
+    );
+    return {
+      content: [{ type: "text" as const, text: JSON.stringify({ ok: true, answerId: result?.id }) }],
+      details: { ok: true, answerId: result?.id },
+    };
+  } catch (err) {
+    return {
+      content: [{ type: "text" as const, text: JSON.stringify({ ok: false, error: String(err) }) }],
+      details: { ok: false, error: String(err) },
+    };
+  }
+}
+
+// ---------------------------------------------------------------------------
 // readHistory — fetch recent messages/comments for context
 // ---------------------------------------------------------------------------
 
@@ -277,5 +392,33 @@ export const basecampAgentTools: ChannelAgentTool[] = [
       "Content can be an emoji or short celebratory text. Defaults to '👍' if not specified.",
     parameters: AddBoostParams,
     execute: executeAddBoost,
+  },
+  {
+    name: "basecamp_move_card",
+    label: "Move Basecamp Card",
+    description:
+      "Move a card to a different column in a Basecamp card table. " +
+      "Requires the project (bucket) ID, card recording ID, and target column ID.",
+    parameters: MoveCardParams,
+    execute: executeMoveCard,
+  },
+  {
+    name: "basecamp_post_message",
+    label: "Post Basecamp Message",
+    description:
+      "Post a new message to a Basecamp message board. " +
+      "Requires the project (bucket) ID, message board ID, and subject. " +
+      "Optionally include body content and a message category/type ID.",
+    parameters: PostMessageParams,
+    execute: executePostMessage,
+  },
+  {
+    name: "basecamp_answer_checkin",
+    label: "Answer Basecamp Check-in",
+    description:
+      "Answer a Basecamp check-in question. " +
+      "Requires the project (bucket) ID, question ID, and answer content.",
+    parameters: AnswerCheckinParams,
+    execute: executeAnswerCheckin,
   },
 ];
