@@ -35,6 +35,7 @@ import { resolveOutboundTarget, chunkMarkdownText, BASECAMP_TEXT_CHUNK_LIMIT } f
 import { basecampMentionAdapter } from "./adapters/mentions.js";
 import { basecampActionsAdapter } from "./adapters/actions.js";
 import { basecampAgentTools } from "./adapters/agent-tools.js";
+import { setWebhookStateDir, flushWebhookDedup } from "./inbound/webhooks.js";
 
 export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampProbe, BasecampAudit> = {
   id: "basecamp",
@@ -237,6 +238,9 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
         stateDir = "/tmp/openclaw-basecamp-state";
       }
 
+      // Share state directory with webhook handler for persistent dedup
+      setWebhookStateDir(stateDir);
+
       // Event handler: filter self-messages, then dispatch to OpenClaw agents
       const onEvent = async (msg: BasecampInboundMessage) => {
         // Self-message filtering: skip events from our own service account
@@ -276,6 +280,8 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
           },
         });
       } finally {
+        // Flush webhook dedup stores before marking as stopped
+        flushWebhookDedup();
         ctx.setStatus({
           accountId: account.accountId,
           running: false,

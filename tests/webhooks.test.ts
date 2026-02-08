@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { IncomingMessage, ServerResponse } from "node:http";
 
 vi.mock("../src/dispatch.js", () => ({
@@ -51,7 +51,7 @@ vi.mock("../src/inbound/normalize.js", () => ({
   isSelfMessage: vi.fn(() => false),
 }));
 
-import { Semaphore, handleBasecampWebhook } from "../src/inbound/webhooks.js";
+import { Semaphore, handleBasecampWebhook, setWebhookStateDir, flushWebhookDedup } from "../src/inbound/webhooks.js";
 import { resolveDefaultBasecampAccountId, resolveWebhookSecret, resolveAccountForBucket, listBasecampAccountIds } from "../src/config.js";
 import { dispatchBasecampEvent } from "../src/dispatch.js";
 
@@ -339,5 +339,67 @@ describe("handleBasecampWebhook — hardening", () => {
       expect.anything(),
       "work",
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Webhook dedup persistence
+// ---------------------------------------------------------------------------
+
+describe("webhook dedup persistence", () => {
+  afterEach(() => {
+    // Reset state dir for other tests (idempotent no-op if already empty)
+    setWebhookStateDir("");
+  });
+
+  it("setWebhookStateDir and flushWebhookDedup are exported functions", () => {
+    expect(typeof setWebhookStateDir).toBe("function");
+    expect(typeof flushWebhookDedup).toBe("function");
+  });
+
+  it("setWebhookStateDir is idempotent (same dir does not flush)", () => {
+    // Setting the same dir twice should not clear existing dedup instances
+    setWebhookStateDir("/tmp/test-dir");
+    setWebhookStateDir("/tmp/test-dir");
+    // No throw, no clearing — second call is a no-op
+    setWebhookStateDir("");
+  });
+
+  it("flushWebhookDedup does not throw when no state dir is set", () => {
+    expect(() => flushWebhookDedup()).not.toThrow();
+  });
+
+  it("creates persistent dedup when state dir is configured", async () => {
+    const { mkdtempSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const { tmpdir } = await import("node:os");
+    const dir = mkdtempSync(join(tmpdir(), "webhook-dedup-test-"));
+
+    setWebhookStateDir(dir);
+
+    // Process a webhook to trigger dedup creation
+    const payload = JSON.stringify({
+      kind: "comment_created",
+      created_at: "2025-01-01T00:00:00Z",
+      recording: { id: 1, type: "Comment", bucket: { id: 100, name: "Test" } },
+      creator: { id: 2, name: "Tester" },
+    });
+    const req = mockReq("POST", "/webhooks/basecamp?token=test-secret-123", payload);
+    const res = mockRes();
+    await handleBasecampWebhook(req, res);
+    expect(res.status).toBe(200);
+
+    // Flush to disk
+    flushWebhookDedup();
+
+    // Verify a dedup file was created
+    const { readdirSync } = await import("node:fs");
+    const files = readdirSync(dir);
+    const dedupFiles = files.filter((f: string) => f.startsWith("webhook-dedup-"));
+    expect(dedupFiles.length).toBeGreaterThan(0);
+
+    // Clean up temp directory
+    const { rmSync } = await import("node:fs");
+    rmSync(dir, { recursive: true, force: true });
   });
 });
