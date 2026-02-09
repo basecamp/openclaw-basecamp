@@ -15,6 +15,10 @@
  *
  * Read tools:
  *   basecamp_read_history  — Fetch recent messages/comments for a recording
+ *
+ * Generic API tools:
+ *   basecamp_api_read     — GET any Basecamp 3 resource
+ *   basecamp_api_write    — POST/PUT/DELETE any Basecamp 3 resource
  */
 
 import type { ChannelAgentTool } from "openclaw/plugin-sdk";
@@ -85,6 +89,21 @@ const AnswerCheckinParams = Type.Object({
   bucketId: Type.String({ description: "Basecamp project (bucket) ID" }),
   questionId: Type.String({ description: "Check-in question ID to answer" }),
   content: Type.String({ description: "Answer content (Basecamp HTML or plain text)" }),
+});
+
+const ApiReadParams = Type.Object({
+  path: Type.String({ description: "Basecamp API path (e.g., /buckets/123/todos/456.json)" }),
+  query: Type.Optional(Type.Record(Type.String(), Type.String(), { description: "URL query parameters (e.g., {completed: 'true'})" })),
+});
+
+const ApiWriteParams = Type.Object({
+  method: Type.Union([
+    Type.Literal("POST"),
+    Type.Literal("PUT"),
+    Type.Literal("DELETE"),
+  ], { description: "HTTP method" }),
+  path: Type.String({ description: "Basecamp API path" }),
+  body: Type.Optional(Type.Unknown({ description: "JSON request body" })),
 });
 
 // ---------------------------------------------------------------------------
@@ -349,6 +368,78 @@ async function executeReadHistory(
 }
 
 // ---------------------------------------------------------------------------
+// apiRead — GET any Basecamp 3 resource
+// ---------------------------------------------------------------------------
+
+type ApiReadInput = Static<typeof ApiReadParams>;
+
+async function executeApiRead(
+  _toolCallId: string,
+  rawParams: unknown,
+) {
+  const { path, query } = rawParams as ApiReadInput;
+  let effectivePath = path;
+  if (query && Object.keys(query).length > 0) {
+    const params = new URLSearchParams(query);
+    const separator = effectivePath.includes("?") ? "&" : "?";
+    effectivePath = `${effectivePath}${separator}${params.toString()}`;
+  }
+
+  try {
+    const result = await bcqApiGet(effectivePath);
+    return {
+      content: [{ type: "text" as const, text: JSON.stringify({ ok: true, data: result }) }],
+      details: { ok: true },
+    };
+  } catch (err) {
+    return {
+      content: [{ type: "text" as const, text: JSON.stringify({ ok: false, error: String(err) }) }],
+      details: { ok: false, error: String(err) },
+    };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// apiWrite — POST/PUT/DELETE any Basecamp 3 resource
+// ---------------------------------------------------------------------------
+
+type ApiWriteInput = Static<typeof ApiWriteParams>;
+
+async function executeApiWrite(
+  _toolCallId: string,
+  rawParams: unknown,
+) {
+  const { method, path, body } = rawParams as ApiWriteInput;
+
+  try {
+    let result: unknown;
+    const bodyStr = body != null ? JSON.stringify(body) : undefined;
+
+    switch (method) {
+      case "POST":
+        result = await bcqApiPost(path, bodyStr);
+        break;
+      case "PUT":
+        result = (await bcqPut(path, bodyStr ? { extraFlags: ["-d", bodyStr] } : {})).data;
+        break;
+      case "DELETE":
+        result = (await bcqDelete(path)).data;
+        break;
+    }
+
+    return {
+      content: [{ type: "text" as const, text: JSON.stringify({ ok: true, data: result }) }],
+      details: { ok: true },
+    };
+  } catch (err) {
+    return {
+      content: [{ type: "text" as const, text: JSON.stringify({ ok: false, error: String(err) }) }],
+      details: { ok: false, error: String(err) },
+    };
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Exported tools array
 // ---------------------------------------------------------------------------
 
@@ -420,5 +511,46 @@ export const basecampAgentTools: ChannelAgentTool[] = [
       "Requires the project (bucket) ID, question ID, and answer content.",
     parameters: AnswerCheckinParams,
     execute: executeAnswerCheckin,
+  },
+  {
+    name: "basecamp_api_read",
+    label: "Read Basecamp API",
+    description:
+      "Read any Basecamp 3 resource. The projectId (bucketId) is always " +
+      "available in event metadata.\n\n" +
+      "Key paths:\n" +
+      "- /projects.json — list projects\n" +
+      "- /projects/{projectId}.json — project details + dock (todoset ID, message board ID, schedule ID, card table ID, vault ID)\n" +
+      "- /projects/{projectId}/people.json — project members\n" +
+      "- /people.json — all people in the account\n" +
+      "- /buckets/{projectId}/todos/{todoId}.json — todo details\n" +
+      "- /buckets/{projectId}/todolists/{todolistId}/todos.json — list todos\n" +
+      "- /buckets/{projectId}/todosets/{todosetId}/todolists.json — list todolists\n" +
+      "- /buckets/{projectId}/recordings/{recordingId}/comments.json — comments\n" +
+      "- /buckets/{projectId}/documents/{documentId}.json — document content\n" +
+      "- /buckets/{projectId}/card_tables/cards/{cardId}.json — card details\n" +
+      "- /buckets/{projectId}/card_tables/{cardTableId}/columns.json — columns\n" +
+      "- /buckets/{projectId}/messages/{messageId}.json — message content\n" +
+      "- /buckets/{projectId}/schedules/{scheduleId}/entries.json — schedule entries\n\n" +
+      "Use query params for filtering, e.g. query: {completed: 'true'}",
+    parameters: ApiReadParams,
+    execute: executeApiRead,
+  },
+  {
+    name: "basecamp_api_write",
+    label: "Write Basecamp API",
+    description:
+      "Create, update, or delete any Basecamp 3 resource.\n\n" +
+      "Common operations:\n" +
+      "- POST /buckets/{id}/recordings/{id}/comments.json — add comment\n" +
+      "- PUT /buckets/{id}/todos/{id}.json — update todo (content, assignees, due_on)\n" +
+      "- POST /buckets/{id}/todolists/{id}/todos.json — create todo\n" +
+      "- POST /buckets/{id}/message_boards/{id}/messages.json — post message\n" +
+      "- PUT /buckets/{id}/card_tables/cards/{id}/moves.json — move card\n" +
+      "- POST /buckets/{id}/documents/{id}.json — create document\n" +
+      "- POST /buckets/{id}/schedules/{id}/entries.json — create schedule entry\n\n" +
+      "Body should be a JSON object matching the Basecamp 3 API.",
+    parameters: ApiWriteParams,
+    execute: executeApiWrite,
   },
 ];

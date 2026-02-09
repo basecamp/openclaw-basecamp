@@ -29,8 +29,8 @@ function findTool(name: string) {
 // ---------------------------------------------------------------------------
 
 describe("basecampAgentTools", () => {
-  it("exports eight tools", () => {
-    expect(basecampAgentTools).toHaveLength(8);
+  it("exports ten tools", () => {
+    expect(basecampAgentTools).toHaveLength(10);
   });
 
   it("has correct tool names", () => {
@@ -44,6 +44,8 @@ describe("basecampAgentTools", () => {
       "basecamp_move_card",
       "basecamp_post_message",
       "basecamp_answer_checkin",
+      "basecamp_api_read",
+      "basecamp_api_write",
     ]);
   });
 
@@ -597,5 +599,214 @@ describe("basecamp_answer_checkin", () => {
     expect(parsed.ok).toBe(false);
     expect(parsed.error).toContain("422 Unprocessable");
     expect(result.details).toEqual({ ok: false, error: expect.stringContaining("422 Unprocessable") });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// basecamp_api_read
+// ---------------------------------------------------------------------------
+
+describe("basecamp_api_read", () => {
+  const tool = findTool("basecamp_api_read");
+
+  it("reads a resource by path", async () => {
+    const todoData = { id: 42, content: "Buy milk", completed: false };
+    vi.mocked(bcqApiGet).mockResolvedValue(todoData);
+
+    const result = await tool.execute("call-read-1", {
+      path: "/buckets/100/todos/42.json",
+    });
+
+    expect(bcqApiGet).toHaveBeenCalledWith("/buckets/100/todos/42.json");
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed).toEqual({ ok: true, data: todoData });
+    expect(result.details).toEqual({ ok: true });
+  });
+
+  it("appends query parameters", async () => {
+    vi.mocked(bcqApiGet).mockResolvedValue([]);
+
+    await tool.execute("call-read-2", {
+      path: "/buckets/100/todolists/200/todos.json",
+      query: { completed: "true", page: "2" },
+    });
+
+    const calledPath = vi.mocked(bcqApiGet).mock.calls[0]![0];
+    expect(calledPath).toContain("/buckets/100/todolists/200/todos.json?");
+    expect(calledPath).toContain("completed=true");
+    expect(calledPath).toContain("page=2");
+  });
+
+  it("reads project list", async () => {
+    const projects = [{ id: 1, name: "Project A" }, { id: 2, name: "Project B" }];
+    vi.mocked(bcqApiGet).mockResolvedValue(projects);
+
+    const result = await tool.execute("call-read-3", {
+      path: "/projects.json",
+    });
+
+    expect(bcqApiGet).toHaveBeenCalledWith("/projects.json");
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.ok).toBe(true);
+    expect(parsed.data).toEqual(projects);
+  });
+
+  it("reads people list", async () => {
+    vi.mocked(bcqApiGet).mockResolvedValue([{ id: 10, name: "Alice" }]);
+
+    const result = await tool.execute("call-read-4", {
+      path: "/people.json",
+    });
+
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.ok).toBe(true);
+    expect(parsed.data).toHaveLength(1);
+  });
+
+  it("returns error on API failure", async () => {
+    vi.mocked(bcqApiGet).mockRejectedValue(new Error("404 Not Found"));
+
+    const result = await tool.execute("call-read-5", {
+      path: "/buckets/999/todos/999.json",
+    });
+
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("404 Not Found");
+    expect(result.details).toEqual({ ok: false, error: expect.stringContaining("404 Not Found") });
+  });
+
+  it("handles empty query params", async () => {
+    vi.mocked(bcqApiGet).mockResolvedValue({});
+
+    await tool.execute("call-read-6", {
+      path: "/projects.json",
+      query: {},
+    });
+
+    expect(bcqApiGet).toHaveBeenCalledWith("/projects.json");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// basecamp_api_write
+// ---------------------------------------------------------------------------
+
+describe("basecamp_api_write", () => {
+  const tool = findTool("basecamp_api_write");
+
+  it("creates a resource with POST", async () => {
+    vi.mocked(bcqApiPost).mockResolvedValue({ id: 50, content: "New todo" });
+
+    const result = await tool.execute("call-write-1", {
+      method: "POST",
+      path: "/buckets/100/todolists/200/todos.json",
+      body: { content: "New todo" },
+    });
+
+    expect(bcqApiPost).toHaveBeenCalledWith(
+      "/buckets/100/todolists/200/todos.json",
+      JSON.stringify({ content: "New todo" }),
+    );
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed).toEqual({ ok: true, data: { id: 50, content: "New todo" } });
+  });
+
+  it("updates a resource with PUT", async () => {
+    vi.mocked(bcqPut).mockResolvedValue({ data: { id: 42, content: "Updated" }, raw: "" });
+
+    const result = await tool.execute("call-write-2", {
+      method: "PUT",
+      path: "/buckets/100/todos/42.json",
+      body: { content: "Updated", due_on: "2025-12-31" },
+    });
+
+    expect(bcqPut).toHaveBeenCalledWith(
+      "/buckets/100/todos/42.json",
+      { extraFlags: ["-d", JSON.stringify({ content: "Updated", due_on: "2025-12-31" })] },
+    );
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.ok).toBe(true);
+  });
+
+  it("deletes a resource with DELETE", async () => {
+    vi.mocked(bcqDelete).mockResolvedValue({ data: undefined, raw: "" });
+
+    const result = await tool.execute("call-write-3", {
+      method: "DELETE",
+      path: "/buckets/100/recordings/42/boost.json",
+    });
+
+    expect(bcqDelete).toHaveBeenCalledWith("/buckets/100/recordings/42/boost.json");
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.ok).toBe(true);
+  });
+
+  it("handles POST without body", async () => {
+    vi.mocked(bcqApiPost).mockResolvedValue(undefined);
+
+    const result = await tool.execute("call-write-4", {
+      method: "POST",
+      path: "/buckets/100/todos/42/completion.json",
+    });
+
+    expect(bcqApiPost).toHaveBeenCalledWith(
+      "/buckets/100/todos/42/completion.json",
+      undefined,
+    );
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.ok).toBe(true);
+  });
+
+  it("handles PUT without body", async () => {
+    vi.mocked(bcqPut).mockResolvedValue({ data: {}, raw: "" });
+
+    await tool.execute("call-write-5", {
+      method: "PUT",
+      path: "/buckets/100/some/path.json",
+    });
+
+    expect(bcqPut).toHaveBeenCalledWith("/buckets/100/some/path.json", {});
+  });
+
+  it("returns error on POST failure", async () => {
+    vi.mocked(bcqApiPost).mockRejectedValue(new Error("422 Unprocessable"));
+
+    const result = await tool.execute("call-write-6", {
+      method: "POST",
+      path: "/buckets/100/todolists/200/todos.json",
+      body: { content: "" },
+    });
+
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("422 Unprocessable");
+  });
+
+  it("returns error on PUT failure", async () => {
+    vi.mocked(bcqPut).mockRejectedValue(new Error("404 Not Found"));
+
+    const result = await tool.execute("call-write-7", {
+      method: "PUT",
+      path: "/buckets/999/todos/999.json",
+      body: { content: "nope" },
+    });
+
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("404 Not Found");
+  });
+
+  it("returns error on DELETE failure", async () => {
+    vi.mocked(bcqDelete).mockRejectedValue(new Error("403 Forbidden"));
+
+    const result = await tool.execute("call-write-8", {
+      method: "DELETE",
+      path: "/buckets/100/recordings/42.json",
+    });
+
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("403 Forbidden");
   });
 });
