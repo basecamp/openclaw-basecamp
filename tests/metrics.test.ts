@@ -10,6 +10,8 @@ import {
   recordDedupSize,
   recordWebhookDedupSize,
   recordCircuitBreakerState,
+  recordDispatchFailure,
+  recordQueueFullDrop,
   getAccountMetrics,
   clearMetrics,
 } from "../src/metrics.js";
@@ -164,6 +166,49 @@ describe("circuit breaker metrics", () => {
 
     const m = getAccountMetrics("acct-1")!;
     expect(m.circuitBreaker["outbound"]!.state).toBe("half-open");
+  });
+});
+
+describe("dispatch failure metrics", () => {
+  it("records dispatch failures", () => {
+    recordDispatchFailure("acct-1");
+    recordDispatchFailure("acct-1");
+    recordDispatchFailure("acct-1");
+
+    const m = getAccountMetrics("acct-1")!;
+    expect(m.dispatchFailureCount).toBe(3);
+  });
+
+  it("starts at zero", () => {
+    recordPollAttempt("acct-1", "activity");
+    const m = getAccountMetrics("acct-1")!;
+    expect(m.dispatchFailureCount).toBe(0);
+  });
+});
+
+describe("queue full drop metrics", () => {
+  it("records queue full drops", () => {
+    recordQueueFullDrop("acct-1");
+    recordQueueFullDrop("acct-1");
+
+    const m = getAccountMetrics("acct-1")!;
+    expect(m.queueFullDropCount).toBe(2);
+  });
+
+  it("starts at zero", () => {
+    recordPollAttempt("acct-1", "activity");
+    const m = getAccountMetrics("acct-1")!;
+    expect(m.queueFullDropCount).toBe(0);
+  });
+
+  it("tracks independently from dispatch failures", () => {
+    recordDispatchFailure("acct-1");
+    recordQueueFullDrop("acct-1");
+    recordQueueFullDrop("acct-1");
+
+    const m = getAccountMetrics("acct-1")!;
+    expect(m.dispatchFailureCount).toBe(1);
+    expect(m.queueFullDropCount).toBe(2);
   });
 });
 

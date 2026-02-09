@@ -21,7 +21,7 @@ import { markdownToBasecampHtml } from "./outbound/format.js";
 import { chunkMarkdownText, BASECAMP_TEXT_CHUNK_LIMIT } from "./adapters/outbound.js";
 import { createStructuredLog } from "./logging.js";
 import { CircuitBreaker } from "./bcq.js";
-import { recordCircuitBreakerState } from "./metrics.js";
+import { recordCircuitBreakerState, recordDispatchFailure } from "./metrics.js";
 
 /** Per-account outbound circuit breakers. Separate from poller CBs. */
 const outboundCircuitBreakers = new Map<string, CircuitBreaker>();
@@ -238,6 +238,21 @@ export async function dispatchBasecampEvent(
           sender: msg.sender.id,
           type: errorType,
           error: String(err),
+        });
+        recordDispatchFailure(account.accountId);
+        // Dead-letter entry: structured log with enough context to replay or investigate
+        slog.error("dead_letter", {
+          correlationId,
+          agent: route.agentId,
+          event: msg.meta.eventKind,
+          recordableType: msg.meta.recordableType,
+          recording: msg.meta.recordingId,
+          bucket: msg.meta.bucketId,
+          sender: msg.sender.id,
+          peer: msg.peer.id,
+          errorType,
+          error: String(err),
+          timestamp: Date.now(),
         });
         syncOutboundCircuitBreakerMetrics(outboundCb, outboundCbKey, outboundBcqAccountId, cfg);
       },
