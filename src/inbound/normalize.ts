@@ -9,6 +9,7 @@
  * into the canonical BasecampInboundMessage shape used by dispatch.ts.
  */
 
+import crypto from "node:crypto";
 import type {
   BasecampActivityEvent,
   BasecampAssignmentTodo,
@@ -379,6 +380,7 @@ export function normalizeActivityEvent(
     meta,
     dedupKey: dedupPrimary,
     createdAt: raw.created_at,
+    correlationId: crypto.randomUUID(),
   };
 }
 
@@ -472,6 +474,7 @@ export function normalizeReadingsEvent(
     meta,
     dedupKey: dedupPrimary,
     createdAt: raw.unread_at ?? raw.created_at,
+    correlationId: crypto.randomUUID(),
   };
 }
 
@@ -547,6 +550,7 @@ export function normalizeAssignmentTodo(
     meta,
     dedupKey: dedupPrimary,
     createdAt: raw.updated_at ?? raw.created_at ?? new Date().toISOString(),
+    correlationId: crypto.randomUUID(),
   };
 }
 
@@ -618,5 +622,6 @@ export function normalizeWebhookPayload(
     meta,
     dedupKey: dedupPrimary,
     createdAt: raw.created_at,
+    correlationId: crypto.randomUUID(),
   };
 }

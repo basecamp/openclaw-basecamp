@@ -49,8 +49,9 @@ export async function postCampfireLine(params: {
   profile?: string;
   retries?: number;
   circuitBreaker?: { instance: CircuitBreaker; key: string };
+  correlationId?: string;
 }): Promise<{ ok: boolean; recordingId?: string; retryable?: boolean; error?: string }> {
-  const { bucketId, transcriptId, content, accountId, profile, retries, circuitBreaker } = params;
+  const { bucketId, transcriptId, content, accountId, profile, retries, circuitBreaker, correlationId } = params;
   const path = `/buckets/${bucketId}/chats/${transcriptId}/lines.json`;
   const body = JSON.stringify({ content });
 
@@ -65,7 +66,7 @@ export async function postCampfireLine(params: {
     const parsed = typeof result === "string" ? JSON.parse(result) : result;
     console.log(
       `[basecamp:outbound] sent ok — ` +
-      `type=campfire recording=${transcriptId} account=${accountId ?? "default"}`,
+      `type=campfire recording=${transcriptId} account=${accountId ?? "default"} correlation=${correlationId ?? "none"}`,
     );
     return { ok: true, recordingId: String(parsed?.id ?? "") };
   } catch (err) {
@@ -73,7 +74,7 @@ export async function postCampfireLine(params: {
     console.warn(
       `[basecamp:outbound] failed — ` +
       `type=campfire recording=${transcriptId} account=${accountId ?? "default"} ` +
-      `retryable=${retryable} error=${String(err)}`,
+      `correlation=${correlationId ?? "none"} retryable=${retryable} error=${String(err)}`,
     );
     return { ok: false, retryable, error: String(err) };
   }
@@ -91,8 +92,9 @@ export async function postComment(params: {
   profile?: string;
   retries?: number;
   circuitBreaker?: { instance: CircuitBreaker; key: string };
+  correlationId?: string;
 }): Promise<{ ok: boolean; commentId?: string; retryable?: boolean; error?: string }> {
-  const { bucketId, recordingId, content, accountId, profile, retries, circuitBreaker } = params;
+  const { bucketId, recordingId, content, accountId, profile, retries, circuitBreaker, correlationId } = params;
   const path = `/buckets/${bucketId}/recordings/${recordingId}/comments.json`;
   const body = JSON.stringify({ content });
 
@@ -107,7 +109,7 @@ export async function postComment(params: {
     const parsed = typeof result === "string" ? JSON.parse(result) : result;
     console.log(
       `[basecamp:outbound] sent ok — ` +
-      `type=comment recording=${recordingId} account=${accountId ?? "default"}`,
+      `type=comment recording=${recordingId} account=${accountId ?? "default"} correlation=${correlationId ?? "none"}`,
     );
     return { ok: true, commentId: String(parsed?.id ?? "") };
   } catch (err) {
@@ -115,7 +117,7 @@ export async function postComment(params: {
     console.warn(
       `[basecamp:outbound] failed — ` +
       `type=comment recording=${recordingId} account=${accountId ?? "default"} ` +
-      `retryable=${retryable} error=${String(err)}`,
+      `correlation=${correlationId ?? "none"} retryable=${retryable} error=${String(err)}`,
     );
     return { ok: false, retryable, error: String(err) };
   }
@@ -151,8 +153,9 @@ export async function postReplyToEvent(params: {
   profile?: string;
   retries?: number;
   circuitBreaker?: { instance: CircuitBreaker; key: string };
+  correlationId?: string;
 }): Promise<{ ok: boolean; messageId?: string; retryable?: boolean; error?: string }> {
-  const { bucketId, recordingId, recordableType, peerId, content, accountId, profile, retries, circuitBreaker } = params;
+  const { bucketId, recordingId, recordableType, peerId, content, accountId, profile, retries, circuitBreaker, correlationId } = params;
   const parsed = parsePeerId(peerId);
 
   // Pings: resolve the transcript ID from the circle's bucket ID
@@ -169,6 +172,7 @@ export async function postReplyToEvent(params: {
       profile,
       retries,
       circuitBreaker,
+      correlationId,
     });
     return { ok: result.ok, messageId: result.recordingId, retryable: result.retryable, error: result.error };
   }
@@ -193,6 +197,7 @@ export async function postReplyToEvent(params: {
       profile,
       retries,
       circuitBreaker,
+      correlationId,
     });
     return { ok: result.ok, messageId: result.recordingId, retryable: result.retryable, error: result.error };
   }
@@ -207,6 +212,7 @@ export async function postReplyToEvent(params: {
     profile,
     retries,
     circuitBreaker,
+    correlationId,
   });
   return { ok: result.ok, messageId: result.commentId, retryable: result.retryable, error: result.error };
 }
