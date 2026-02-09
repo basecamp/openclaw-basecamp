@@ -57,11 +57,12 @@ export async function dispatchBasecampEvent(
   const cfg = runtime.config.loadConfig();
   const { account, log } = options;
   const slog = createStructuredLog(log, { accountId: account.accountId, source: "dispatch" });
+  const correlationId = msg.correlationId;
 
   // ----- Self-message filtering -----
   // Skip messages from our own service account to avoid loops.
   if (msg.sender.id === account.personId) {
-    slog.debug("self_message_skipped", { personId: msg.sender.id });
+    slog.debug("self_message_skipped", { correlationId, personId: msg.sender.id });
     return false;
   }
 
@@ -80,7 +81,7 @@ export async function dispatchBasecampEvent(
   });
 
   if (!route) {
-    slog.debug("no_route", { peer: msg.peer.id });
+    slog.debug("no_route", { correlationId, peer: msg.peer.id });
     return false;
   }
 
@@ -92,6 +93,7 @@ export async function dispatchBasecampEvent(
   const engagePolicy = resolveEngagePolicy(cfg, msg.meta.bucketId);
   if (!engagePolicy.includes(engagement)) {
     slog.debug("engagement_gate_dropped", {
+      correlationId,
       engagement,
       event: msg.meta.eventKind,
       type: msg.meta.recordableType,
@@ -108,13 +110,14 @@ export async function dispatchBasecampEvent(
   if (engagement === "dm") {
     const dmPolicy = resolveBasecampDmPolicy(cfg);
     if (dmPolicy === "disabled") {
-      slog.debug("dm_policy_dropped", { sender: msg.sender.id, policy: "disabled" });
+      slog.debug("dm_policy_dropped", { correlationId, sender: msg.sender.id, policy: "disabled" });
       return false;
     }
     if (dmPolicy === "pairing" || dmPolicy === "allowlist") {
       const allowFrom = resolveBasecampAllowFrom(cfg);
       if (!allowFrom.includes(msg.sender.id)) {
         slog.debug("dm_policy_dropped", {
+          correlationId,
           sender: msg.sender.id,
           policy: dmPolicy,
           allowFrom: allowFrom.join(","),
@@ -126,6 +129,7 @@ export async function dispatchBasecampEvent(
   }
 
   slog.info("dispatching", {
+    correlationId,
     agent: route.agentId,
     matchedBy: route.matchedBy,
     peer: `${msg.peer.kind}:${msg.peer.id}`,
@@ -215,6 +219,7 @@ export async function dispatchBasecampEvent(
             profile: outboundProfile,
             retries: 2,
             circuitBreaker: { instance: outboundCb, key: outboundCbKey },
+            correlationId,
           });
 
           if (!result.ok) {
@@ -226,6 +231,7 @@ export async function dispatchBasecampEvent(
         dispatchHadError = true;
         const errorType = classifyDispatchError(err);
         slog.error("delivery_failed", {
+          correlationId,
           agent: route.agentId,
           event: msg.meta.eventKind,
           recording: msg.meta.recordingId,
@@ -241,6 +247,7 @@ export async function dispatchBasecampEvent(
   if (!dispatchHadError) {
     syncOutboundCircuitBreakerMetrics(outboundCb, outboundCbKey, outboundBcqAccountId, cfg);
     slog.info("delivered", {
+      correlationId,
       agent: route.agentId,
       event: msg.meta.eventKind,
       recording: msg.meta.recordingId,

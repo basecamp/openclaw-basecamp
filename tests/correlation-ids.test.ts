@@ -1,0 +1,135 @@
+import { describe, it, expect, vi, beforeEach } from "vitest";
+
+// Mock bcq before importing normalizers
+vi.mock("../src/bcq.js", () => ({
+  bcqApiGet: vi.fn(),
+  bcqApiPost: vi.fn(),
+  bcqPut: vi.fn(),
+  bcqDelete: vi.fn(),
+}));
+
+vi.mock("../src/mentions/parse.js", () => ({
+  mentionsAgent: vi.fn(() => false),
+  extractAttachmentSgids: vi.fn(() => []),
+  htmlToPlainText: vi.fn((s: string) => s),
+}));
+
+import {
+  normalizeActivityEvent,
+  normalizeReadingsEvent,
+  normalizeAssignmentTodo,
+  normalizeWebhookPayload,
+} from "../src/inbound/normalize.js";
+import type { ResolvedBasecampAccount } from "../src/types.js";
+
+const mockAccount: ResolvedBasecampAccount = {
+  accountId: "test-account",
+  enabled: true,
+  personId: "999",
+  token: "test-token",
+  tokenSource: "config",
+  config: { personId: "999" },
+};
+
+beforeEach(() => {
+  vi.clearAllMocks();
+});
+
+describe("correlation IDs", () => {
+  it("normalizeActivityEvent generates a correlationId", () => {
+    const msg = normalizeActivityEvent(
+      {
+        id: 1,
+        kind: "comment_created",
+        action: "created",
+        created_at: "2025-01-01T00:00:00Z",
+        bucket: { id: 100, name: "Test" },
+        creator: { id: 10, name: "Alice" },
+        recording: { id: 200, type: "Comment" },
+      },
+      mockAccount,
+    );
+
+    expect(msg.correlationId).toBeTruthy();
+    expect(typeof msg.correlationId).toBe("string");
+    expect(msg.correlationId.length).toBeGreaterThan(0);
+  });
+
+  it("normalizeReadingsEvent generates a correlationId", () => {
+    const msg = normalizeReadingsEvent(
+      {
+        id: 2,
+        type: "Message",
+        created_at: "2025-01-01T00:00:00Z",
+        app_url: "https://3.basecamp.com/1/buckets/100/messages/300",
+      },
+      mockAccount,
+    );
+
+    expect(msg).not.toBeNull();
+    expect(msg!.correlationId).toBeTruthy();
+    expect(typeof msg!.correlationId).toBe("string");
+  });
+
+  it("normalizeAssignmentTodo generates a correlationId", () => {
+    const msg = normalizeAssignmentTodo(
+      {
+        id: 3,
+        content: "Review PR",
+        bucket: { id: 100, name: "Test" },
+      },
+      mockAccount,
+    );
+
+    expect(msg.correlationId).toBeTruthy();
+    expect(typeof msg.correlationId).toBe("string");
+  });
+
+  it("normalizeWebhookPayload generates a correlationId", () => {
+    const msg = normalizeWebhookPayload(
+      {
+        id: 4,
+        kind: "comment_created",
+        created_at: "2025-01-01T00:00:00Z",
+        recording: {
+          id: 400,
+          type: "Comment",
+          bucket: { id: 100, name: "Test" },
+        },
+        creator: { id: 10, name: "Alice" },
+      },
+      mockAccount,
+    );
+
+    expect(msg.correlationId).toBeTruthy();
+    expect(typeof msg.correlationId).toBe("string");
+  });
+
+  it("each call generates a unique correlationId", () => {
+    const msg1 = normalizeActivityEvent(
+      {
+        id: 10,
+        kind: "comment_created",
+        action: "created",
+        created_at: "2025-01-01T00:00:00Z",
+        bucket: { id: 100, name: "Test" },
+        creator: { id: 10, name: "Alice" },
+      },
+      mockAccount,
+    );
+
+    const msg2 = normalizeActivityEvent(
+      {
+        id: 11,
+        kind: "comment_created",
+        action: "created",
+        created_at: "2025-01-01T00:01:00Z",
+        bucket: { id: 100, name: "Test" },
+        creator: { id: 10, name: "Alice" },
+      },
+      mockAccount,
+    );
+
+    expect(msg1.correlationId).not.toBe(msg2.correlationId);
+  });
+});
