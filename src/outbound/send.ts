@@ -16,10 +16,44 @@ import { getBasecampRuntime } from "../runtime.js";
 import { resolveBasecampAccount } from "../config.js";
 
 // ---------------------------------------------------------------------------
-// Ping transcript cache — avoids re-fetching /circles/<id>.json per reply
+// Ping transcript cache — LRU-bounded to avoid unbounded growth
 // ---------------------------------------------------------------------------
 
-const pingTranscriptCache = new Map<string, string>();
+const PING_CACHE_MAX = 500;
+
+class LruCache<K, V> {
+  private map = new Map<K, V>();
+  constructor(private readonly max: number) {}
+
+  get(key: K): V | undefined {
+    const value = this.map.get(key);
+    if (value !== undefined) {
+      // Move to end (most recently used)
+      this.map.delete(key);
+      this.map.set(key, value);
+    }
+    return value;
+  }
+
+  set(key: K, value: V): void {
+    if (this.map.has(key)) {
+      this.map.delete(key);
+    } else if (this.map.size >= this.max) {
+      // Evict oldest (first entry in Map iteration order)
+      const oldest = this.map.keys().next().value;
+      if (oldest !== undefined) {
+        this.map.delete(oldest);
+      }
+    }
+    this.map.set(key, value);
+  }
+
+  get size(): number {
+    return this.map.size;
+  }
+}
+
+const pingTranscriptCache = new LruCache<string, string>(PING_CACHE_MAX);
 
 async function resolvePingTranscriptCached(
   bucketId: string,
@@ -32,6 +66,8 @@ async function resolvePingTranscriptCached(
   if (transcriptId) pingTranscriptCache.set(bucketId, transcriptId);
   return transcriptId;
 }
+
+export { LruCache, PING_CACHE_MAX };
 
 // ---------------------------------------------------------------------------
 // Helpers — Basecamp API write operations via bcq
