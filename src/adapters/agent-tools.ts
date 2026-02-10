@@ -368,6 +368,19 @@ async function executeReadHistory(
 }
 
 // ---------------------------------------------------------------------------
+// Path validation — reject inputs that could confuse the bcq CLI
+// ---------------------------------------------------------------------------
+
+const API_PATH_RE = /^\/[^\s]*$/;
+
+function validateApiPath(path: string): string | undefined {
+  if (!API_PATH_RE.test(path)) {
+    return "Invalid API path: must start with '/' and contain no whitespace";
+  }
+  return undefined;
+}
+
+// ---------------------------------------------------------------------------
 // apiRead — GET any Basecamp 3 resource
 // ---------------------------------------------------------------------------
 
@@ -378,6 +391,15 @@ async function executeApiRead(
   rawParams: unknown,
 ) {
   const { path, query } = rawParams as ApiReadInput;
+
+  const pathError = validateApiPath(path);
+  if (pathError) {
+    return {
+      content: [{ type: "text" as const, text: JSON.stringify({ ok: false, error: pathError }) }],
+      details: { ok: false, error: pathError },
+    };
+  }
+
   let effectivePath = path;
   if (query && Object.keys(query).length > 0) {
     const params = new URLSearchParams(query);
@@ -410,6 +432,14 @@ async function executeApiWrite(
   rawParams: unknown,
 ) {
   const { method, path, body } = rawParams as ApiWriteInput;
+
+  const pathError = validateApiPath(path);
+  if (pathError) {
+    return {
+      content: [{ type: "text" as const, text: JSON.stringify({ ok: false, error: pathError }) }],
+      details: { ok: false, error: pathError },
+    };
+  }
 
   try {
     let result: unknown;

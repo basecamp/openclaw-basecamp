@@ -686,6 +686,28 @@ describe("basecamp_api_read", () => {
 
     expect(bcqApiGet).toHaveBeenCalledWith("/projects.json");
   });
+
+  it("rejects path not starting with /", async () => {
+    const result = await tool.execute("call-read-bad-1", {
+      path: "-flag-injection",
+    });
+
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("must start with '/'");
+    expect(bcqApiGet).not.toHaveBeenCalled();
+  });
+
+  it("rejects path with whitespace", async () => {
+    const result = await tool.execute("call-read-bad-2", {
+      path: "/buckets/100/todos.json --some-flag",
+    });
+
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("no whitespace");
+    expect(bcqApiGet).not.toHaveBeenCalled();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -808,5 +830,30 @@ describe("basecamp_api_write", () => {
     const parsed = JSON.parse(result.content[0].text);
     expect(parsed.ok).toBe(false);
     expect(parsed.error).toContain("403 Forbidden");
+  });
+
+  it("rejects path not starting with /", async () => {
+    const result = await tool.execute("call-write-bad-1", {
+      method: "POST",
+      path: "--dangerous-flag",
+      body: { content: "test" },
+    });
+
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("must start with '/'");
+    expect(bcqApiPost).not.toHaveBeenCalled();
+  });
+
+  it("rejects path with whitespace", async () => {
+    const result = await tool.execute("call-write-bad-2", {
+      method: "PUT",
+      path: "/buckets/100/todos/42.json\t--inject",
+    });
+
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("no whitespace");
+    expect(bcqPut).not.toHaveBeenCalled();
   });
 });
