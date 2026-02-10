@@ -250,7 +250,7 @@ export async function dispatchBasecampEvent(
           bucket: msg.meta.bucketId,
           sender: msg.sender.id,
           peer: msg.peer.id,
-          errorType,
+          type: errorType,
           error: String(err),
           timestamp: Date.now(),
         });
