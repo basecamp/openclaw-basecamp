@@ -302,6 +302,7 @@ export async function handleBasecampWebhook(
     // persisted secrets are eagerly loaded from disk even if the registry
     // wasn't previously instantiated in this process.
     let candidateSecrets: string[] = [];
+    let bucketResolved = false;
     try {
       const parsed = JSON.parse(rawBody) as { recording?: { bucket?: { id?: number } } };
       const bucketId = parsed?.recording?.bucket?.id;
@@ -310,6 +311,7 @@ export async function handleBasecampWebhook(
         // virtual alias), matching the key used in getWebhookSecretRegistry.
         const bucketAccountId = resolveAccountForBucket(cfg, String(bucketId));
         if (bucketAccountId) {
+          bucketResolved = true;
           const registry = getWebhookSecretRegistry(bucketAccountId);
           candidateSecrets = registry.getAllSecrets().filter(s => s.length > 0);
         }
@@ -318,9 +320,11 @@ export async function handleBasecampWebhook(
       // JSON parse failed — fall through to all secrets
     }
 
-    // Fall back to all known secrets if bucket-scoped resolution didn't yield any.
-    // Iterate all configured account IDs and eagerly load their registries.
-    if (candidateSecrets.length === 0) {
+    // Only fall back to all known secrets when bucket resolution itself failed
+    // (no virtualAccounts mapping, no bucketId in payload, or parse error).
+    // If resolution succeeded but the scoped registry is empty, fail closed —
+    // don't let another account's secret authenticate this bucket's request.
+    if (!bucketResolved && candidateSecrets.length === 0) {
       for (const accountId of listBasecampAccountIds(cfg)) {
         const registry = getWebhookSecretRegistry(accountId);
         candidateSecrets.push(...registry.getAllSecrets().filter(s => s.length > 0));

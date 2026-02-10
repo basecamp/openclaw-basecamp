@@ -456,4 +456,32 @@ describe("handleBasecampWebhook — HMAC authentication", () => {
 
     expect(res.status).toBe(403);
   });
+
+  it("fails closed when bucket resolves to an account with no secrets", async () => {
+    // Account "acct-empty" has an empty registry (no secrets registered).
+    // The "default" account has a valid secret (seeded in beforeEach).
+    // Bucket 888 resolves to "acct-empty" — should NOT fall back to default's secret.
+    getWebhookSecretRegistry("acct-empty"); // ensure registry exists but empty
+
+    vi.mocked(resolveAccountForBucket).mockReturnValue("acct-empty");
+
+    const body = JSON.stringify({
+      kind: "comment_created",
+      created_at: "2025-01-01T00:00:00Z",
+      recording: { id: 1, type: "Comment", bucket: { id: 888, name: "Empty" } },
+      creator: { id: 2, name: "Tester" },
+    });
+    const timestamp = String(Math.floor(Date.now() / 1000));
+    // Sign with the default account's secret — should be rejected
+    const signature = signPayload(webhookSecret, timestamp, body);
+
+    const req = mockReq("POST", "/webhooks/basecamp", body, {
+      "x-basecamp-signature": signature,
+      "x-basecamp-timestamp": timestamp,
+    });
+    const res = mockRes();
+    await handleBasecampWebhook(req, res);
+
+    expect(res.status).toBe(403);
+  });
 });
