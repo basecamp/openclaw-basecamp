@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 
 // Mock transitive dependencies to avoid module resolution issues
 vi.mock("../src/bcq.js", () => ({

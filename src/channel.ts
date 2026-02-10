@@ -39,8 +39,16 @@ import { basecampAgentTools } from "./adapters/agent-tools.js";
 import { setWebhookStateDir, flushWebhookDedup, flushWebhookSecrets, getWebhookSecretRegistry } from "./inbound/webhooks.js";
 import { reconcileWebhooks, deactivateWebhooks } from "./inbound/webhook-lifecycle.js";
 
+/** Guard to run config-wide startup validation only once across all accounts. */
+let startupValidationDone = false;
+
 /**
  * Race a promise against a timeout. Returns the promise result or undefined on timeout.
+ *
+ * Note: this only stops *awaiting* the promise — it does not cancel the underlying
+ * operation (e.g. a bcq child process). Node will keep the process alive until
+ * the child exits. This is acceptable for shutdown: the OS will reap orphaned
+ * bcq processes, and a stuck child is better than blocking shutdown indefinitely.
  */
 async function withTimeout<T>(
   promise: Promise<T>,
@@ -215,27 +223,29 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
         );
       }
 
-      // Validate persona mappings
-      const startupSection = ctx.cfg.channels?.basecamp as BasecampChannelConfig | undefined;
-      if (startupSection?.personas) {
-        for (const [agentId, targetAccountId] of Object.entries(startupSection.personas)) {
-          const targetAccounts = startupSection.accounts ?? {};
-          if (!targetAccounts[targetAccountId]) {
-            ctx.log?.warn(
-              `[${account.accountId}] validation: persona "${agentId}" references non-existent account "${targetAccountId}"`,
-            );
+      // Validate persona and virtualAccounts mappings once (not per-account)
+      // to avoid log spam in multi-account setups.
+      if (!startupValidationDone) {
+        startupValidationDone = true;
+        const startupSection = ctx.cfg.channels?.basecamp as BasecampChannelConfig | undefined;
+        if (startupSection?.personas) {
+          for (const [agentId, targetAccountId] of Object.entries(startupSection.personas)) {
+            const targetAccounts = startupSection.accounts ?? {};
+            if (!targetAccounts[targetAccountId]) {
+              ctx.log?.warn(
+                `validation: persona "${agentId}" references non-existent account "${targetAccountId}"`,
+              );
+            }
           }
         }
-      }
-
-      // Validate virtualAccounts mappings
-      if (startupSection?.virtualAccounts) {
-        for (const [key, va] of Object.entries(startupSection.virtualAccounts)) {
-          const targetAccounts = startupSection.accounts ?? {};
-          if (!targetAccounts[va.accountId]) {
-            ctx.log?.warn(
-              `[${account.accountId}] validation: virtualAccount "${key}" references non-existent account "${va.accountId}"`,
-            );
+        if (startupSection?.virtualAccounts) {
+          for (const [key, va] of Object.entries(startupSection.virtualAccounts)) {
+            const targetAccounts = startupSection.accounts ?? {};
+            if (!targetAccounts[va.accountId]) {
+              ctx.log?.warn(
+                `validation: virtualAccount "${key}" references non-existent account "${va.accountId}"`,
+              );
+            }
           }
         }
       }
