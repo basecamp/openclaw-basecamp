@@ -371,7 +371,7 @@ export function resolveAccountForBucket(
   // look up per-account resources (secret registries, circuit breakers, etc.).
   if (section?.virtualAccounts) {
     for (const [_key, va] of Object.entries(section.virtualAccounts)) {
-      if (va.bucketId === bucketId) return va.accountId;
+      if (va.bucketId === bucketId) return normalizeAccountId(va.accountId);
     }
   }
   // No virtual account mapping for this bucket
