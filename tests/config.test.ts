@@ -17,6 +17,7 @@ import {
   resolvePollingIntervals,
   resolveBasecampDmPolicy,
   resolveBasecampAllowFrom,
+  resolveAccountForBucket,
 } from "../src/config.js";
 
 // ---------------------------------------------------------------------------
@@ -523,5 +524,53 @@ describe("resolveBasecampAllowFrom", () => {
     expect(
       resolveBasecampAllowFrom(cfg({ allowFrom: ["abc", 42, "def"] })),
     ).toEqual(["abc", "42", "def"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveAccountForBucket
+// ---------------------------------------------------------------------------
+
+describe("resolveAccountForBucket", () => {
+  it("returns concrete account ID (not alias key) for mapped bucket", () => {
+    const config = cfg({
+      accounts: { "acct-123": { personId: "1" } },
+      virtualAccounts: {
+        "project-x": { accountId: "acct-123", bucketId: "456" },
+      },
+    });
+    // Should return the concrete account "acct-123", not the alias "project-x"
+    expect(resolveAccountForBucket(config, "456")).toBe("acct-123");
+  });
+
+  it("returns undefined for unmapped bucket", () => {
+    const config = cfg({
+      accounts: { "acct-123": { personId: "1" } },
+      virtualAccounts: {
+        "project-x": { accountId: "acct-123", bucketId: "456" },
+      },
+    });
+    expect(resolveAccountForBucket(config, "999")).toBeUndefined();
+  });
+
+  it("returns undefined when no virtualAccounts configured", () => {
+    const config = cfg({ accounts: { "default": { personId: "1" } } });
+    expect(resolveAccountForBucket(config, "456")).toBeUndefined();
+  });
+
+  it("returns undefined for empty config", () => {
+    expect(resolveAccountForBucket(cfg(), "456")).toBeUndefined();
+  });
+
+  it("resolves first matching virtualAccount when multiple exist", () => {
+    const config = cfg({
+      accounts: { "a1": { personId: "1" }, "a2": { personId: "2" } },
+      virtualAccounts: {
+        "proj-a": { accountId: "a1", bucketId: "100" },
+        "proj-b": { accountId: "a2", bucketId: "200" },
+      },
+    });
+    expect(resolveAccountForBucket(config, "100")).toBe("a1");
+    expect(resolveAccountForBucket(config, "200")).toBe("a2");
   });
 });

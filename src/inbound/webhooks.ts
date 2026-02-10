@@ -297,26 +297,32 @@ export async function handleBasecampWebhook(
     // Parse the payload first to extract bucketId, then use only the secrets
     // for the account that owns that bucket. Falls back to all secrets if
     // bucket resolution fails.
+    //
+    // Uses getWebhookSecretRegistry() (not secretRegistries.get()) so that
+    // persisted secrets are eagerly loaded from disk even if the registry
+    // wasn't previously instantiated in this process.
     let candidateSecrets: string[] = [];
     try {
       const parsed = JSON.parse(rawBody) as { recording?: { bucket?: { id?: number } } };
       const bucketId = parsed?.recording?.bucket?.id;
       if (bucketId != null) {
+        // resolveAccountForBucket returns the concrete account ID (not the
+        // virtual alias), matching the key used in getWebhookSecretRegistry.
         const bucketAccountId = resolveAccountForBucket(cfg, String(bucketId));
         if (bucketAccountId) {
-          const entry = secretRegistries.get(bucketAccountId);
-          if (entry) {
-            candidateSecrets = entry.registry.getAllSecrets().filter(s => s.length > 0);
-          }
+          const registry = getWebhookSecretRegistry(bucketAccountId);
+          candidateSecrets = registry.getAllSecrets().filter(s => s.length > 0);
         }
       }
     } catch {
       // JSON parse failed — fall through to all secrets
     }
 
-    // Fall back to all known secrets if bucket-scoped resolution didn't yield any
+    // Fall back to all known secrets if bucket-scoped resolution didn't yield any.
+    // Iterate all configured account IDs and eagerly load their registries.
     if (candidateSecrets.length === 0) {
-      for (const { registry } of secretRegistries.values()) {
+      for (const accountId of listBasecampAccountIds(cfg)) {
+        const registry = getWebhookSecretRegistry(accountId);
         candidateSecrets.push(...registry.getAllSecrets().filter(s => s.length > 0));
       }
     }
@@ -343,8 +349,12 @@ export async function handleBasecampWebhook(
   }
 
   if (!authenticated) {
-    // No valid authentication — check if webhooks are configured at all
-    const hasAnySecrets = [...secretRegistries.values()].some(({ registry }) => registry.size > 0);
+    // No valid authentication — check if webhooks are configured at all.
+    // Eagerly load registries for all configured accounts to avoid false
+    // negatives when secrets exist on disk but weren't loaded yet.
+    const hasAnySecrets = listBasecampAccountIds(cfg).some(
+      (id) => getWebhookSecretRegistry(id).size > 0,
+    );
     if (!webhookSecret && !hasAnySecrets) {
       res.writeHead(403, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ error: "Webhooks not configured (set channels.basecamp.webhookSecret or configure webhooks.payloadUrl)" }));

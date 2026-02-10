@@ -357,19 +357,21 @@ export function resolveWebhooksConfig(cfg: OpenClawConfig): {
 }
 
 /**
- * Resolve the account for a given bucket ID.
- * Checks virtualAccounts for a scope mapping, then falls back to the
- * first concrete account. Returns undefined if no account found.
+ * Resolve the concrete account ID that owns a given bucket.
+ * Checks virtualAccounts for a scope mapping and returns the concrete
+ * accountId (not the virtual alias key). Returns undefined if no mapping found.
  */
 export function resolveAccountForBucket(
   cfg: OpenClawConfig,
   bucketId: string,
 ): string | undefined {
   const section = getBasecampSection(cfg);
-  // Check virtualAccounts for a scope mapping to this bucket
+  // Check virtualAccounts for a scope mapping to this bucket.
+  // Return the concrete account ID — not the alias key — so callers can
+  // look up per-account resources (secret registries, circuit breakers, etc.).
   if (section?.virtualAccounts) {
-    for (const [key, va] of Object.entries(section.virtualAccounts)) {
-      if (va.bucketId === bucketId) return key;
+    for (const [_key, va] of Object.entries(section.virtualAccounts)) {
+      if (va.bucketId === bucketId) return va.accountId;
     }
   }
   // No virtual account mapping for this bucket
