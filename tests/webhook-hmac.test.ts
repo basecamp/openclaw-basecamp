@@ -68,6 +68,7 @@ import {
   setWebhookStateDir,
 } from "../src/inbound/webhooks.js";
 import { WebhookSecretRegistry, JsonFileWebhookSecretStore } from "../src/inbound/webhook-secrets.js";
+import { resolveAccountForBucket } from "../src/config.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -385,6 +386,98 @@ describe("handleBasecampWebhook — HMAC authentication", () => {
     const req = mockReq("POST", "/webhooks/basecamp", body, {
       "x-basecamp-signature": signature,
       "x-basecamp-timestamp": oldTimestamp,
+    });
+    const res = mockRes();
+    await handleBasecampWebhook(req, res);
+
+    expect(res.status).toBe(403);
+  });
+
+  it("uses bucket-scoped secret when resolveAccountForBucket returns concrete account ID", async () => {
+    // Seed a secret on a different account "acct-42"
+    const scopedSecret = "bucket-scoped-secret-42";
+    const reg = getWebhookSecretRegistry("acct-42");
+    reg.set("777", {
+      webhookId: "w-scoped",
+      secret: scopedSecret,
+      payloadUrl: "https://example.com/webhooks/basecamp",
+      types: ["Comment"],
+    });
+
+    // Make resolveAccountForBucket return the concrete account ID for bucket 777
+    vi.mocked(resolveAccountForBucket).mockReturnValue("acct-42");
+
+    const body = JSON.stringify({
+      kind: "comment_created",
+      created_at: "2025-01-01T00:00:00Z",
+      recording: { id: 1, type: "Comment", bucket: { id: 777, name: "Scoped" } },
+      creator: { id: 2, name: "Tester" },
+    });
+    const timestamp = String(Math.floor(Date.now() / 1000));
+    const signature = signPayload(scopedSecret, timestamp, body);
+
+    const req = mockReq("POST", "/webhooks/basecamp", body, {
+      "x-basecamp-signature": signature,
+      "x-basecamp-timestamp": timestamp,
+    });
+    const res = mockRes();
+    await handleBasecampWebhook(req, res);
+
+    expect(res.status).toBe(200);
+  });
+
+  it("rejects HMAC when bucket-scoped account has wrong secret", async () => {
+    // Seed a secret on "acct-42" but sign with a different secret
+    const reg = getWebhookSecretRegistry("acct-42");
+    reg.set("777", {
+      webhookId: "w-scoped",
+      secret: "actual-secret",
+      payloadUrl: "https://example.com/webhooks/basecamp",
+      types: ["Comment"],
+    });
+
+    vi.mocked(resolveAccountForBucket).mockReturnValue("acct-42");
+
+    const body = JSON.stringify({
+      kind: "comment_created",
+      created_at: "2025-01-01T00:00:00Z",
+      recording: { id: 1, type: "Comment", bucket: { id: 777, name: "Scoped" } },
+      creator: { id: 2, name: "Tester" },
+    });
+    const timestamp = String(Math.floor(Date.now() / 1000));
+    const signature = signPayload("wrong-secret", timestamp, body);
+
+    const req = mockReq("POST", "/webhooks/basecamp", body, {
+      "x-basecamp-signature": signature,
+      "x-basecamp-timestamp": timestamp,
+    });
+    const res = mockRes();
+    await handleBasecampWebhook(req, res);
+
+    expect(res.status).toBe(403);
+  });
+
+  it("fails closed when bucket resolves to an account with no secrets", async () => {
+    // Account "acct-empty" has an empty registry (no secrets registered).
+    // The "default" account has a valid secret (seeded in beforeEach).
+    // Bucket 888 resolves to "acct-empty" — should NOT fall back to default's secret.
+    getWebhookSecretRegistry("acct-empty"); // ensure registry exists but empty
+
+    vi.mocked(resolveAccountForBucket).mockReturnValue("acct-empty");
+
+    const body = JSON.stringify({
+      kind: "comment_created",
+      created_at: "2025-01-01T00:00:00Z",
+      recording: { id: 1, type: "Comment", bucket: { id: 888, name: "Empty" } },
+      creator: { id: 2, name: "Tester" },
+    });
+    const timestamp = String(Math.floor(Date.now() / 1000));
+    // Sign with the default account's secret — should be rejected
+    const signature = signPayload(webhookSecret, timestamp, body);
+
+    const req = mockReq("POST", "/webhooks/basecamp", body, {
+      "x-basecamp-signature": signature,
+      "x-basecamp-timestamp": timestamp,
     });
     const res = mockRes();
     await handleBasecampWebhook(req, res);
