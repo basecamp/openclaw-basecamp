@@ -49,6 +49,10 @@ export type BasecampAudit = {
     dropped: number;
     errors: number;
   };
+  /** Count of dispatch failures (dead-lettered events). */
+  dispatchFailures?: number;
+  /** Count of events dropped due to full dispatch queue. */
+  queueFullDrops?: number;
 };
 
 /** Seconds since last successful poll, or null if never succeeded. */
@@ -180,6 +184,13 @@ export const basecampStatusAdapter: ChannelStatusAdapter<ResolvedBasecampAccount
         dropped: metrics.webhook.droppedCount,
         errors: metrics.webhook.errorCount,
       };
+
+      if (metrics.dispatchFailureCount > 0) {
+        result.dispatchFailures = metrics.dispatchFailureCount;
+      }
+      if (metrics.queueFullDropCount > 0) {
+        result.queueFullDrops = metrics.queueFullDropCount;
+      }
     }
 
     return result;
@@ -289,6 +300,24 @@ export const basecampStatusAdapter: ChannelStatusAdapter<ResolvedBasecampAccount
             });
           }
         }
+      }
+      if (audit?.dispatchFailures && audit.dispatchFailures > 0) {
+        issues.push({
+          channel: "basecamp",
+          accountId: s.accountId,
+          kind: "runtime",
+          message: `${audit.dispatchFailures} dispatch failure(s) (dead-lettered events)`,
+          fix: "Check gateway logs for dead_letter entries with correlationId for details",
+        });
+      }
+      if (audit?.queueFullDrops && audit.queueFullDrops > 0) {
+        issues.push({
+          channel: "basecamp",
+          accountId: s.accountId,
+          kind: "runtime",
+          message: `${audit.queueFullDrops} event(s) dropped due to full dispatch queue`,
+          fix: "Check for slow agent responses or increase dispatch concurrency",
+        });
       }
     }
 

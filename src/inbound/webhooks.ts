@@ -22,7 +22,7 @@ import { dispatchBasecampEvent } from "../dispatch.js";
 import { getBasecampRuntime } from "../runtime.js";
 import { resolveBasecampAccount, resolveDefaultBasecampAccountId, resolveWebhookSecret, resolveAccountForBucket, listBasecampAccountIds } from "../config.js";
 import { createConsoleStructuredLog } from "../logging.js";
-import { recordWebhookReceived, recordWebhookDispatched, recordWebhookDropped, recordWebhookError, recordWebhookDedupSize } from "../metrics.js";
+import { recordWebhookReceived, recordWebhookDispatched, recordWebhookDropped, recordWebhookError, recordWebhookDedupSize, recordQueueFullDrop } from "../metrics.js";
 
 // ---------------------------------------------------------------------------
 // Concurrency limiter
@@ -458,6 +458,7 @@ export async function handleBasecampWebhook(
   if (dispatchSemaphore.pending >= MAX_QUEUED_DISPATCHES) {
     slog.error("queue_full");
     recordWebhookDropped(account.accountId);
+    recordQueueFullDrop(account.accountId);
     recordWebhookDedupSize(account.accountId, dedup.size);
     return;
   }

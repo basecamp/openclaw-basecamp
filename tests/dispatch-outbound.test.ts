@@ -138,7 +138,8 @@ describe("dispatch outbound reliability", () => {
 
     onError(new Error("ETIMEDOUT connecting to host"));
 
-    expect(logError).toHaveBeenCalledTimes(1);
+    // 2 calls: delivery_failed + dead_letter
+    expect(logError).toHaveBeenCalledTimes(2);
     const logged = logError.mock.calls[0][0];
     expect(logged).toContain("delivery_failed");
     expect(logged).toContain('"agent":"agent-1"');
