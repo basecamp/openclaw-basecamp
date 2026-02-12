@@ -188,6 +188,8 @@ export type BasecampInboundMessage = {
   dedupKey: string;
   /** ISO timestamp of the original event. */
   createdAt: string;
+  /** Correlation ID for end-to-end tracing (normalize → dispatch → outbound). */
+  correlationId: string;
 };
 
 // ---------------------------------------------------------------------------
