@@ -20,11 +20,12 @@ const { values } = parseArgs({
     secret: { type: "string" },
     count: { type: "string", default: "150" },
     bucket: { type: "string", default: "1" },
+    "status-url": { type: "string" },
   },
 });
 
 if (!values.endpoint || !values.secret) {
-  console.error("Usage: npx tsx queue-pressure-burst.ts --endpoint <url> --secret <hmac-secret>");
+  console.error("Usage: npx tsx queue-pressure-burst.ts --endpoint <url> --secret <hmac-secret> [--status-url <url>]");
   process.exit(1);
 }
 
@@ -32,6 +33,7 @@ const ENDPOINT = values.endpoint;
 const SECRET = values.secret;
 const COUNT = parseInt(values.count!, 10);
 const BUCKET_ID = parseInt(values.bucket!, 10);
+const STATUS_URL = values["status-url"];
 
 function makePayload(seq: number) {
   return JSON.stringify({
@@ -101,13 +103,40 @@ async function main() {
     console.log(`[DF-004] Failures:`, Object.fromEntries(statusCounts));
   }
 
-  // Pass criteria: all 200, no queue_full
-  if (failed.length === 0) {
-    console.log("[DF-004] PASS — all webhooks accepted");
-    process.exit(0);
-  } else {
+  if (failed.length > 0) {
     console.log("[DF-004] FAIL — some webhooks rejected");
     process.exit(1);
+  }
+
+  // All 200s is necessary but not sufficient — handler returns 200 before dispatch.
+  // Check status endpoint for the real signal if available.
+  if (STATUS_URL) {
+    console.log(`[DF-004] Waiting 2s for dispatch to settle...`);
+    await new Promise((r) => setTimeout(r, 2000));
+    console.log(`[DF-004] Checking metrics at ${STATUS_URL}...`);
+    try {
+      const res = await fetch(STATUS_URL);
+      const status = await res.json() as Record<string, unknown>;
+      const accounts = status.accounts as Record<string, { queueFullDropCount?: number }> | undefined;
+      const drops = accounts
+        ? Object.values(accounts).reduce((sum, a) => sum + (a.queueFullDropCount ?? 0), 0)
+        : 0;
+      if (drops > 0) {
+        console.log(`[DF-004] FAIL — ${drops} events dropped to queue_full`);
+        process.exit(1);
+      }
+      console.log("[DF-004] PASS — all webhooks accepted, no queue_full drops in metrics");
+      process.exit(0);
+    } catch (err) {
+      console.error("[DF-004] WARNING — could not check status endpoint:", err);
+      console.log("[DF-004] INCONCLUSIVE — all 200s but metrics unverified. Check logs for queue_full.");
+      process.exit(2);
+    }
+  } else {
+    console.log("[DF-004] INCONCLUSIVE — all 200s (necessary but not sufficient).");
+    console.log("[DF-004] Handler returns 200 before dispatch — queue_full drops are invisible to HTTP status.");
+    console.log("[DF-004] Provide --status-url to check metrics, or verify no queue_full in logs.");
+    process.exit(0);
   }
 }
 

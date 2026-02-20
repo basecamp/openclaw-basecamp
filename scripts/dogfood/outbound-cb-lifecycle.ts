@@ -99,7 +99,7 @@ async function main() {
   await sleep(COOLDOWN_S * 1000 + 1000);
 
   console.log("[DF-022] PREREQUISITE: Restore outbound API access now (fix bcq profile)");
-  console.log("[DF-022] Press Enter when ready, or wait 10s for auto-continue...");
+  console.log("[DF-022] Waiting 10s for operator to restore API before probe...");
   await sleep(10000);
 
   console.log("[DF-022] Sending probe message...");
