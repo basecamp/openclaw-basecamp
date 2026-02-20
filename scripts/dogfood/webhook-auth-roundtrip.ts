@@ -16,7 +16,7 @@
  * Note: This creates and then deletes a webhook. Requires API access
  * to the target Basecamp project.
  */
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { parseArgs } from "node:util";
 
 const { values } = parseArgs({
@@ -41,8 +41,7 @@ const PROJECT = values.project;
 const PAYLOAD_URL = values["payload-url"];
 
 function bcq(args: string[]): string {
-  const cmd = ["bcq", "--profile", PROFILE, ...args].join(" ");
-  return execSync(cmd, { encoding: "utf8", timeout: 30000 }).trim();
+  return execFileSync("bcq", ["--profile", PROFILE, ...args], { encoding: "utf8", timeout: 30000 }).trim();
 }
 
 async function main() {

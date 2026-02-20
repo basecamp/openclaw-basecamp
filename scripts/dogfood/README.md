@@ -16,7 +16,7 @@ Run against a local OpenClaw instance + real Basecamp.
 npx tsx scripts/dogfood/queue-pressure-burst.ts --endpoint http://localhost:3000/webhooks/basecamp --secret <hmac-secret>
 
 # Webhook auth round-trip (DF-011)
-npx tsx scripts/dogfood/webhook-auth-roundtrip.ts --profile <bcq-profile> --bucket <bucket-id> --project <project-id>
+npx tsx scripts/dogfood/webhook-auth-roundtrip.ts --profile <bcq-profile> --bucket <bucket-id> --project <project-id> --payload-url http://localhost:3000/webhooks/basecamp
 
 # Outbound CB lifecycle (DF-022)
 npx tsx scripts/dogfood/outbound-cb-lifecycle.ts --profile <bcq-profile> --bucket <bucket-id> --recording <recording-id>

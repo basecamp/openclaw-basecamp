@@ -16,7 +16,7 @@
  *     --recording <campfire-recording-id> \
  *     [--threshold 3] [--cooldown 30]
  */
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { parseArgs } from "node:util";
 
 const { values } = parseArgs({
@@ -43,8 +43,7 @@ const THRESHOLD = parseInt(values.threshold!, 10);
 const COOLDOWN_S = parseInt(values.cooldown!, 10);
 
 function bcq(args: string[]): string {
-  const cmd = ["bcq", "--profile", PROFILE, ...args].join(" ");
-  return execSync(cmd, { encoding: "utf8", timeout: 30000 }).trim();
+  return execFileSync("bcq", ["--profile", PROFILE, ...args], { encoding: "utf8", timeout: 30000 }).trim();
 }
 
 function sleep(ms: number): Promise<void> {
@@ -62,6 +61,7 @@ async function main() {
   console.log("[DF-022] PREREQUISITE: Outbound API should be blocked (e.g. invalid bcq profile)");
   console.log();
 
+  let sendSuccessCount = 0;
   for (let i = 0; i < THRESHOLD + 2; i++) {
     console.log(`[DF-022]   Sending message ${i + 1}/${THRESHOLD + 2}...`);
     try {
@@ -72,11 +72,19 @@ async function main() {
           content: `<p>DF-022 CB test message ${i + 1} — safe to ignore</p>`,
         }),
       ]);
+      sendSuccessCount++;
     } catch {
-      console.log(`[DF-022]   (send failed — expected if profile is invalid)`);
+      console.log(`[DF-022]   (send failed)`);
     }
     await sleep(500);
   }
+
+  if (sendSuccessCount === 0) {
+    console.error(`[DF-022] FAIL — all ${THRESHOLD + 2} trigger messages failed to send.`);
+    console.error("[DF-022] No inbound events generated, CB lifecycle cannot be exercised.");
+    process.exit(1);
+  }
+  console.log(`[DF-022] ${sendSuccessCount}/${THRESHOLD + 2} trigger messages sent successfully.`);
 
   console.log();
   console.log("[DF-022] CHECK: CB should now be OPEN");

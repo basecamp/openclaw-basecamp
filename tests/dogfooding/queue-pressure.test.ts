@@ -133,61 +133,30 @@ describe("dogfooding — queue pressure", () => {
     flushWebhookDedup();
   });
 
-  // DF-001: queue_full when semaphore is saturated
+  // DF-001: queue_full when real dispatchSemaphore is saturated
   it("DF-001: drops events with queue_full when dispatch queue is saturated", async () => {
-    // Create a semaphore that's already at capacity with queued waiters.
-    // We'll block the mock dispatch so acquires pile up.
-    let blockResolve: (() => void) | undefined;
-    const blockPromise = new Promise<void>((r) => { blockResolve = r; });
+    // Strategy: make dispatch slow enough that the semaphore fills to capacity
+    // (10 active + 100 queued) before any handler finishes, then verify the
+    // 111th webhook triggers queue_full. Each dispatch takes 200ms — long enough
+    // for all 111 handlers to reach the semaphore before the first slot frees.
+    mockDispatch.mockImplementation(
+      () => new Promise<boolean>((r) => setTimeout(() => r(true), 200)),
+    );
 
-    mockDispatch.mockImplementation(() => blockPromise);
+    const handles: Promise<void>[] = [];
+    for (let i = 0; i < 111; i++) {
+      const req = makeReq(webhookBody(1, 1000 + i));
+      const res = makeRes();
+      handles.push(handleBasecampWebhook(req, res));
+    }
 
-    // Fire enough concurrent webhooks to fill the semaphore + queue.
-    // The real semaphore has capacity 10 + queue 100, but we can test the
-    // logic by verifying that a webhook that arrives after the queue is
-    // saturated gets the queue_full treatment.
-    //
-    // Strategy: directly test the semaphore pending path. We'll create a
-    // small semaphore and verify the behavior.
-    const smallSem = new Semaphore(1);
-
-    // Acquire the single slot
-    await smallSem.acquire();
-    expect(smallSem.pending).toBe(0);
-
-    // Queue up waiters
-    const p1 = smallSem.acquire(); // queued
-    const p2 = smallSem.acquire(); // queued
-    expect(smallSem.pending).toBe(2);
-
-    // Release to drain
-    smallSem.release(); // p1 gets the slot
-    smallSem.release(); // p2 gets the slot
-
-    await p1;
-    await p2;
-
-    // Now test the full webhook handler path with dispatch blocking.
-    // Fire a webhook that blocks, then fire another while it's pending.
-    let resolveFirst: ((v: boolean) => void) | undefined;
-    const firstBlock = new Promise<boolean>((r) => { resolveFirst = r; });
-    mockDispatch.mockImplementationOnce(() => firstBlock);
-
-    const req1 = makeReq(webhookBody(1, 100));
-    const res1 = makeRes();
-    const handle1 = handleBasecampWebhook(req1, res1);
-
-    // Wait for the 200 response (handler returns 200 immediately)
-    await new Promise((r) => setTimeout(r, 20));
-    expect(res1.statusCode).toBe(200);
-
-    // First dispatch is blocking. Now complete it.
-    resolveFirst!(true);
-    await handle1;
+    // Wait for all handlers to complete (first batch takes ~200ms, then drains)
+    await Promise.all(handles);
 
     const metrics = getAccountMetrics("default");
-    expect(metrics?.webhook.dispatchedCount).toBeGreaterThanOrEqual(1);
-  });
+    expect(metrics?.queueFullDropCount).toBeGreaterThanOrEqual(1);
+    expect(metrics?.webhook.droppedCount).toBeGreaterThanOrEqual(1);
+  }, 15000);
 
   // DF-002: recovery after drain
   it("DF-002: dispatches normally after queue drains", async () => {
@@ -217,5 +186,7 @@ describe("dogfooding — queue pressure", () => {
 
     const metrics = getAccountMetrics("default");
     expect(metrics?.webhook.errorCount).toBeGreaterThanOrEqual(1);
+    // dispatch_error records via recordWebhookError, not recordDispatchFailure
+    // (dispatchFailureCount is for delivery failures inside dispatch, not handler-level throws)
   });
 });
