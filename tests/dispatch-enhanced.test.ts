@@ -119,7 +119,8 @@ describe("dispatchBasecampEvent enhanced onError logging", () => {
     // Simulate an error
     onError(new Error("Connection refused ECONNREFUSED"));
 
-    expect(log.error).toHaveBeenCalledTimes(1);
+    // 2 calls: delivery_failed + dead_letter
+    expect(log.error).toHaveBeenCalledTimes(2);
     const errorMsg = log.error.mock.calls[0][0];
     expect(errorMsg).toContain('"agent":"agent-1"');
     expect(errorMsg).toContain('"recording":"123"');

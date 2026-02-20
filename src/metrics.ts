@@ -42,6 +42,8 @@ export interface AccountMetrics {
   circuitBreaker: Record<string, CircuitBreakerMetrics>;
   dedupSize: number;
   webhookDedupSize: number;
+  dispatchFailureCount: number;
+  queueFullDropCount: number;
 }
 
 function emptySourceMetrics(): PollerSourceMetrics {
@@ -84,6 +86,8 @@ function getOrCreate(accountId: string): AccountMetrics {
       circuitBreaker: {},
       dedupSize: 0,
       webhookDedupSize: 0,
+      dispatchFailureCount: 0,
+      queueFullDropCount: 0,
     };
     metricsRegistry.set(accountId, m);
   }
@@ -158,6 +162,16 @@ export function recordCircuitBreakerState(
 ): void {
   const m = getOrCreate(accountId);
   m.circuitBreaker[key] = state;
+}
+
+export function recordDispatchFailure(accountId: string): void {
+  const m = getOrCreate(accountId);
+  m.dispatchFailureCount++;
+}
+
+export function recordQueueFullDrop(accountId: string): void {
+  const m = getOrCreate(accountId);
+  m.queueFullDropCount++;
 }
 
 // ---------------------------------------------------------------------------
