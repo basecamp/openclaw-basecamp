@@ -239,7 +239,7 @@ export async function dispatchBasecampEvent(
           type: errorType,
           error: String(err),
         });
-        recordDispatchFailure(account.accountId);
+        recordDispatchFailure(outboundAccount.accountId);
         // Dead-letter entry: structured log with enough context to replay or investigate
         slog.error("dead_letter", {
           correlationId,
