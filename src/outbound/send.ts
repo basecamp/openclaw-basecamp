@@ -9,14 +9,15 @@
  */
 
 import type { BasecampRecordableType } from "../types.js";
-import { bcqPost, bcqApiPost, withRetry, isRetryableError, BcqError, bcqResolvePingTranscript } from "../bcq.js";
-import type { CircuitBreaker } from "../bcq.js";
+import { bcqPost, bcqApiPost, withRetry, isRetryableError, BcqError, bcqGetCircle } from "../bcq.js";
+import type { CircuitBreaker, CircleInfo } from "../bcq.js";
 import { markdownToBasecampHtml } from "./format.js";
 import { getBasecampRuntime } from "../runtime.js";
 import { resolveBasecampAccount } from "../config.js";
 
 // ---------------------------------------------------------------------------
-// Ping transcript cache — LRU-bounded to avoid unbounded growth
+// Circle info cache — LRU-bounded to avoid unbounded growth.
+// Stores both transcript ID and participant count from a single API call.
 // ---------------------------------------------------------------------------
 
 const PING_CACHE_MAX = 500;
@@ -53,21 +54,46 @@ class LruCache<K, V> {
   }
 }
 
-const pingTranscriptCache = new LruCache<string, string>(PING_CACHE_MAX);
+const circleInfoCache = new LruCache<string, CircleInfo>(PING_CACHE_MAX);
 
+/** Cache key scoped by account to prevent cross-contamination in multi-account deployments. */
+function circleCacheKey(bucketId: string, accountId?: string): string {
+  return accountId ? `${accountId}:${bucketId}` : bucketId;
+}
+
+/**
+ * Resolve a Circle (Ping) to its info (transcript ID + participant count).
+ * Results are LRU-cached; a single GET /circles/<id>.json call fetches both.
+ * Cache is keyed by accountId:bucketId to avoid cross-account contamination.
+ */
+export async function resolveCircleInfoCached(
+  bucketId: string,
+  accountId?: string,
+  profile?: string,
+): Promise<CircleInfo | undefined> {
+  const key = circleCacheKey(bucketId, accountId);
+  const cached = circleInfoCache.get(key);
+  if (cached) return cached;
+  try {
+    const info = await bcqGetCircle(bucketId, { accountId, profile });
+    circleInfoCache.set(key, info);
+    return info;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Convenience: resolve just the transcript ID from the cache. */
 async function resolvePingTranscriptCached(
   bucketId: string,
   accountId?: string,
   profile?: string,
 ): Promise<string | undefined> {
-  const cached = pingTranscriptCache.get(bucketId);
-  if (cached) return cached;
-  const transcriptId = await bcqResolvePingTranscript(bucketId, { accountId, profile });
-  if (transcriptId) pingTranscriptCache.set(bucketId, transcriptId);
-  return transcriptId;
+  const info = await resolveCircleInfoCached(bucketId, accountId, profile);
+  return info?.transcriptId;
 }
 
-export { LruCache, PING_CACHE_MAX };
+export { LruCache, PING_CACHE_MAX, circleInfoCache };
 
 // ---------------------------------------------------------------------------
 // Helpers — Basecamp API write operations via bcq

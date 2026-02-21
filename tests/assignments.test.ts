@@ -13,6 +13,14 @@ vi.mock("../src/bcq.js", () => ({
   bcqAssignments: vi.fn(),
 }));
 
+vi.mock("../src/metrics.js", () => ({
+  recordUnknownKind: vi.fn(),
+}));
+
+vi.mock("../src/outbound/send.js", () => ({
+  resolveCircleInfoCached: vi.fn(() => undefined),
+}));
+
 import { bcqAssignments } from "../src/bcq.js";
 import { pollAssignments } from "../src/inbound/assignments.js";
 

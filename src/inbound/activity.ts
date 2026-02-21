@@ -69,8 +69,10 @@ export async function pollActivityFeed(
     }
 
     try {
-      const normalized = normalizeActivityEvent(raw, account);
-      events.push(normalized);
+      const normalized = await normalizeActivityEvent(raw, account);
+      if (normalized) {
+        events.push(normalized);
+      }
 
       if (!newestAt || raw.created_at > newestAt) {
         newestAt = raw.created_at;

@@ -835,4 +835,65 @@ describe("collectStatusIssues (audit.errors)", () => {
 
     expect(issues).toHaveLength(0);
   });
+
+  it("PF-006: surfaces unknownKindCount as runtime issue", () => {
+    const audit: BasecampAudit = {
+      projectsAccessible: 1,
+      personasMapped: 0,
+      personasValid: 0,
+      errors: [],
+      personIdSet: true,
+      unknownKindCount: 5,
+      lastUnknownKind: "future_quantum_created",
+    };
+
+    const issues = basecampStatusAdapter.collectStatusIssues!([
+      {
+        accountId: "test",
+        running: true,
+        configured: true,
+        enabled: true,
+        lastStartAt: Date.now(),
+        lastStopAt: null,
+        lastError: null,
+        probe: { ok: true, authenticated: true },
+        audit,
+      },
+    ]);
+
+    const unknownIssues = issues.filter((i) => i.message.includes("unknown kind"));
+    expect(unknownIssues.length).toBe(1);
+    expect(unknownIssues[0].kind).toBe("runtime");
+    expect(unknownIssues[0].message).toContain("5 event(s)");
+    expect(unknownIssues[0].message).toContain("future_quantum_created");
+  });
+
+  it("PF-006: no unknownKind issue when count is 0", () => {
+    const audit: BasecampAudit = {
+      projectsAccessible: 1,
+      personasMapped: 0,
+      personasValid: 0,
+      errors: [],
+      personIdSet: true,
+      unknownKindCount: 0,
+      lastUnknownKind: null,
+    };
+
+    const issues = basecampStatusAdapter.collectStatusIssues!([
+      {
+        accountId: "test",
+        running: true,
+        configured: true,
+        enabled: true,
+        lastStartAt: Date.now(),
+        lastStopAt: null,
+        lastError: null,
+        probe: { ok: true, authenticated: true },
+        audit,
+      },
+    ]);
+
+    const unknownIssues = issues.filter((i) => i.message.includes("unknown kind"));
+    expect(unknownIssues.length).toBe(0);
+  });
 });

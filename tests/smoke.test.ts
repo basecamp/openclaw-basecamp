@@ -11,7 +11,15 @@
  * Run with: OPENCLAW_INTEGRATION=1 npx vitest run tests/smoke.test.ts
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
+
+vi.mock("../src/metrics.js", () => ({
+  recordUnknownKind: vi.fn(),
+}));
+vi.mock("../src/outbound/send.js", () => ({
+  resolveCircleInfoCached: vi.fn(() => undefined),
+}));
+
 import { bcqGet, bcqMe, bcqTimeline, bcqReadings, bcqApiGet } from "../src/bcq.js";
 import { pollActivityFeed } from "../src/inbound/activity.js";
 import { pollReadings } from "../src/inbound/readings.js";

@@ -44,6 +44,8 @@ export interface AccountMetrics {
   webhookDedupSize: number;
   dispatchFailureCount: number;
   queueFullDropCount: number;
+  unknownKindCount: number;
+  lastUnknownKind: string | null;
 }
 
 function emptySourceMetrics(): PollerSourceMetrics {
@@ -88,6 +90,8 @@ function getOrCreate(accountId: string): AccountMetrics {
       webhookDedupSize: 0,
       dispatchFailureCount: 0,
       queueFullDropCount: 0,
+      unknownKindCount: 0,
+      lastUnknownKind: null,
     };
     metricsRegistry.set(accountId, m);
   }
@@ -172,6 +176,12 @@ export function recordDispatchFailure(accountId: string): void {
 export function recordQueueFullDrop(accountId: string): void {
   const m = getOrCreate(accountId);
   m.queueFullDropCount++;
+}
+
+export function recordUnknownKind(accountId: string, rawKind: string): void {
+  const m = getOrCreate(accountId);
+  m.unknownKindCount++;
+  m.lastUnknownKind = rawKind;
 }
 
 // ---------------------------------------------------------------------------

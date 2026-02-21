@@ -14,6 +14,13 @@ vi.mock("../src/mentions/parse.js", () => ({
   htmlToPlainText: vi.fn((s: string) => s),
 }));
 
+vi.mock("../src/metrics.js", () => ({
+  recordUnknownKind: vi.fn(),
+}));
+vi.mock("../src/outbound/send.js", () => ({
+  resolveCircleInfoCached: vi.fn(() => undefined),
+}));
+
 import {
   normalizeActivityEvent,
   normalizeReadingsEvent,
@@ -36,8 +43,8 @@ beforeEach(() => {
 });
 
 describe("correlation IDs", () => {
-  it("normalizeActivityEvent generates a correlationId", () => {
-    const msg = normalizeActivityEvent(
+  it("normalizeActivityEvent generates a correlationId", async () => {
+    const msg = await normalizeActivityEvent(
       {
         id: 1,
         kind: "comment_created",
@@ -50,9 +57,9 @@ describe("correlation IDs", () => {
       mockAccount,
     );
 
-    expect(msg.correlationId).toBeTruthy();
-    expect(typeof msg.correlationId).toBe("string");
-    expect(msg.correlationId.length).toBeGreaterThan(0);
+    expect(msg!.correlationId).toBeTruthy();
+    expect(typeof msg!.correlationId).toBe("string");
+    expect(msg!.correlationId.length).toBeGreaterThan(0);
   });
 
   it("normalizeReadingsEvent generates a correlationId", () => {
@@ -85,8 +92,8 @@ describe("correlation IDs", () => {
     expect(typeof msg.correlationId).toBe("string");
   });
 
-  it("normalizeWebhookPayload generates a correlationId", () => {
-    const msg = normalizeWebhookPayload(
+  it("normalizeWebhookPayload generates a correlationId", async () => {
+    const msg = await normalizeWebhookPayload(
       {
         id: 4,
         kind: "comment_created",
@@ -101,12 +108,12 @@ describe("correlation IDs", () => {
       mockAccount,
     );
 
-    expect(msg.correlationId).toBeTruthy();
-    expect(typeof msg.correlationId).toBe("string");
+    expect(msg!.correlationId).toBeTruthy();
+    expect(typeof msg!.correlationId).toBe("string");
   });
 
-  it("each call generates a unique correlationId", () => {
-    const msg1 = normalizeActivityEvent(
+  it("each call generates a unique correlationId", async () => {
+    const msg1 = await normalizeActivityEvent(
       {
         id: 10,
         kind: "comment_created",
@@ -118,7 +125,7 @@ describe("correlation IDs", () => {
       mockAccount,
     );
 
-    const msg2 = normalizeActivityEvent(
+    const msg2 = await normalizeActivityEvent(
       {
         id: 11,
         kind: "comment_created",
@@ -130,6 +137,6 @@ describe("correlation IDs", () => {
       mockAccount,
     );
 
-    expect(msg1.correlationId).not.toBe(msg2.correlationId);
+    expect(msg1!.correlationId).not.toBe(msg2!.correlationId);
   });
 });

@@ -430,10 +430,16 @@ export async function handleBasecampWebhook(
   // Normalize
   let msg;
   try {
-    msg = normalizeWebhookPayload(payload, account);
+    msg = await normalizeWebhookPayload(payload, account);
   } catch (err) {
     slog.error("normalization_error", { error: String(err), stack: err instanceof Error ? err.stack : undefined });
     recordWebhookError(account.accountId);
+    return;
+  }
+
+  if (!msg) {
+    slog.warn("unknown_kind_dropped", { kind: payload.kind });
+    recordWebhookDropped(account.accountId);
     return;
   }
 

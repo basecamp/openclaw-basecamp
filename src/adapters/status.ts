@@ -55,6 +55,10 @@ export type BasecampAudit = {
   dispatchFailures?: number;
   /** Count of events dropped due to full dispatch queue. */
   queueFullDrops?: number;
+  /** Count of events dropped because their kind was not in KIND_TO_RECORDABLE_TYPE. */
+  unknownKindCount?: number;
+  /** Most recent unknown kind string (for diagnostics). */
+  lastUnknownKind?: string | null;
 };
 
 /** Seconds since last successful poll, or null if never succeeded. */
@@ -186,6 +190,10 @@ export const basecampStatusAdapter: ChannelStatusAdapter<ResolvedBasecampAccount
       }
       if (metrics.queueFullDropCount > 0) {
         result.queueFullDrops = metrics.queueFullDropCount;
+      }
+      if (metrics.unknownKindCount > 0) {
+        result.unknownKindCount = metrics.unknownKindCount;
+        result.lastUnknownKind = metrics.lastUnknownKind;
       }
     }
 
@@ -332,6 +340,15 @@ export const basecampStatusAdapter: ChannelStatusAdapter<ResolvedBasecampAccount
           kind: "runtime",
           message: `${audit.queueFullDrops} event(s) dropped due to full dispatch queue`,
           fix: "Check for slow agent responses or increase dispatch concurrency",
+        });
+      }
+      if (audit?.unknownKindCount && audit.unknownKindCount > 0) {
+        issues.push({
+          channel: "basecamp",
+          accountId: s.accountId,
+          kind: "runtime",
+          message: `${audit.unknownKindCount} event(s) dropped with unknown kind (last: ${audit.lastUnknownKind ?? "?"})`,
+          fix: "Add the kind to KIND_TO_RECORDABLE_TYPE in normalize.ts, or upgrade the plugin",
         });
       }
     }
