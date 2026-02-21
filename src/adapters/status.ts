@@ -30,7 +30,9 @@ export type BasecampAudit = {
   projectsAccessible: number;
   personasMapped: number;
   personasValid: number;
-  errors: string[];
+  errors: Array<{ kind: "config" | "runtime"; message: string }>;
+  /** Whether personId is set for self-message filtering. */
+  personIdSet?: boolean;
   /** Poller lag per source (seconds since last successful poll, null if never polled). */
   pollerLag?: {
     activity: number | null;
@@ -119,7 +121,7 @@ export const basecampStatusAdapter: ChannelStatusAdapter<ResolvedBasecampAccount
   },
 
   auditAccount: async ({ account, cfg, probe }) => {
-    const errors: string[] = [];
+    const errors: Array<{ kind: "config" | "runtime"; message: string }> = [];
     const opts: BcqOptions = {
       profile: account.bcqProfile,
       accountId: account.config.bcqAccountId,
@@ -133,7 +135,7 @@ export const basecampStatusAdapter: ChannelStatusAdapter<ResolvedBasecampAccount
         projectsAccessible = projects.length;
       }
     } catch (err) {
-      errors.push(`Failed to verify project access: ${String(err)}`);
+      errors.push({ kind: "runtime", message: `Failed to verify project access: ${String(err)}` });
     }
 
     // Validate persona mappings
@@ -150,16 +152,16 @@ export const basecampStatusAdapter: ChannelStatusAdapter<ResolvedBasecampAccount
         if (resolved.token || resolved.bcqProfile || resolved.config.tokenFile) {
           personasValid++;
         } else {
-          errors.push(`Persona "${agentId}" → account "${targetAccountId}": no auth configured`);
+          errors.push({ kind: "config", message: `Persona "${agentId}" → account "${targetAccountId}": no auth configured` });
         }
       } else {
-        errors.push(`Persona "${agentId}" → account "${targetAccountId}": account does not exist`);
+        errors.push({ kind: "config", message: `Persona "${agentId}" → account "${targetAccountId}": account does not exist` });
       }
     }
 
     // Enrich with operational metrics
     const metrics = getAccountMetrics(account.accountId);
-    const result: BasecampAudit = { projectsAccessible, personasMapped, personasValid, errors };
+    const result: BasecampAudit = { projectsAccessible, personasMapped, personasValid, errors, personIdSet: !!account.personId };
 
     if (metrics) {
       result.pollerLag = {
@@ -272,8 +274,31 @@ export const basecampStatusAdapter: ChannelStatusAdapter<ResolvedBasecampAccount
         });
       }
 
-      // Operational issues from audit metrics
+      // Missing personId — risk of self-message loops
       const audit = s.audit as BasecampAudit | undefined;
+      if (audit && audit.personIdSet === false) {
+        issues.push({
+          channel: "basecamp",
+          accountId: s.accountId,
+          kind: "config",
+          message: "personId is not set — self-message filtering disabled (risk of response loops)",
+          fix: `Set channels.basecamp.accounts.${s.accountId}.personId`,
+        });
+      }
+
+      // Surface audit errors (persona misconfigs, project access failures)
+      if (audit?.errors) {
+        for (const err of audit.errors) {
+          issues.push({
+            channel: "basecamp",
+            accountId: s.accountId,
+            kind: err.kind,
+            message: err.message,
+          });
+        }
+      }
+
+      // Operational issues from audit metrics
       if (audit?.pollerLag) {
         const LAG_THRESHOLD_S = 600; // 10 minutes
         for (const [source, lag] of Object.entries(audit.pollerLag)) {

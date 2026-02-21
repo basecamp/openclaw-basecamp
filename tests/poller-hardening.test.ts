@@ -94,6 +94,39 @@ describe("CursorStore monotonicity", () => {
 });
 
 // ---------------------------------------------------------------------------
+// CursorStore.abandon — prevents belated writes
+// ---------------------------------------------------------------------------
+
+describe("CursorStore abandon", () => {
+  let tmpDir: string;
+
+  beforeEach(async () => {
+    tmpDir = await mkdtemp(join(tmpdir(), "cursor-abandon-"));
+  });
+
+  afterEach(async () => {
+    await rm(tmpDir, { recursive: true, force: true });
+  });
+
+  it("save becomes a no-op after abandon()", async () => {
+    const store = new CursorStore(tmpDir, "acct-1");
+    await store.load();
+    store.setActivitySince("2025-01-01T00:00:00Z");
+    await store.save();
+
+    // Modify and abandon
+    store.setActivitySince("2025-06-01T00:00:00Z");
+    store.abandon();
+    await store.save();
+
+    // Reload — should see the pre-abandon value
+    const store2 = new CursorStore(tmpDir, "acct-1");
+    const loaded = await store2.load();
+    expect(loaded.activitySince).toBe("2025-01-01T00:00:00Z");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // L2: saveCursorsWithRetry — test via CursorStore with save() spy
 // ---------------------------------------------------------------------------
 
