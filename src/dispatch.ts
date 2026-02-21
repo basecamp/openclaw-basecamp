@@ -11,7 +11,7 @@
  *    to send the agent's response back to the correct Basecamp surface
  */
 
-import type { BasecampInboundMessage, BasecampChannelConfig, BasecampEngagementType, BasecampPeer, ResolvedBasecampAccount } from "./types.js";
+import type { BasecampInboundMessage, BasecampChannelConfig, BasecampEngagementType, ResolvedBasecampAccount } from "./types.js";
 import { DEFAULT_ENGAGE } from "./types.js";
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import { getBasecampRuntime } from "./runtime.js";
@@ -72,17 +72,12 @@ export async function dispatchBasecampEvent(
   const effectiveAccountId = resolveProjectScopeAccountId(cfg, msg) ?? msg.accountId;
 
   // ----- Route resolution -----
-  // Map Basecamp's "dm" → SDK's "direct" at the boundary.
-  const toRoutePeer = (p: BasecampPeer) => ({
-    ...p,
-    kind: (p.kind === "dm" ? "direct" : p.kind) as "direct" | "group",
-  });
   const route = runtime.channel.routing.resolveAgentRoute({
     cfg,
     channel: "basecamp",
     accountId: effectiveAccountId,
-    peer: toRoutePeer(msg.peer),
-    parentPeer: msg.parentPeer ? toRoutePeer(msg.parentPeer) : undefined,
+    peer: msg.peer,
+    parentPeer: msg.parentPeer,
   });
 
   if (!route) {
