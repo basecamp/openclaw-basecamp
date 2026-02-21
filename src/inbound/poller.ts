@@ -29,6 +29,7 @@ import { CircuitBreaker, bcqMarkReadingsRead } from "../bcq.js";
 import { isSelfMessage } from "./normalize.js";
 import { createStructuredLog } from "../logging.js";
 import { recordPollAttempt, recordPollSuccess, recordPollError, recordDedupSize, recordCircuitBreakerState } from "../metrics.js";
+import { withTimeout } from "../util.js";
 
 export interface CompositePollerOptions {
   account: ResolvedBasecampAccount;
@@ -388,9 +389,20 @@ export async function startCompositePoller(
   }
 
   try {
+    // dedup.flush() is sync (writeFileSync) — best-effort, cannot be timeout-protected.
     dedup.flush();
-    await saveCursorsWithRetry(cursors, slog);
-    slog.info("stopped");
+    // Cursor save is async (fs/promises.writeFile) — timeout-protect it.
+    const saveResult = await withTimeout(
+      saveCursorsWithRetry(cursors, slog).then(() => "saved" as const),
+      5000,
+      `${account.accountId} poller cursor save`,
+      { warn: (msg: string) => slog.warn(msg) },
+    );
+    if (saveResult === "saved") {
+      slog.info("stopped");
+    } else {
+      slog.warn("stopped_with_cursor_save_timeout");
+    }
   } catch (err) {
     slog.warn("final_state_save_failed", { error: String(err) });
   }

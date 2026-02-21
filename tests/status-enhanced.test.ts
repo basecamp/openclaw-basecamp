@@ -176,7 +176,7 @@ describe("auditAccount", () => {
     expect(audit.personasMapped).toBe(2);
     expect(audit.personasValid).toBe(1);
     expect(audit.errors).toContainEqual(
-      expect.stringContaining("agent-2"),
+      expect.objectContaining({ kind: "config", message: expect.stringContaining("agent-2") }),
     );
   });
 
@@ -191,7 +191,7 @@ describe("auditAccount", () => {
 
     expect(audit.projectsAccessible).toBe(0);
     expect(audit.errors).toContainEqual(
-      expect.stringContaining("Failed to verify project access"),
+      expect.objectContaining({ kind: "runtime", message: expect.stringContaining("Failed to verify project access") }),
     );
   });
 });
@@ -596,6 +596,213 @@ describe("collectStatusIssues (operational)", () => {
       errors: [],
       pollerLag: { activity: 60, readings: 30, assignments: 120 },
       circuitBreakers: { outbound: { state: "closed", failures: 0 } },
+    };
+
+    const issues = basecampStatusAdapter.collectStatusIssues!([
+      {
+        accountId: "test",
+        running: true,
+        configured: true,
+        enabled: true,
+        lastStartAt: Date.now(),
+        lastStopAt: null,
+        lastError: null,
+        probe: { ok: true, authenticated: true },
+        audit,
+      },
+    ]);
+
+    expect(issues).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PF-004: collectStatusIssues — missing personId
+// ---------------------------------------------------------------------------
+
+describe("collectStatusIssues (personId)", () => {
+  it("flags accounts where personIdSet is false", () => {
+    const audit: BasecampAudit = {
+      projectsAccessible: 1,
+      personasMapped: 0,
+      personasValid: 0,
+      errors: [],
+      personIdSet: false,
+    };
+
+    const issues = basecampStatusAdapter.collectStatusIssues!([
+      {
+        accountId: "no-person",
+        running: true,
+        configured: true,
+        enabled: true,
+        lastStartAt: Date.now(),
+        lastStopAt: null,
+        lastError: null,
+        probe: { ok: true, authenticated: true },
+        audit,
+      },
+    ]);
+
+    const personIdIssues = issues.filter((i) => i.message.includes("personId"));
+    expect(personIdIssues).toHaveLength(1);
+    expect(personIdIssues[0]!.kind).toBe("config");
+    expect(personIdIssues[0]!.message).toContain("self-message filtering disabled");
+    expect(personIdIssues[0]!.fix).toContain("no-person");
+  });
+
+  it("does not flag accounts where personIdSet is true", () => {
+    const audit: BasecampAudit = {
+      projectsAccessible: 1,
+      personasMapped: 0,
+      personasValid: 0,
+      errors: [],
+      personIdSet: true,
+    };
+
+    const issues = basecampStatusAdapter.collectStatusIssues!([
+      {
+        accountId: "has-person",
+        running: true,
+        configured: true,
+        enabled: true,
+        lastStartAt: Date.now(),
+        lastStopAt: null,
+        lastError: null,
+        probe: { ok: true, authenticated: true },
+        audit,
+      },
+    ]);
+
+    const personIdIssues = issues.filter((i) => i.message.includes("personId"));
+    expect(personIdIssues).toHaveLength(0);
+  });
+
+  it("does not flag when audit is absent", () => {
+    const issues = basecampStatusAdapter.collectStatusIssues!([
+      {
+        accountId: "no-audit",
+        running: true,
+        configured: true,
+        enabled: true,
+        lastStartAt: Date.now(),
+        lastStopAt: null,
+        lastError: null,
+        probe: { ok: true, authenticated: true },
+      },
+    ]);
+
+    const personIdIssues = issues.filter((i) => i.message.includes("personId"));
+    expect(personIdIssues).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PF-005: collectStatusIssues — audit.errors surfaced
+// ---------------------------------------------------------------------------
+
+describe("collectStatusIssues (audit.errors)", () => {
+  it("surfaces config-kind audit errors as config issues", () => {
+    const audit: BasecampAudit = {
+      projectsAccessible: 1,
+      personasMapped: 1,
+      personasValid: 0,
+      errors: [
+        { kind: "config", message: 'Persona "agent-1" \u2192 account "missing": account does not exist' },
+      ],
+      personIdSet: true,
+    };
+
+    const issues = basecampStatusAdapter.collectStatusIssues!([
+      {
+        accountId: "test",
+        running: true,
+        configured: true,
+        enabled: true,
+        lastStartAt: Date.now(),
+        lastStopAt: null,
+        lastError: null,
+        probe: { ok: true, authenticated: true },
+        audit,
+      },
+    ]);
+
+    const errorIssues = issues.filter((i) => i.message.includes("Persona"));
+    expect(errorIssues).toHaveLength(1);
+    expect(errorIssues[0]!.kind).toBe("config");
+    expect(errorIssues[0]!.message).toContain("agent-1");
+  });
+
+  it("surfaces runtime-kind audit errors as runtime issues", () => {
+    const audit: BasecampAudit = {
+      projectsAccessible: 0,
+      personasMapped: 0,
+      personasValid: 0,
+      errors: [
+        { kind: "runtime", message: "Failed to verify project access: Error: forbidden" },
+      ],
+      personIdSet: true,
+    };
+
+    const issues = basecampStatusAdapter.collectStatusIssues!([
+      {
+        accountId: "test",
+        running: true,
+        configured: true,
+        enabled: true,
+        lastStartAt: Date.now(),
+        lastStopAt: null,
+        lastError: null,
+        probe: { ok: true, authenticated: true },
+        audit,
+      },
+    ]);
+
+    const errorIssues = issues.filter((i) => i.message.includes("Failed to verify"));
+    expect(errorIssues).toHaveLength(1);
+    expect(errorIssues[0]!.kind).toBe("runtime");
+  });
+
+  it("surfaces multiple audit errors", () => {
+    const audit: BasecampAudit = {
+      projectsAccessible: 0,
+      personasMapped: 2,
+      personasValid: 0,
+      errors: [
+        { kind: "config", message: 'Persona "a" \u2192 account "x": no auth' },
+        { kind: "config", message: 'Persona "b" \u2192 account "y": does not exist' },
+        { kind: "runtime", message: "Failed to verify project access: timeout" },
+      ],
+      personIdSet: true,
+    };
+
+    const issues = basecampStatusAdapter.collectStatusIssues!([
+      {
+        accountId: "test",
+        running: true,
+        configured: true,
+        enabled: true,
+        lastStartAt: Date.now(),
+        lastStopAt: null,
+        lastError: null,
+        probe: { ok: true, authenticated: true },
+        audit,
+      },
+    ]);
+
+    const configIssues = issues.filter((i) => i.kind === "config");
+    const runtimeIssues = issues.filter((i) => i.kind === "runtime");
+    expect(configIssues.length).toBe(2);
+    expect(runtimeIssues.length).toBe(1);
+  });
+
+  it("handles empty audit.errors gracefully", () => {
+    const audit: BasecampAudit = {
+      projectsAccessible: 1,
+      personasMapped: 0,
+      personasValid: 0,
+      errors: [],
+      personIdSet: true,
     };
 
     const issues = basecampStatusAdapter.collectStatusIssues!([

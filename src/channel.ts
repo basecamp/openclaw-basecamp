@@ -38,36 +38,15 @@ import { basecampActionsAdapter } from "./adapters/actions.js";
 import { basecampAgentTools } from "./adapters/agent-tools.js";
 import { setWebhookStateDir, flushWebhookDedup, flushWebhookSecrets, getWebhookSecretRegistry } from "./inbound/webhooks.js";
 import { reconcileWebhooks, deactivateWebhooks } from "./inbound/webhook-lifecycle.js";
+import { withTimeout } from "./util.js";
 
-/** Guard to run config-wide startup validation only once across all accounts. */
-let startupValidationDone = false;
+/** JSON snapshot of config sections relevant to persona/virtualAccount validation.
+ *  Re-validated whenever this changes (handles runtime config reload). */
+let lastValidatedConfigJson: string | undefined;
 
-/**
- * Race a promise against a timeout. Returns the promise result or undefined on timeout.
- *
- * Note: this only stops *awaiting* the promise — it does not cancel the underlying
- * operation (e.g. a bcq child process). Node will keep the process alive until
- * the child exits. This is acceptable for shutdown: the OS will reap orphaned
- * bcq processes, and a stuck child is better than blocking shutdown indefinitely.
- */
-async function withTimeout<T>(
-  promise: Promise<T>,
-  ms: number,
-  label: string,
-  log?: { warn: (msg: string) => void },
-): Promise<T | undefined> {
-  let timer: ReturnType<typeof setTimeout>;
-  const timeout = new Promise<undefined>((resolve) => {
-    timer = setTimeout(() => {
-      log?.warn(`[basecamp] ${label} timed out after ${ms}ms`);
-      resolve(undefined);
-    }, ms);
-  });
-  try {
-    return await Promise.race([promise, timeout]);
-  } finally {
-    clearTimeout(timer!);
-  }
+/** Reset module-level validation state. Exported only for test isolation. */
+export function _resetValidationState(): void {
+  lastValidatedConfigJson = undefined;
 }
 
 export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampProbe, BasecampAudit> = {
@@ -223,11 +202,19 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
         );
       }
 
-      // Validate persona and virtualAccounts mappings once (not per-account)
-      // to avoid log spam in multi-account setups.
-      if (!startupValidationDone) {
-        startupValidationDone = true;
-        const startupSection = ctx.cfg.channels?.basecamp as BasecampChannelConfig | undefined;
+      // Validate persona and virtualAccounts mappings when config changes.
+      // Uses a JSON snapshot comparison so re-validation fires on runtime reload
+      // (not just first startup).
+      const startupSection = ctx.cfg.channels?.basecamp as BasecampChannelConfig | undefined;
+      const configJson = startupSection
+        ? JSON.stringify({
+            accounts: Object.keys(startupSection.accounts ?? {}).sort(),
+            personas: startupSection.personas,
+            virtualAccounts: startupSection.virtualAccounts,
+          })
+        : undefined;
+      if (configJson !== lastValidatedConfigJson) {
+        lastValidatedConfigJson = configJson;
         if (startupSection?.personas) {
           for (const [agentId, targetAccountId] of Object.entries(startupSection.personas)) {
             const targetAccounts = startupSection.accounts ?? {};
@@ -280,6 +267,14 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
       const bcqAccountId =
         account.config.bcqAccountId ??
         (/^\d+$/.test(account.accountId) ? account.accountId : undefined);
+
+      if (!bcqAccountId) {
+        ctx.log?.warn(
+          `[${account.accountId}] validation: bcqAccountId could not be resolved — ` +
+          `outbound dispatch and API tools will fail. ` +
+          `Set channels.basecamp.accounts.${account.accountId}.bcqAccountId`,
+        );
+      }
 
       ctx.log?.info(
         `[${account.accountId}] starting Basecamp channel (person: ${account.personId})`,
