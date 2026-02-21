@@ -1,4 +1,13 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
+
+// Mock external deps used by normalize.ts
+vi.mock("../src/metrics.js", () => ({
+  recordUnknownKind: vi.fn(),
+}));
+vi.mock("../src/outbound/send.js", () => ({
+  resolveCircleInfoCached: vi.fn(() => undefined),
+}));
+
 import {
   normalizeActivityEvent,
   normalizeReadingsEvent,
@@ -182,7 +191,7 @@ describe("resolveBasecampPeer", () => {
     expect(peer).toEqual({ kind: "group", id: "ping:200" });
   });
 
-  it("Ping with 0 participants defaults to group (unknown count)", () => {
+  it("Ping with 0 participants defaults to dm (fail-closed)", () => {
     const peer = resolveBasecampPeer({
       recordableType: "Chat::Transcript",
       recordingId: "50",
@@ -190,10 +199,10 @@ describe("resolveBasecampPeer", () => {
       isPing: true,
       participantCount: 0,
     });
-    expect(peer).toEqual({ kind: "group", id: "ping:200" });
+    expect(peer).toEqual({ kind: "dm", id: "ping:200" });
   });
 
-  it("Ping with undefined participants defaults to group", () => {
+  it("Ping with undefined participants defaults to dm (fail-closed)", () => {
     const peer = resolveBasecampPeer({
       recordableType: "Chat::Transcript",
       recordingId: "50",
@@ -201,7 +210,7 @@ describe("resolveBasecampPeer", () => {
       isPing: true,
       participantCount: undefined,
     });
-    expect(peer).toEqual({ kind: "group", id: "ping:200" });
+    expect(peer).toEqual({ kind: "dm", id: "ping:200" });
   });
 
   it("Chat::Line without parentRecordingId falls back to recording:<recordingId>", () => {
@@ -257,84 +266,84 @@ describe("isSelfMessage", () => {
 // ---------------------------------------------------------------------------
 
 describe("normalizeActivityEvent", () => {
-  it("comment_created maps to recordableType Comment and eventKind created", () => {
+  it("comment_created maps to recordableType Comment and eventKind created", async () => {
     const raw = makeActivityEvent({ kind: "comment_created" });
-    const msg = normalizeActivityEvent(raw, mockAccount);
+    const msg = await normalizeActivityEvent(raw, mockAccount);
 
-    expect(msg.meta.recordableType).toBe("Comment");
-    expect(msg.meta.eventKind).toBe("created");
+    expect(msg!.meta.recordableType).toBe("Comment");
+    expect(msg!.meta.eventKind).toBe("created");
   });
 
-  it("chat_transcript_rollup maps to Chat::Transcript with eventKind created", () => {
+  it("chat_transcript_rollup maps to Chat::Transcript with eventKind created", async () => {
     const raw = makeActivityEvent({
       kind: "chat_transcript_rollup",
       recording: { id: 201, type: "Chat::Transcript", content: "hello" },
     });
-    const msg = normalizeActivityEvent(raw, mockAccount);
+    const msg = await normalizeActivityEvent(raw, mockAccount);
 
-    expect(msg.meta.recordableType).toBe("Chat::Transcript");
-    expect(msg.meta.eventKind).toBe("created");
+    expect(msg!.meta.recordableType).toBe("Chat::Transcript");
+    expect(msg!.meta.eventKind).toBe("created");
   });
 
-  it("kanban_card_created maps to Kanban::Card", () => {
+  it("kanban_card_created maps to Kanban::Card", async () => {
     const raw = makeActivityEvent({
       kind: "kanban_card_created",
       recording: { id: 202, type: "Kanban::Card", title: "New card" },
     });
-    const msg = normalizeActivityEvent(raw, mockAccount);
+    const msg = await normalizeActivityEvent(raw, mockAccount);
 
-    expect(msg.meta.recordableType).toBe("Kanban::Card");
+    expect(msg!.meta.recordableType).toBe("Kanban::Card");
   });
 
-  it("todo_completed maps to Todo with eventKind completed", () => {
+  it("todo_completed maps to Todo with eventKind completed", async () => {
     const raw = makeActivityEvent({
       kind: "todo_completed",
       recording: { id: 203, type: "Todo", title: "Finish task" },
     });
-    const msg = normalizeActivityEvent(raw, mockAccount);
+    const msg = await normalizeActivityEvent(raw, mockAccount);
 
-    expect(msg.meta.recordableType).toBe("Todo");
-    expect(msg.meta.eventKind).toBe("completed");
+    expect(msg!.meta.recordableType).toBe("Todo");
+    expect(msg!.meta.eventKind).toBe("completed");
   });
 
-  it("message_created maps to Message", () => {
+  it("message_created maps to Message", async () => {
     const raw = makeActivityEvent({
       kind: "message_created",
       recording: { id: 204, type: "Message", title: "Announcement" },
     });
-    const msg = normalizeActivityEvent(raw, mockAccount);
+    const msg = await normalizeActivityEvent(raw, mockAccount);
 
-    expect(msg.meta.recordableType).toBe("Message");
-    expect(msg.meta.eventKind).toBe("created");
+    expect(msg!.meta.recordableType).toBe("Message");
+    expect(msg!.meta.eventKind).toBe("created");
   });
 
-  it("unknown kind falls back to recording.type when available", () => {
+  it("unknown kind falls back to recognized recording.type", async () => {
     const raw = makeActivityEvent({
       kind: "some_unknown_kind",
       recording: { id: 205, type: "Upload", title: "File" },
     });
-    const msg = normalizeActivityEvent(raw, mockAccount);
+    const msg = await normalizeActivityEvent(raw, mockAccount);
 
-    expect(msg.meta.recordableType).toBe("Upload");
+    expect(msg!.meta.recordableType).toBe("Upload");
   });
 
-  it("unknown kind with unrecognized recording.type falls back to Document", () => {
+  it("unknown kind with unrecognized recording.type returns null (dropped)", async () => {
     const raw = makeActivityEvent({
       kind: "some_unknown_kind",
       recording: { id: 206, type: "FutureType", title: "Something" },
     });
-    const msg = normalizeActivityEvent(raw, mockAccount);
+    const msg = await normalizeActivityEvent(raw, mockAccount);
 
-    expect(msg.meta.recordableType).toBe("Document");
+    expect(msg).toBeNull();
   });
 
-  it("sets sender from raw.creator fields", () => {
+  it("sets sender from raw.creator fields", async () => {
     const raw = makeActivityEvent({
       creator: { id: 77, name: "Bob", email_address: "bob@example.com", avatar_url: "https://example.com/bob.png" },
     });
-    const msg = normalizeActivityEvent(raw, mockAccount);
+    const msg = await normalizeActivityEvent(raw, mockAccount);
 
-    expect(msg.sender).toEqual({
+    expect(msg!.sender).toEqual({
       id: "77",
       name: "Bob",
       email: "bob@example.com",
@@ -342,127 +351,129 @@ describe("normalizeActivityEvent", () => {
     });
   });
 
-  it("dedup key is activity:<event.id>", () => {
+  it("dedup key is activity:<event.id>", async () => {
     const raw = makeActivityEvent({ id: 12345 });
-    const msg = normalizeActivityEvent(raw, mockAccount);
+    const msg = await normalizeActivityEvent(raw, mockAccount);
 
-    expect(msg.dedupKey).toBe("activity:12345");
+    expect(msg!.dedupKey).toBe("activity:12345");
   });
 
-  it("parentPeer is always bucket:<bucketId>", () => {
+  it("parentPeer is always bucket:<bucketId>", async () => {
     const raw = makeActivityEvent({ bucket: { id: 777, name: "Project" } });
-    const msg = normalizeActivityEvent(raw, mockAccount);
+    const msg = await normalizeActivityEvent(raw, mockAccount);
 
-    expect(msg.parentPeer).toEqual({ kind: "group", id: "bucket:777" });
+    expect(msg!.parentPeer).toEqual({ kind: "group", id: "bucket:777" });
   });
 
-  it("comment_created with parentRecordingId routes peer to parent", () => {
+  it("comment_created with parentRecordingId routes peer to parent", async () => {
     const raw = makeActivityEvent({
       kind: "comment_created",
       parent_recording_id: 99,
       recording: { id: 200, type: "Comment" },
     });
-    const msg = normalizeActivityEvent(raw, mockAccount);
+    const msg = await normalizeActivityEvent(raw, mockAccount);
 
-    expect(msg.peer).toEqual({ kind: "group", id: "recording:99" });
+    expect(msg!.peer).toEqual({ kind: "group", id: "recording:99" });
   });
 
-  it("extracts mentions from HTML content", () => {
+  it("extracts mentions from HTML content", async () => {
     const html = '<bc-attachment sgid="sgid://bc3/Person/42" content-type="application/vnd.basecamp.mention"></bc-attachment> hello';
     const raw = makeActivityEvent({
       recording: { id: 207, type: "Comment", content: html },
     });
-    const msg = normalizeActivityEvent(raw, mockAccount);
+    const msg = await normalizeActivityEvent(raw, mockAccount);
 
-    expect(msg.meta.mentions).toContain("sgid://bc3/Person/42");
+    expect(msg!.meta.mentions).toContain("sgid://bc3/Person/42");
   });
 
-  it("sets mentionsAgent true when content has bc-attachment matching agent SGID", () => {
+  it("sets mentionsAgent true when content has bc-attachment matching agent SGID", async () => {
     const html = '<bc-attachment sgid="sgid://bc3/Person/999" content-type="application/vnd.basecamp.mention"></bc-attachment> hey';
     const raw = makeActivityEvent({
       recording: { id: 208, type: "Comment", content: html },
     });
-    const msg = normalizeActivityEvent(raw, mockAccount);
+    const msg = await normalizeActivityEvent(raw, mockAccount);
 
-    expect(msg.meta.mentionsAgent).toBe(true);
+    expect(msg!.meta.mentionsAgent).toBe(true);
   });
 
-  it("sets mentionsAgent false when no agent mention", () => {
+  it("sets mentionsAgent false when no agent mention", async () => {
     const raw = makeActivityEvent({
       recording: { id: 209, type: "Comment", content: "<p>No mentions here</p>" },
     });
-    const msg = normalizeActivityEvent(raw, mockAccount);
+    const msg = await normalizeActivityEvent(raw, mockAccount);
 
-    expect(msg.meta.mentionsAgent).toBe(false);
+    expect(msg!.meta.mentionsAgent).toBe(false);
   });
 
-  it("sets channel to basecamp and accountId from account", () => {
+  it("sets channel to basecamp and accountId from account", async () => {
     const raw = makeActivityEvent();
-    const msg = normalizeActivityEvent(raw, mockAccount);
+    const msg = await normalizeActivityEvent(raw, mockAccount);
 
-    expect(msg.channel).toBe("basecamp");
-    expect(msg.accountId).toBe("test-acct");
+    expect(msg!.channel).toBe("basecamp");
+    expect(msg!.accountId).toBe("test-acct");
   });
 
-  it("uses raw.created_at as createdAt", () => {
+  it("uses raw.created_at as createdAt", async () => {
     const raw = makeActivityEvent({ created_at: "2025-06-01T08:00:00Z" });
-    const msg = normalizeActivityEvent(raw, mockAccount);
+    const msg = await normalizeActivityEvent(raw, mockAccount);
 
-    expect(msg.createdAt).toBe("2025-06-01T08:00:00Z");
+    expect(msg!.createdAt).toBe("2025-06-01T08:00:00Z");
   });
 
-  it("sets messageId on Comment recordableType", () => {
+  it("sets messageId on Comment recordableType", async () => {
     const raw = makeActivityEvent({
       kind: "comment_created",
       recording: { id: 210, type: "Comment" },
     });
-    const msg = normalizeActivityEvent(raw, mockAccount);
+    const msg = await normalizeActivityEvent(raw, mockAccount);
 
-    expect(msg.meta.messageId).toBe("210");
+    expect(msg!.meta.messageId).toBe("210");
   });
 
-  it("sources includes activity_feed", () => {
+  it("sources includes activity_feed", async () => {
     const raw = makeActivityEvent();
-    const msg = normalizeActivityEvent(raw, mockAccount);
+    const msg = await normalizeActivityEvent(raw, mockAccount);
 
-    expect(msg.meta.sources).toContain("activity_feed");
+    expect(msg!.meta.sources).toContain("activity_feed");
   });
 
-  it("sets assignedToAgent when assignment target matches agent displayName", () => {
+  it("activity feed does not detect assignment (no assignedToAgent)", async () => {
     const acct = { ...mockAccount, displayName: "Clawdito" };
     const raw = makeActivityEvent({
       kind: "todo_assigned",
       target: "Clawdito",
       recording: { id: 203, type: "Todo", title: "Do the thing" },
     });
-    const msg = normalizeActivityEvent(raw, acct);
+    const msg = await normalizeActivityEvent(raw, acct);
 
-    expect(msg.meta.assignedToAgent).toBe(true);
-    expect(msg.meta.eventKind).toBe("assigned");
+    // Assignment detection is only via webhook details or pollAssignments;
+    // activity feed target field is the recording title, not the assignee.
+    expect(msg!.meta.assignedToAgent).toBeUndefined();
+    expect(msg!.meta.eventKind).toBe("assigned");
   });
 
-  it("does not set assignedToAgent when target is a different person", () => {
+  it("does not set assignedToAgent when target is a different person", async () => {
     const acct = { ...mockAccount, displayName: "Clawdito" };
     const raw = makeActivityEvent({
       kind: "todo_assigned",
       target: "Alice",
       recording: { id: 203, type: "Todo", title: "Do the thing" },
     });
-    const msg = normalizeActivityEvent(raw, acct);
+    const msg = await normalizeActivityEvent(raw, acct);
 
-    expect(msg.meta.assignedToAgent).toBeUndefined();
+    expect(msg!.meta.assignedToAgent).toBeUndefined();
   });
 
-  it("does not set assignedToAgent for non-assignment event kinds", () => {
+  it("does not set assignedToAgent for non-assignment event kinds", async () => {
     const acct = { ...mockAccount, displayName: "Clawdito" };
     const raw = makeActivityEvent({
       kind: "todo_completed",
       target: "Clawdito",
       recording: { id: 203, type: "Todo", title: "Do the thing" },
     });
-    const msg = normalizeActivityEvent(raw, acct);
+    const msg = await normalizeActivityEvent(raw, acct);
 
-    expect(msg.meta.assignedToAgent).toBeUndefined();
+    expect(msg!.meta.assignedToAgent).toBeUndefined();
   });
 });
 
@@ -501,7 +512,22 @@ describe("normalizeReadingsEvent", () => {
     expect(msg!.meta.recordableType).toBe("Chat::Line");
   });
 
-  it("Ping type with <= 2 participants resolves to dm peer", () => {
+  it("Ping type with 1 other participant (2 total) resolves to dm peer", () => {
+    // BC3 readings participants uses other_circle_people() which excludes the caller.
+    // 1 participant in array + 1 caller = 2 total → dm.
+    const raw = makeReadingsEntry({
+      type: "Ping",
+      participants: [{ id: 1, name: "Alice" }],
+    });
+    const msg = normalizeReadingsEvent(raw, mockAccount);
+
+    expect(msg).not.toBeNull();
+    expect(msg!.peer.kind).toBe("dm");
+    expect(msg!.peer.id).toMatch(/^ping:/);
+  });
+
+  it("Ping type with 2 other participants (3 total) resolves to group peer", () => {
+    // 2 in array + 1 caller = 3 total → group.
     const raw = makeReadingsEntry({
       type: "Ping",
       participants: [
@@ -512,11 +538,11 @@ describe("normalizeReadingsEvent", () => {
     const msg = normalizeReadingsEvent(raw, mockAccount);
 
     expect(msg).not.toBeNull();
-    expect(msg!.peer.kind).toBe("dm");
+    expect(msg!.peer.kind).toBe("group");
     expect(msg!.peer.id).toMatch(/^ping:/);
   });
 
-  it("Ping type with > 2 participants resolves to group peer", () => {
+  it("Ping type with 3+ other participants resolves to group peer", () => {
     const raw = makeReadingsEntry({
       type: "Ping",
       participants: [
@@ -656,18 +682,18 @@ describe("normalizeReadingsEvent", () => {
 // ---------------------------------------------------------------------------
 
 describe("normalizeWebhookPayload", () => {
-  it("normalizes basic webhook with bucket and recording", () => {
+  it("normalizes basic webhook with bucket and recording", async () => {
     const raw = makeWebhookPayload();
-    const msg = normalizeWebhookPayload(raw, mockAccount);
+    const msg = await normalizeWebhookPayload(raw, mockAccount);
 
-    expect(msg.channel).toBe("basecamp");
-    expect(msg.accountId).toBe("test-acct");
-    expect(msg.meta.bucketId).toBe("100");
-    expect(msg.meta.recordingId).toBe("300");
-    expect(msg.meta.recordableType).toBe("Comment");
+    expect(msg!.channel).toBe("basecamp");
+    expect(msg!.accountId).toBe("test-acct");
+    expect(msg!.meta.bucketId).toBe("100");
+    expect(msg!.meta.recordingId).toBe("300");
+    expect(msg!.meta.recordableType).toBe("Comment");
   });
 
-  it("uses recording.parent for parentRecordingId in peer resolution", () => {
+  it("uses recording.parent for parentRecordingId in peer resolution", async () => {
     const raw = makeWebhookPayload({
       kind: "comment_created",
       recording: {
@@ -678,26 +704,26 @@ describe("normalizeWebhookPayload", () => {
         bucket: { id: 100, name: "Test Project" },
       },
     });
-    const msg = normalizeWebhookPayload(raw, mockAccount);
+    const msg = await normalizeWebhookPayload(raw, mockAccount);
 
-    expect(msg.peer).toEqual({ kind: "group", id: "recording:150" });
+    expect(msg!.peer).toEqual({ kind: "group", id: "recording:150" });
   });
 
-  it("dedup key uses webhook ID when available", () => {
+  it("dedup key uses webhook ID when available", async () => {
     const raw = makeWebhookPayload({ id: 900 });
-    const msg = normalizeWebhookPayload(raw, mockAccount);
+    const msg = await normalizeWebhookPayload(raw, mockAccount);
 
-    expect(msg.dedupKey).toBe("webhook:900");
+    expect(msg!.dedupKey).toBe("webhook:900");
   });
 
-  it("dedup key uses composite fallback when webhook ID is missing", () => {
+  it("dedup key uses composite fallback when webhook ID is missing", async () => {
     const raw = makeWebhookPayload({ id: undefined });
-    const msg = normalizeWebhookPayload(raw, mockAccount);
+    const msg = await normalizeWebhookPayload(raw, mockAccount);
 
-    expect(msg.dedupKey).toMatch(/^webhook:300:comment_created:/);
+    expect(msg!.dedupKey).toMatch(/^webhook:300:comment_created:/);
   });
 
-  it("extracts text from HTML content", () => {
+  it("extracts text from HTML content", async () => {
     const raw = makeWebhookPayload({
       recording: {
         id: 301,
@@ -706,38 +732,38 @@ describe("normalizeWebhookPayload", () => {
         bucket: { id: 100, name: "Test Project" },
       },
     });
-    const msg = normalizeWebhookPayload(raw, mockAccount);
+    const msg = await normalizeWebhookPayload(raw, mockAccount);
 
-    expect(msg.text).toBe("Hello world");
-    expect(msg.html).toBe("<p>Hello world</p>");
+    expect(msg!.text).toBe("Hello world");
+    expect(msg!.html).toBe("<p>Hello world</p>");
   });
 
-  it("sets sender from raw.creator", () => {
+  it("sets sender from raw.creator", async () => {
     const raw = makeWebhookPayload({
       creator: { id: 55, name: "Dave", email_address: "dave@example.com" },
     });
-    const msg = normalizeWebhookPayload(raw, mockAccount);
+    const msg = await normalizeWebhookPayload(raw, mockAccount);
 
-    expect(msg.sender.id).toBe("55");
-    expect(msg.sender.name).toBe("Dave");
-    expect(msg.sender.email).toBe("dave@example.com");
+    expect(msg!.sender.id).toBe("55");
+    expect(msg!.sender.name).toBe("Dave");
+    expect(msg!.sender.email).toBe("dave@example.com");
   });
 
-  it("parentPeer is bucket:<bucketId>", () => {
+  it("parentPeer is bucket:<bucketId>", async () => {
     const raw = makeWebhookPayload();
-    const msg = normalizeWebhookPayload(raw, mockAccount);
+    const msg = await normalizeWebhookPayload(raw, mockAccount);
 
-    expect(msg.parentPeer).toEqual({ kind: "group", id: "bucket:100" });
+    expect(msg!.parentPeer).toEqual({ kind: "group", id: "bucket:100" });
   });
 
-  it("sources includes webhook", () => {
+  it("sources includes webhook", async () => {
     const raw = makeWebhookPayload();
-    const msg = normalizeWebhookPayload(raw, mockAccount);
+    const msg = await normalizeWebhookPayload(raw, mockAccount);
 
-    expect(msg.meta.sources).toContain("webhook");
+    expect(msg!.meta.sources).toContain("webhook");
   });
 
-  it("detects agent mention in webhook content", () => {
+  it("detects agent mention in webhook content", async () => {
     const raw = makeWebhookPayload({
       recording: {
         id: 302,
@@ -746,12 +772,12 @@ describe("normalizeWebhookPayload", () => {
         bucket: { id: 100, name: "Test Project" },
       },
     });
-    const msg = normalizeWebhookPayload(raw, mockAccount);
+    const msg = await normalizeWebhookPayload(raw, mockAccount);
 
-    expect(msg.meta.mentionsAgent).toBe(true);
+    expect(msg!.meta.mentionsAgent).toBe(true);
   });
 
-  it("uses recording.title when content is absent", () => {
+  it("uses recording.title when content is absent", async () => {
     const raw = makeWebhookPayload({
       recording: {
         id: 303,
@@ -761,8 +787,277 @@ describe("normalizeWebhookPayload", () => {
         bucket: { id: 100, name: "Test Project" },
       },
     });
-    const msg = normalizeWebhookPayload(raw, mockAccount);
+    const msg = await normalizeWebhookPayload(raw, mockAccount);
 
-    expect(msg.text).toBe("Important Announcement");
+    expect(msg!.text).toBe("Important Announcement");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Step 4: Ping enrichment via Circle API
+// ---------------------------------------------------------------------------
+
+import { resolveCircleInfoCached } from "../src/outbound/send.js";
+import { recordUnknownKind } from "../src/metrics.js";
+
+describe("Ping participant enrichment", () => {
+  it("activity Ping with Circle lookup returning 2 participants → dm", async () => {
+    vi.mocked(resolveCircleInfoCached).mockResolvedValueOnce({
+      transcriptId: "888",
+      participantCount: 2,
+    });
+    const raw = makeActivityEvent({
+      kind: "chat_transcript_created",
+      app_url: "https://3.basecamp.com/circles/100/chats/200",
+      recording: { id: 200, type: "Ping" },
+    });
+    const msg = await normalizeActivityEvent(raw, mockAccount);
+
+    expect(msg).not.toBeNull();
+    expect(msg!.peer.kind).toBe("dm");
+    expect(msg!.peer.id).toBe("ping:100");
+  });
+
+  it("activity Ping with Circle lookup returning 3 participants → group", async () => {
+    vi.mocked(resolveCircleInfoCached).mockResolvedValueOnce({
+      transcriptId: "888",
+      participantCount: 3,
+    });
+    const raw = makeActivityEvent({
+      kind: "chat_transcript_created",
+      app_url: "https://3.basecamp.com/circles/100/chats/200",
+      recording: { id: 200, type: "Ping" },
+    });
+    const msg = await normalizeActivityEvent(raw, mockAccount);
+
+    expect(msg).not.toBeNull();
+    expect(msg!.peer.kind).toBe("group");
+    expect(msg!.peer.id).toBe("ping:100");
+  });
+
+  it("activity Ping with Circle lookup failure → fail-closed dm fallback", async () => {
+    vi.mocked(resolveCircleInfoCached).mockResolvedValueOnce(undefined);
+    const raw = makeActivityEvent({
+      kind: "chat_transcript_created",
+      app_url: "https://3.basecamp.com/circles/100/chats/200",
+      recording: { id: 200, type: "Ping" },
+    });
+    const msg = await normalizeActivityEvent(raw, mockAccount);
+
+    expect(msg).not.toBeNull();
+    // Fail closed: unknown participant count → dm, so DM policy applies
+    expect(msg!.peer.kind).toBe("dm");
+  });
+
+  it("webhook Ping with Circle lookup returning 2 participants → dm", async () => {
+    // BC3 webhook recording.type is recordable_type ("Chat::Transcript"), not "Ping".
+    // Ping detection uses recording.bucket.type === "Circle" (from bucketable_type).
+    vi.mocked(resolveCircleInfoCached).mockResolvedValueOnce({
+      transcriptId: "888",
+      participantCount: 2,
+    });
+    const raw = makeWebhookPayload({
+      kind: "chat_transcript_created",
+      recording: {
+        id: 200,
+        type: "Chat::Transcript",
+        content: "hey",
+        bucket: { id: 100, name: "Pings", type: "Circle" },
+      },
+    });
+    const msg = await normalizeWebhookPayload(raw, mockAccount);
+
+    expect(msg).not.toBeNull();
+    expect(msg!.peer.kind).toBe("dm");
+    expect(msg!.peer.id).toBe("ping:100");
+  });
+
+  it("webhook Chat::Transcript in Project bucket is NOT a Ping", async () => {
+    vi.mocked(resolveCircleInfoCached).mockClear();
+    const raw = makeWebhookPayload({
+      kind: "chat_transcript_created",
+      recording: {
+        id: 201,
+        type: "Chat::Transcript",
+        content: "campfire message",
+        bucket: { id: 100, name: "My Project", type: "Project" },
+      },
+    });
+    const msg = await normalizeWebhookPayload(raw, mockAccount);
+
+    expect(msg).not.toBeNull();
+    // Project campfire → recording peer, not ping peer
+    expect(msg!.peer.id).toBe("recording:201");
+    expect(msg!.peer.kind).toBe("group");
+    // Circle lookup should NOT have been called
+    expect(resolveCircleInfoCached).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Step 4: Webhook assignment detection via details
+// ---------------------------------------------------------------------------
+
+describe("webhook assignment detection", () => {
+  it("todo_assignment_changed with added_person_ids matching agent → assignedToAgent", async () => {
+    const raw = makeWebhookPayload({
+      kind: "todo_assignment_changed",
+      details: { added_person_ids: [999, 123] },
+      recording: {
+        id: 400,
+        type: "Todo",
+        title: "Fix bug",
+        bucket: { id: 100, name: "Project" },
+      },
+    });
+    const msg = await normalizeWebhookPayload(raw, mockAccount);
+
+    expect(msg).not.toBeNull();
+    expect(msg!.meta.assignedToAgent).toBe(true);
+    expect(msg!.meta.assignees).toEqual(["999", "123"]);
+    expect(msg!.meta.recordableType).toBe("Todo");
+    expect(msg!.meta.eventKind).toBe("assigned");
+  });
+
+  it("todo_assignment_changed with removed_person_ids matching agent → unassigned_from_agent", async () => {
+    const raw = makeWebhookPayload({
+      kind: "todo_assignment_changed",
+      details: { removed_person_ids: [999] },
+      recording: {
+        id: 401,
+        type: "Todo",
+        title: "Fix bug",
+        bucket: { id: 100, name: "Project" },
+      },
+    });
+    const msg = await normalizeWebhookPayload(raw, mockAccount);
+
+    expect(msg).not.toBeNull();
+    expect(msg!.meta.assignedToAgent).toBeUndefined();
+    expect(msg!.meta.matchedPatterns).toContain("unassigned_from_agent");
+  });
+
+  it("todo_assignment_changed with non-matching person IDs → no assignment", async () => {
+    const raw = makeWebhookPayload({
+      kind: "todo_assignment_changed",
+      details: { added_person_ids: [123, 456] },
+      recording: {
+        id: 402,
+        type: "Todo",
+        title: "Fix bug",
+        bucket: { id: 100, name: "Project" },
+      },
+    });
+    const msg = await normalizeWebhookPayload(raw, mockAccount);
+
+    expect(msg).not.toBeNull();
+    expect(msg!.meta.assignedToAgent).toBeUndefined();
+    expect(msg!.meta.assignees).toEqual(["123", "456"]);
+  });
+
+  it("kanban_card_assignment_changed maps to Kanban::Card with eventKind assigned", async () => {
+    const raw = makeWebhookPayload({
+      kind: "kanban_card_assignment_changed",
+      details: { added_person_ids: [999] },
+      recording: {
+        id: 403,
+        type: "Kanban::Card",
+        title: "Card",
+        bucket: { id: 100, name: "Project" },
+      },
+    });
+    const msg = await normalizeWebhookPayload(raw, mockAccount);
+
+    expect(msg).not.toBeNull();
+    expect(msg!.meta.recordableType).toBe("Kanban::Card");
+    expect(msg!.meta.eventKind).toBe("assigned");
+    expect(msg!.meta.assignedToAgent).toBe(true);
+  });
+
+  it("assignment event without details field → no assignment detection", async () => {
+    const raw = makeWebhookPayload({
+      kind: "todo_assignment_changed",
+      recording: {
+        id: 404,
+        type: "Todo",
+        title: "Fix bug",
+        bucket: { id: 100, name: "Project" },
+      },
+    });
+    const msg = await normalizeWebhookPayload(raw, mockAccount);
+
+    expect(msg).not.toBeNull();
+    expect(msg!.meta.assignedToAgent).toBeUndefined();
+    expect(msg!.meta.assignees).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Step 4: Activity feed does not detect assignments
+// ---------------------------------------------------------------------------
+
+describe("activity feed assignment removal", () => {
+  it("todo_assignment_changed in activity feed has no assignedToAgent", async () => {
+    const raw = makeActivityEvent({
+      kind: "todo_assignment_changed",
+      recording: { id: 500, type: "Todo", title: "Fix it" },
+    });
+    const msg = await normalizeActivityEvent(raw, mockAccount);
+
+    expect(msg).not.toBeNull();
+    expect(msg!.meta.assignedToAgent).toBeUndefined();
+    expect(msg!.meta.eventKind).toBe("assigned");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Step 4: Unknown kind drop policy
+// ---------------------------------------------------------------------------
+
+describe("unknown kind drop policy", () => {
+  it("activity event with unknown kind and unrecognized recording type returns null", async () => {
+    const raw = makeActivityEvent({
+      kind: "future_quantum_created",
+      recording: { id: 200, type: "FutureQuantum", title: "Quantum" },
+    });
+    const msg = await normalizeActivityEvent(raw, mockAccount);
+
+    expect(msg).toBeNull();
+    expect(recordUnknownKind).toHaveBeenCalledWith("test-acct", "future_quantum_created");
+  });
+
+  it("webhook event with unknown kind returns null", async () => {
+    const raw = makeWebhookPayload({
+      kind: "future_quantum_created",
+      recording: {
+        id: 600,
+        type: "FutureQuantum",
+        title: "Quantum",
+        bucket: { id: 100, name: "Project" },
+      },
+    });
+    const msg = await normalizeWebhookPayload(raw, mockAccount);
+
+    expect(msg).toBeNull();
+    expect(recordUnknownKind).toHaveBeenCalledWith("test-acct", "future_quantum_created");
+  });
+
+  it("readings event with unknown type returns null", () => {
+    const raw = makeReadingsEntry({ type: "FutureQuantum" });
+    const msg = normalizeReadingsEvent(raw, mockAccount);
+
+    expect(msg).toBeNull();
+    expect(recordUnknownKind).toHaveBeenCalledWith("test-acct", "FutureQuantum");
+  });
+
+  it("unknown kind but recognized recording.type still resolves", async () => {
+    const raw = makeActivityEvent({
+      kind: "some_unknown_kind",
+      recording: { id: 601, type: "Upload", title: "A file" },
+    });
+    const msg = await normalizeActivityEvent(raw, mockAccount);
+
+    expect(msg).not.toBeNull();
+    expect(msg!.meta.recordableType).toBe("Upload");
   });
 });

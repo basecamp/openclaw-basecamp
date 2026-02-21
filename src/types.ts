@@ -206,6 +206,8 @@ export type BasecampActivityEvent = {
   action: string;
   created_at: string;
   title?: string;
+  /** Recording title from timeline_api_event_title(). For most event kinds this is the
+   *  recording's own title, NOT a person name. Do not use for person identification. */
   target?: string;
   summary_excerpt?: string;
   parent_recording_id?: number;
@@ -278,12 +280,26 @@ export type BasecampReadingsEntry = {
 };
 
 /**
+ * Assignment event details (todo_assignment_changed, kanban_card_assignment_changed, etc.).
+ * Populated by BC3 Event::Detail::PeopleChanges — person IDs, not names.
+ */
+export interface AssignmentChangedDetails {
+  added_person_ids?: number[];
+  removed_person_ids?: number[];
+}
+
+/** Webhook event details. Shape varies by event kind; known shapes are intersected. */
+export type WebhookEventDetails = AssignmentChangedDetails & Record<string, unknown>;
+
+/**
  * Raw Basecamp webhook payload.
  */
 export type BasecampWebhookPayload = {
   id?: number;
   kind: string;
   created_at: string;
+  /** Event-specific details. For assignment events: { added_person_ids, removed_person_ids }. */
+  details?: WebhookEventDetails;
   recording: {
     id: number;
     type: string;
@@ -296,6 +312,8 @@ export type BasecampWebhookPayload = {
     bucket: {
       id: number;
       name: string;
+      /** Bucket type from bucketable_type. "Circle" for Pings, "Project" for projects. */
+      type?: string;
     };
   };
   creator: {

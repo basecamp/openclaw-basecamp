@@ -79,18 +79,20 @@ export async function pollReadings(
   for (const raw of filtered) {
     try {
       const normalized = normalizeReadingsEvent(raw, account);
-      if (!normalized) continue;
 
-      events.push(normalized);
-
+      // Always mark the item as processed regardless of normalization outcome.
+      // Unknown types return null (dropped with metric), but the unread must still
+      // be recorded to prevent infinite re-polling of the same item every cycle.
       if (raw.readable_sgid) {
         processedSgids.push(raw.readable_sgid);
       }
-
       const ts = raw.unread_at ?? raw.created_at;
       if (!newestAt || ts > newestAt) {
         newestAt = ts;
       }
+
+      if (!normalized) continue;
+      events.push(normalized);
     } catch (err) {
       log?.warn?.(
         `[${account.accountId}] failed to normalize reading id=${raw.id}: ${String(err)}`,

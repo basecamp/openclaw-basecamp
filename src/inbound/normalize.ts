@@ -20,10 +20,13 @@ import type {
   BasecampRecordableType,
   BasecampSender,
   BasecampWebhookPayload,
+  WebhookEventDetails,
   ResolvedBasecampAccount,
 } from "../types.js";
 import { mentionsAgent, extractAttachmentSgids, htmlToPlainText } from "../mentions/parse.js";
 import { EventDedup } from "./dedup.js";
+import { recordUnknownKind } from "../metrics.js";
+import { resolveCircleInfoCached } from "../outbound/send.js";
 
 // ---------------------------------------------------------------------------
 // event.kind → recordableType mapping (expanded from TimelinesApiHelper)
@@ -85,6 +88,11 @@ const KIND_TO_RECORDABLE_TYPE: Record<string, BasecampRecordableType> = {
   inbox_reply_created: "Comment",
   client_reply_created: "Comment",
   client_forward_created: "Message",
+
+  // Assignments (via BC3 Recording::Assignable — kind is *_assignment_changed)
+  todo_assignment_changed: "Todo",
+  kanban_card_assignment_changed: "Kanban::Card",
+  kanban_step_assignment_changed: "Kanban::Card",
 };
 
 /** Map event.kind to a normalized eventKind for our domain model. */
@@ -96,6 +104,7 @@ function resolveEventKind(kind: string): string {
   if (kind.endsWith("_rollup")) return "created";
   if (kind.endsWith("_rescheduled")) return "edited";
   if (kind.endsWith("_moved")) return "moved";
+  if (kind.endsWith("_assignment_changed")) return "assigned";
   if (kind.endsWith("_assigned")) return "assigned";
   if (kind.endsWith("_unassigned")) return "assigned";
   return kind;
@@ -193,7 +202,7 @@ export function parseRecordingIdFromIdentifier(identifier: string): string | und
  *
  * - Chat::Line → parent transcript: recording:<transcriptId>
  * - Comment → parent recording: recording:<parentRecordingId>
- * - Pings → ping:<circleBucketId> (dm if participant count known ≤2, else group)
+ * - Pings → ping:<circleBucketId> (group if participant count known >2, else dm — fail-closed)
  * - Everything else → recording:<recordingId>
  */
 export function resolveBasecampPeer(params: {
@@ -208,11 +217,13 @@ export function resolveBasecampPeer(params: {
     params;
 
   if (isPing) {
-    // Default to "group" when participant count is unknown (undefined/0).
-    // Only classify as "dm" when we positively know there are ≤2 participants.
-    const kind = participantCount != null && participantCount > 0 && participantCount <= 2
-      ? "dm"
-      : "group";
+    // Fail closed: when participant count is unknown (Circle API failure),
+    // default to "dm" so DM policy applies. This prevents API outages from
+    // relaxing DM gating on actual 1:1 Pings by misclassifying them as group.
+    // When count is known: ≤2 = dm, >2 = group.
+    const kind = participantCount != null && participantCount > 2
+      ? "group"
+      : "dm";
     return { kind, id: `ping:${bucketId}` };
   }
 
@@ -255,6 +266,32 @@ export function isSelfMessage(
 }
 
 // ---------------------------------------------------------------------------
+// Webhook assignment detail helpers
+// ---------------------------------------------------------------------------
+
+/** True when the BC3 event kind represents an assignment change. */
+function isAssignmentChangedKind(kind: string): boolean {
+  return kind.endsWith("_assignment_changed");
+}
+
+/**
+ * Parse assignment person IDs from webhook event details.
+ * BC3 Event::Detail::PeopleChanges writes `added_person_ids` and
+ * `removed_person_ids` as integer arrays. Validates each element.
+ */
+function parseAssignmentDetails(details: WebhookEventDetails | undefined): {
+  addedPersonIds: number[];
+  removedPersonIds: number[];
+} {
+  const addedRaw = details?.added_person_ids;
+  const removedRaw = details?.removed_person_ids;
+  return {
+    addedPersonIds: Array.isArray(addedRaw) ? addedRaw.filter((id): id is number => typeof id === "number") : [],
+    removedPersonIds: Array.isArray(removedRaw) ? removedRaw.filter((id): id is number => typeof id === "number") : [],
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Activity feed normalization
 // ---------------------------------------------------------------------------
 
@@ -266,14 +303,20 @@ export function isSelfMessage(
  * `parent_recording_id`, `summary_excerpt`, `title`, etc.
  * Recording ID must be parsed from `app_url`.
  */
-export function normalizeActivityEvent(
+export async function normalizeActivityEvent(
   raw: BasecampActivityEvent,
   account: ResolvedBasecampAccount,
-): BasecampInboundMessage {
+): Promise<BasecampInboundMessage | null> {
   const recordableType = resolveRecordableType(
     raw.kind,
     raw.recording?.recordable_type ?? raw.recording?.type,
   );
+
+  // Unknown kind → drop with metric rather than misclassifying as Document
+  if (!recordableType) {
+    recordUnknownKind(account.accountId, raw.kind);
+    return null;
+  }
 
   const bucketId = String(raw.bucket.id);
 
@@ -313,8 +356,6 @@ export function normalizeActivityEvent(
     avatarUrl: raw.creator.avatar_url,
   };
 
-  const effectiveRecordableType = recordableType ?? "Document";
-
   // Detect Pings: activity events for Pings use /circles/<id> URLs
   // instead of /buckets/<id>. Also check recording.type if available.
   const isPing =
@@ -322,32 +363,41 @@ export function normalizeActivityEvent(
     raw.recording?.type === "Ping" ||
     raw.recording?.recordable_type === "Ping";
 
+  // Enrich Ping participant count via Circle API (activity feed lacks it).
+  // Defaults to undefined → resolveBasecampPeer fail-closed uses "dm".
+  let participantCount: number | undefined;
+  if (isPing) {
+    const bcqAccountId = account.config.bcqAccountId ??
+      (/^\d+$/.test(account.accountId) ? account.accountId : undefined);
+    const circleInfo = await resolveCircleInfoCached(bucketId, bcqAccountId, account.bcqProfile);
+    participantCount = circleInfo?.participantCount;
+  }
+
   const peer = resolveBasecampPeer({
-    recordableType: effectiveRecordableType,
+    recordableType,
     recordingId,
     parentRecordingId,
     bucketId,
     isPing,
+    participantCount,
   });
 
   const parentPeer = resolveParentPeer(bucketId, isPing);
 
-  // Detect assignment events directed at the agent.
-  // bc3 assignment event kinds put the assignee's display name in `target`.
-  const isAssignmentKind = raw.kind.endsWith("_assigned") || raw.kind.endsWith("_unassigned");
-  const isAssignedToAgent = isAssignmentKind &&
-    typeof raw.target === "string" &&
-    typeof account.displayName === "string" &&
-    raw.target === account.displayName;
+  // Assignment detection is NOT possible from the activity feed:
+  // - BC3 emits kind "todo_assignment_changed" (not _assigned/_unassigned suffixes)
+  // - The activity feed's `target` field is the recording title, not the assignee name
+  //   (timeline_api_event_title() falls through to event.recording.title for assignment_changed)
+  // - The activity feed doesn't carry `details` (no added_person_ids)
+  // Assignments are detected via: (1) webhook details.added_person_ids, (2) pollAssignments set-diff.
 
   const meta: BasecampInboundMeta = {
     bucketId,
     recordingId,
-    recordableType: effectiveRecordableType,
+    recordableType,
     eventKind: resolveEventKind(raw.kind) as BasecampInboundMeta["eventKind"],
     mentions: sgids,
     mentionsAgent: isAgentMentioned,
-    assignedToAgent: isAssignedToAgent || undefined,
     attachments: (raw.attachments ?? []).map((a) => ({
       sgid: a.sgid ?? "",
       url: a.url,
@@ -358,13 +408,8 @@ export function normalizeActivityEvent(
     sources: ["activity_feed"],
   };
 
-  if (effectiveRecordableType === "Comment" || effectiveRecordableType === "Chat::Line") {
+  if (recordableType === "Comment" || recordableType === "Chat::Line") {
     meta.messageId = recordingId;
-  }
-
-  // Preserve the raw kind for unknown types so dispatch/agents can inspect it
-  if (!recordableType) {
-    meta.matchedPatterns = [`unknown_kind:${raw.kind}`];
   }
 
   const dedupPrimary = EventDedup.primaryKey("activity", String(raw.id));
@@ -409,8 +454,16 @@ export function normalizeReadingsEvent(
   }
 
   const recordableType = normalizeRecordingType(raw.type);
+
+  // Unknown type → drop with metric rather than misclassifying as Document
+  if (!recordableType) {
+    recordUnknownKind(account.accountId, raw.type);
+    return null;
+  }
+
   const isPing = raw.type === "Ping";
-  const participantCount = raw.participants?.length;
+  // readings participants uses other_circle_people() which excludes the caller — add 1.
+  const participantCount = raw.participants ? raw.participants.length + 1 : undefined;
 
   const text = raw.content_excerpt ? htmlToPlainText(raw.content_excerpt) : (raw.title ?? "");
   const html = raw.content_excerpt ?? "";
@@ -429,10 +482,8 @@ export function normalizeReadingsEvent(
       }
     : { id: "unknown", name: "Unknown" };
 
-  const effectiveRecordableType = recordableType ?? "Document";
-
   const peer = resolveBasecampPeer({
-    recordableType: effectiveRecordableType,
+    recordableType,
     recordingId,
     bucketId,
     isPing,
@@ -444,7 +495,7 @@ export function normalizeReadingsEvent(
   const meta: BasecampInboundMeta = {
     bucketId,
     recordingId,
-    recordableType: effectiveRecordableType,
+    recordableType,
     eventKind: "created" as BasecampInboundMeta["eventKind"],
     mentions: sgids,
     mentionsAgent: isAgentMentioned,
@@ -455,11 +506,6 @@ export function normalizeReadingsEvent(
     })),
     sources: ["readings"],
   };
-
-  // Preserve unknown type info
-  if (!recordableType) {
-    meta.matchedPatterns = [`unknown_type:${raw.type}`];
-  }
 
   const dedupPrimary = EventDedup.primaryKey("reading", String(raw.id));
 
@@ -558,12 +604,18 @@ export function normalizeAssignmentTodo(
 // Webhook normalization
 // ---------------------------------------------------------------------------
 
-export function normalizeWebhookPayload(
+export async function normalizeWebhookPayload(
   raw: BasecampWebhookPayload,
   account: ResolvedBasecampAccount,
-): BasecampInboundMessage {
+): Promise<BasecampInboundMessage | null> {
   const recordableType = resolveRecordableType(raw.kind, raw.recording.type);
-  const effectiveRecordableType = recordableType ?? "Document";
+
+  // Unknown kind → drop with metric rather than misclassifying as Document
+  if (!recordableType) {
+    recordUnknownKind(account.accountId, raw.kind);
+    return null;
+  }
+
   const recordingId = String(raw.recording.id);
   const parentRecordingId = raw.recording.parent
     ? String(raw.recording.parent.id)
@@ -583,19 +635,35 @@ export function normalizeWebhookPayload(
     email: raw.creator.email_address,
   };
 
+  // Detect Pings via bucket type. BC3 webhook recording.type is the recordable_type
+  // (e.g. "Chat::Transcript"), not "Ping". The definitive signal is the bucket's
+  // bucketable_type: "Circle" for Pings, "Project" for project campfires.
+  const isPing = raw.recording.bucket.type === "Circle";
+
+  // Enrich Ping participant count via Circle API (webhooks lack it)
+  let participantCount: number | undefined;
+  if (isPing) {
+    const bcqAccountId = account.config.bcqAccountId ??
+      (/^\d+$/.test(account.accountId) ? account.accountId : undefined);
+    const circleInfo = await resolveCircleInfoCached(bucketId, bcqAccountId, account.bcqProfile);
+    participantCount = circleInfo?.participantCount;
+  }
+
   const peer = resolveBasecampPeer({
-    recordableType: effectiveRecordableType,
+    recordableType,
     recordingId,
     parentRecordingId,
     bucketId,
+    isPing,
+    participantCount,
   });
 
-  const parentPeer = resolveParentPeer(bucketId, false);
+  const parentPeer = resolveParentPeer(bucketId, isPing);
 
   const meta: BasecampInboundMeta = {
     bucketId,
     recordingId,
-    recordableType: effectiveRecordableType,
+    recordableType,
     eventKind: resolveEventKind(raw.kind) as BasecampInboundMeta["eventKind"],
     mentions: sgids,
     mentionsAgent: isAgentMentioned,
@@ -603,8 +671,28 @@ export function normalizeWebhookPayload(
     sources: ["webhook"],
   };
 
-  if (!recordableType) {
-    meta.matchedPatterns = [`unknown_kind:${raw.kind}`];
+  // Detect assignment events from webhook details.
+  // BC3 emits details.added_person_ids / details.removed_person_ids for
+  // *_assignment_changed events (person IDs, not names).
+  if (isAssignmentChangedKind(raw.kind) && raw.details) {
+    const { addedPersonIds, removedPersonIds } = parseAssignmentDetails(raw.details);
+    const agentPersonId = account.personId ? Number(account.personId) : undefined;
+
+    if (addedPersonIds.length > 0) {
+      meta.assignees = addedPersonIds.map(String);
+    }
+
+    if (agentPersonId != null) {
+      if (addedPersonIds.includes(agentPersonId)) {
+        meta.assignedToAgent = true;
+      }
+      // Unassignment: agent was explicitly removed from assignees.
+      // classifyEngagement sees assignedToAgent=undefined; dispatch
+      // can inspect meta.matchedPatterns for "unassigned_from_agent".
+      if (removedPersonIds.includes(agentPersonId)) {
+        meta.matchedPatterns = [...(meta.matchedPatterns ?? []), "unassigned_from_agent"];
+      }
+    }
   }
 
   const dedupPrimary = raw.id

@@ -73,7 +73,7 @@ describe("reconcileWebhooks", () => {
     expect(bcqWebhookCreate).toHaveBeenCalledTimes(2);
   });
 
-  it("skips projects that already have a matching active webhook", async () => {
+  it("recovers secret for pre-existing webhook with no registry entry", async () => {
     vi.mocked(bcqWebhookList).mockResolvedValue({
       data: [
         {
@@ -85,20 +85,36 @@ describe("reconcileWebhooks", () => {
       ],
       raw: "[]",
     });
+    vi.mocked(bcqWebhookDelete).mockResolvedValue({ data: null, raw: "" });
+    vi.mocked(bcqWebhookCreate).mockResolvedValue({
+      data: {
+        id: 43,
+        active: true,
+        payload_url: "https://example.com/webhooks/basecamp",
+        types: ["Todo", "Comment"],
+        secret: "recovered-secret",
+      },
+      raw: "{}",
+    });
 
     const registry = new WebhookSecretRegistry();
     const log = mockLog();
     const result = await reconcileWebhooks(makeConfig(), registry, log);
 
-    expect(result.existing).toEqual(["100", "200"]);
+    // First encounter with pre-existing webhook triggers recovery
+    expect(result.recovered).toEqual(["100", "200"]);
+    expect(result.existing).toEqual([]);
     expect(result.created).toEqual([]);
-    expect(bcqWebhookCreate).not.toHaveBeenCalled();
 
-    // Should still store the webhook ID (without secret since it's pre-existing)
+    // Delete old, create new
+    expect(bcqWebhookDelete).toHaveBeenCalledTimes(2);
+    expect(bcqWebhookCreate).toHaveBeenCalledTimes(2);
+
+    // Registry should now have the recovered secret
     const entry = registry.get("100");
     expect(entry).toBeDefined();
-    expect(entry!.webhookId).toBe("42");
-    expect(entry!.secret).toBe("");
+    expect(entry!.secret).toBe("recovered-secret");
+    expect(entry!.webhookId).toBe("43");
   });
 
   it("does not overwrite existing registry entries for matched webhooks", async () => {
@@ -172,6 +188,36 @@ describe("reconcileWebhooks", () => {
     expect(registry.get("100")!.secret).toBe("new-secret");
     expect(registry.get("100")!.webhookId).toBe("43");
     expect(log.info).toHaveBeenCalledWith("webhook_types_changed", expect.any(Object));
+  });
+
+  it("marks fresh create as failed when BC3 returns no secret", async () => {
+    vi.mocked(bcqWebhookList).mockResolvedValue({ data: [], raw: "[]" });
+    vi.mocked(bcqWebhookCreate).mockResolvedValue({
+      data: {
+        id: 50,
+        active: true,
+        payload_url: "https://example.com/webhooks/basecamp",
+        types: ["Todo", "Comment"],
+        // No secret
+      },
+      raw: "{}",
+    });
+
+    const registry = new WebhookSecretRegistry();
+    const log = mockLog();
+    const result = await reconcileWebhooks(
+      makeConfig({ projects: ["100"] }),
+      registry,
+      log,
+    );
+
+    expect(result.failed).toEqual(["100"]);
+    expect(result.created).toEqual([]);
+    expect(registry.get("100")!.recoveryFailed).toBe(true);
+    expect(log.error).toHaveBeenCalledWith("webhook_create_no_secret", expect.objectContaining({
+      project: "100",
+      recovery: false,
+    }));
   });
 
   it("records failed projects when create returns no ID", async () => {
@@ -291,6 +337,132 @@ describe("reconcileWebhooks", () => {
       ["Todo", "Comment"],
       { accountId: "acct-1", profile: "prod" },
     );
+  });
+
+  it("does not recover when existing secret is non-empty", async () => {
+    vi.mocked(bcqWebhookList).mockResolvedValue({
+      data: [
+        {
+          id: 42,
+          active: true,
+          payload_url: "https://example.com/webhooks/basecamp",
+          types: ["Todo", "Comment"],
+        },
+      ],
+      raw: "[]",
+    });
+
+    const registry = new WebhookSecretRegistry();
+    // Pre-populate with a real secret
+    registry.set("100", {
+      webhookId: "42",
+      secret: "known-secret",
+      payloadUrl: "https://example.com/webhooks/basecamp",
+      types: ["Todo", "Comment"],
+    });
+
+    const result = await reconcileWebhooks(
+      makeConfig({ projects: ["100"] }),
+      registry,
+    );
+
+    expect(result.existing).toEqual(["100"]);
+    expect(result.recovered).toEqual([]);
+    expect(bcqWebhookDelete).not.toHaveBeenCalled();
+    expect(bcqWebhookCreate).not.toHaveBeenCalled();
+    expect(registry.get("100")!.secret).toBe("known-secret");
+  });
+
+  it("records failure when recovery delete fails", async () => {
+    vi.mocked(bcqWebhookList).mockResolvedValue({
+      data: [
+        {
+          id: 42,
+          active: true,
+          payload_url: "https://example.com/webhooks/basecamp",
+          types: ["Todo", "Comment"],
+        },
+      ],
+      raw: "[]",
+    });
+    vi.mocked(bcqWebhookDelete).mockRejectedValue(new Error("delete forbidden"));
+
+    const registry = new WebhookSecretRegistry();
+    const log = mockLog();
+    const result = await reconcileWebhooks(
+      makeConfig({ projects: ["100"] }),
+      registry,
+      log,
+    );
+
+    expect(result.failed).toEqual(["100"]);
+    expect(result.recovered).toEqual([]);
+    expect(bcqWebhookCreate).not.toHaveBeenCalled();
+    expect(log.error).toHaveBeenCalledWith("webhook_secret_recovery_delete_failed", expect.any(Object));
+  });
+
+  it("marks recoveryFailed and stops retrying when create returns no secret", async () => {
+    vi.mocked(bcqWebhookList).mockResolvedValue({
+      data: [
+        {
+          id: 42,
+          active: true,
+          payload_url: "https://example.com/webhooks/basecamp",
+          types: ["Todo", "Comment"],
+        },
+      ],
+      raw: "[]",
+    });
+    vi.mocked(bcqWebhookDelete).mockResolvedValue({ data: null, raw: "" });
+    vi.mocked(bcqWebhookCreate).mockResolvedValue({
+      data: {
+        id: 99,
+        active: true,
+        payload_url: "https://example.com/webhooks/basecamp",
+        types: ["Todo", "Comment"],
+        // No secret returned
+      },
+      raw: "{}",
+    });
+
+    const registry = new WebhookSecretRegistry();
+    const log = mockLog();
+
+    // First call: recovery attempted, but create returned no secret
+    const result1 = await reconcileWebhooks(
+      makeConfig({ projects: ["100"] }),
+      registry,
+      log,
+    );
+
+    expect(result1.failed).toEqual(["100"]);
+    expect(result1.recovered).toEqual([]);
+    expect(registry.get("100")!.recoveryFailed).toBe(true);
+
+    // Second call: should not retry recovery — treat as existing
+    vi.clearAllMocks();
+    vi.mocked(bcqWebhookList).mockResolvedValue({
+      data: [
+        {
+          id: 99,
+          active: true,
+          payload_url: "https://example.com/webhooks/basecamp",
+          types: ["Todo", "Comment"],
+        },
+      ],
+      raw: "[]",
+    });
+
+    const result2 = await reconcileWebhooks(
+      makeConfig({ projects: ["100"] }),
+      registry,
+      log,
+    );
+
+    expect(result2.existing).toEqual(["100"]);
+    expect(result2.recovered).toEqual([]);
+    expect(bcqWebhookDelete).not.toHaveBeenCalled();
+    expect(bcqWebhookCreate).not.toHaveBeenCalled();
   });
 
   it("passes undefined types when config types array is empty", async () => {

@@ -16,9 +16,10 @@ import {
   resolveDefaultBasecampAccountId,
   resolveBasecampAllowFrom,
   resolveWebhooksConfig,
+  resolveAccountForBucket,
 } from "./config.js";
 import { getBasecampRuntime } from "./runtime.js";
-import { sendBasecampText } from "./outbound/send.js";
+import { sendBasecampText, sendBasecampMedia } from "./outbound/send.js";
 import { dispatchBasecampEvent } from "./dispatch.js";
 import { bcqAuthStatus, execBcqAuthLogin } from "./bcq.js";
 import { basecampOnboardingAdapter } from "./adapters/onboarding.js";
@@ -188,6 +189,10 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
       const result = await sendBasecampText({ to, text, accountId });
       return { channel: "basecamp", messageId: result.messageId };
     },
+    sendMedia: async ({ to, text, mediaUrl, accountId }) => {
+      const result = await sendBasecampMedia({ to, text, mediaUrl, accountId });
+      return { channel: "basecamp", messageId: result.messageId };
+    },
   },
 
   gateway: {
@@ -312,14 +317,31 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
 
       // Auto-register webhooks for configured projects
       const whConfig = resolveWebhooksConfig(ctx.cfg);
+      // Scope projects to this account. In multi-account mode, only reconcile
+      // projects that map to the current account via virtualAccounts. Unmapped
+      // projects are only eligible when there is exactly one concrete account
+      // (single-account mode) — otherwise skip + warn to prevent cross-account
+      // delete/recreate churn.
+      const concreteAccountIds = listBasecampAccountIds(ctx.cfg);
+      const isSingleAccount = concreteAccountIds.length <= 1;
+      const accountProjects = whConfig.projects.filter((projectId) => {
+        const owner = resolveAccountForBucket(ctx.cfg, projectId);
+        if (owner) return owner === account.accountId;
+        if (isSingleAccount) return true;
+        ctx.log?.warn(
+          `[${account.accountId}] skipping unmapped webhook project ${projectId} — ` +
+          `add a virtualAccounts entry to assign it to an account`,
+        );
+        return false;
+      });
       let webhookActiveProjects: Set<string> | undefined;
-      if (whConfig.autoRegister && whConfig.payloadUrl && whConfig.projects.length > 0) {
+      if (whConfig.autoRegister && whConfig.payloadUrl && accountProjects.length > 0) {
         const registry = getWebhookSecretRegistry(account.accountId);
         try {
           const result = await reconcileWebhooks(
             {
               payloadUrl: whConfig.payloadUrl,
-              projects: whConfig.projects,
+              projects: accountProjects,
               types: whConfig.types,
               bcqOpts: { accountId: bcqAccountId, profile: account.bcqProfile },
             },
@@ -332,10 +354,12 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
             } : undefined,
           );
           ctx.log?.info(
-            `[${account.accountId}] webhook reconciliation: ${result.created.length} created, ${result.existing.length} existing, ${result.failed.length} failed`,
+            `[${account.accountId}] webhook reconciliation: ` +
+            `${result.created.length} created, ${result.existing.length} existing, ` +
+            `${result.recovered.length} recovered, ${result.failed.length} failed`,
           );
-          // Projects with active webhooks (created or already existing)
-          const active = [...result.created, ...result.existing];
+          // Projects with active webhooks (created, already existing, or recovered)
+          const active = [...result.created, ...result.existing, ...result.recovered];
           if (active.length > 0) {
             webhookActiveProjects = new Set(active);
           }

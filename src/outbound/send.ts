@@ -9,14 +9,12 @@
  */
 
 import type { BasecampRecordableType } from "../types.js";
-import { bcqPost, bcqApiPost, withRetry, isRetryableError, BcqError, bcqResolvePingTranscript } from "../bcq.js";
-import type { CircuitBreaker } from "../bcq.js";
-import { markdownToBasecampHtml } from "./format.js";
-import { getBasecampRuntime } from "../runtime.js";
-import { resolveBasecampAccount } from "../config.js";
+import { bcqPost, bcqApiPost, withRetry, isRetryableError, BcqError, bcqGetCircle } from "../bcq.js";
+import type { CircuitBreaker, CircleInfo } from "../bcq.js";
 
 // ---------------------------------------------------------------------------
-// Ping transcript cache — LRU-bounded to avoid unbounded growth
+// Circle info cache — LRU-bounded to avoid unbounded growth.
+// Stores both transcript ID and participant count from a single API call.
 // ---------------------------------------------------------------------------
 
 const PING_CACHE_MAX = 500;
@@ -53,21 +51,46 @@ class LruCache<K, V> {
   }
 }
 
-const pingTranscriptCache = new LruCache<string, string>(PING_CACHE_MAX);
+const circleInfoCache = new LruCache<string, CircleInfo>(PING_CACHE_MAX);
 
+/** Cache key scoped by account to prevent cross-contamination in multi-account deployments. */
+function circleCacheKey(bucketId: string, accountId?: string): string {
+  return accountId ? `${accountId}:${bucketId}` : bucketId;
+}
+
+/**
+ * Resolve a Circle (Ping) to its info (transcript ID + participant count).
+ * Results are LRU-cached; a single GET /circles/<id>.json call fetches both.
+ * Cache is keyed by accountId:bucketId to avoid cross-account contamination.
+ */
+export async function resolveCircleInfoCached(
+  bucketId: string,
+  accountId?: string,
+  profile?: string,
+): Promise<CircleInfo | undefined> {
+  const key = circleCacheKey(bucketId, accountId);
+  const cached = circleInfoCache.get(key);
+  if (cached) return cached;
+  try {
+    const info = await bcqGetCircle(bucketId, { accountId, profile });
+    circleInfoCache.set(key, info);
+    return info;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Convenience: resolve just the transcript ID from the cache. */
 async function resolvePingTranscriptCached(
   bucketId: string,
   accountId?: string,
   profile?: string,
 ): Promise<string | undefined> {
-  const cached = pingTranscriptCache.get(bucketId);
-  if (cached) return cached;
-  const transcriptId = await bcqResolvePingTranscript(bucketId, { accountId, profile });
-  if (transcriptId) pingTranscriptCache.set(bucketId, transcriptId);
-  return transcriptId;
+  const info = await resolveCircleInfoCached(bucketId, accountId, profile);
+  return info?.transcriptId;
 }
 
-export { LruCache, PING_CACHE_MAX };
+export { LruCache, PING_CACHE_MAX, circleInfoCache };
 
 // ---------------------------------------------------------------------------
 // Helpers — Basecamp API write operations via bcq
@@ -254,67 +277,34 @@ export async function postReplyToEvent(params: {
 }
 
 // ---------------------------------------------------------------------------
-// OpenClaw ChannelOutboundAdapter.sendText
+// OpenClaw ChannelOutboundAdapter.sendText / sendMedia
 // ---------------------------------------------------------------------------
 
 /**
- * Send text to a Basecamp peer.
- *
- * The `to` field in the outbound context is the peer ID
- * (e.g. "recording:123", "ping:456"). We need to resolve the bucket ID
- * and determine the correct endpoint.
+ * Basecamp does not support direct outbound delivery via the SDK pipeline.
+ * Agent replies flow through the dispatch bridge (dispatchBasecampEvent →
+ * postReplyToEvent). This stub satisfies the SDK contract so outbound is
+ * not treated as unconfigured (which causes opaque "Outbound not configured").
  */
 export async function sendBasecampText(params: {
   to: string;
   text: string;
   accountId?: string | null;
 }): Promise<{ channel: "basecamp"; messageId: string }> {
-  const runtime = getBasecampRuntime();
-  const cfg = runtime.config.loadConfig();
-  const { to, text } = params;
-
-  // Resolve persona account to get effective accountId
-  const effectiveAccountId = params.accountId ?? undefined;
-  const account = resolveBasecampAccount(cfg, effectiveAccountId);
-
-  // Parse the peer ID to determine target
-  const parsed = parsePeerId(to);
-
-  // sendBasecampText operates with limited context — only a peer ID string,
-  // no bucketId. The dispatch bridge (dispatch.ts → postReplyToEvent) has
-  // full context and is the primary outbound path. This function handles
-  // ChannelOutboundAdapter.sendText for direct CLI messaging.
-
-  if (parsed.prefix === "ping") {
-    // Pings: peer ID is ping:<circleBucketId>. We can't resolve the
-    // transcript recording ID from just the circle bucket ID without
-    // an additional API call. For now, reject with a clear error.
-    throw new Error(
-      `sendBasecampText: cannot send to ping peer "${to}" directly. ` +
-      `Ping replies require transcript context (use dispatch bridge instead).`,
-    );
-  }
-
-  if (parsed.prefix === "recording") {
-    // We don't have the bucketId from just the peer ID. Without it,
-    // the API path is invalid. Reject clearly rather than 404 at runtime.
-    throw new Error(
-      `sendBasecampText: cannot resolve bucketId for recording peer "${to}". ` +
-      `Direct sendText to recording: peers is not yet supported. ` +
-      `Use the dispatch bridge (dispatchBasecampEvent) for replies.`,
-    );
-  }
-
-  if (parsed.prefix === "bucket") {
-    throw new Error(
-      `sendBasecampText: cannot send to bucket peer "${to}" directly. ` +
-      `Bucket peers represent a project scope, not a specific conversation. ` +
-      `Use a recording: or ping: peer, or the dispatch bridge for replies.`,
-    );
-  }
-
   throw new Error(
-    `sendBasecampText: unsupported peer format "${to}". ` +
-    `Expected "recording:<id>", "ping:<id>", or "bucket:<id>".`,
+    `Basecamp does not support direct outbound delivery to "${params.to}". ` +
+    `Agent replies flow through the dispatch bridge (dispatchBasecampEvent → postReplyToEvent).`,
+  );
+}
+
+export async function sendBasecampMedia(params: {
+  to: string;
+  text: string;
+  mediaUrl?: string;
+  accountId?: string | null;
+}): Promise<{ channel: "basecamp"; messageId: string }> {
+  throw new Error(
+    `Basecamp does not support direct media delivery to "${params.to}". ` +
+    `Media sharing is available via agent tools (basecamp_api_write).`,
   );
 }

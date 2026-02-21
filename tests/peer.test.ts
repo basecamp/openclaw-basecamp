@@ -1,4 +1,12 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
+
+vi.mock("../src/metrics.js", () => ({
+  recordUnknownKind: vi.fn(),
+}));
+vi.mock("../src/outbound/send.js", () => ({
+  resolveCircleInfoCached: vi.fn(() => undefined),
+}));
+
 import { resolveBasecampPeer, resolveParentPeer } from "../src/inbound/normalize.js";
 
 describe("resolveBasecampPeer", () => {

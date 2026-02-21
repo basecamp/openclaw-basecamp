@@ -411,23 +411,45 @@ export async function bcqMarkReadingsRead(
 }
 
 /**
+ * Circle (Ping) info returned from the Basecamp Circle API.
+ * GET /circles/<bucketId>.json returns the full circle including members.
+ */
+export interface CircleInfo {
+  transcriptId: string | undefined;
+  /** Total participant count including the caller (people.length + 1). */
+  participantCount: number;
+}
+
+/**
+ * Fetch a Circle (Ping) and return its transcript ID + participant count.
+ * GET /circles/<bucketId>.json — the `people` array excludes the
+ * authenticated caller, so total = people.length + 1.
+ */
+export async function bcqGetCircle(
+  bucketId: string,
+  opts: BcqOptions = {},
+): Promise<CircleInfo> {
+  const result = await bcqGet<{ room_url?: string; people?: Array<{ id: number }> }>(
+    `/circles/${bucketId}.json`,
+    opts,
+  );
+  const roomUrl = result.data?.room_url;
+  const transcriptId = roomUrl ? /\/chats\/(\d+)/.exec(roomUrl)?.[1] : undefined;
+  // people array excludes the authenticated caller
+  const participantCount = (result.data?.people?.length ?? 0) + 1;
+  return { transcriptId, participantCount };
+}
+
+/**
  * Resolve a Ping (Circle) to its chat transcript ID.
- * Fetches GET /circles/<bucketId>.json and extracts the transcript ID
- * from the room_url field (format: /buckets/<id>/chats/<transcriptId>).
+ * Convenience wrapper around bcqGetCircle for callers that only need transcriptId.
  */
 export async function bcqResolvePingTranscript(
   bucketId: string,
   opts: BcqOptions = {},
 ): Promise<string | undefined> {
-  const result = await bcqGet<{ room_url?: string }>(
-    `/circles/${bucketId}.json`,
-    opts,
-  );
-  const roomUrl = result.data?.room_url;
-  if (!roomUrl) return undefined;
-  // room_url format: /buckets/<bucketId>/chats/<transcriptId>
-  const match = /\/chats\/(\d+)/.exec(roomUrl);
-  return match ? match[1] : undefined;
+  const info = await bcqGetCircle(bucketId, opts);
+  return info.transcriptId;
 }
 
 // ---------------------------------------------------------------------------

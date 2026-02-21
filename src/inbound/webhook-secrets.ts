@@ -16,6 +16,8 @@ export interface WebhookSecretEntry {
   secret: string;
   payloadUrl: string;
   types: string[];
+  /** Set when secret recovery was attempted but BC3 returned no secret. Prevents retry churn. */
+  recoveryFailed?: boolean;
 }
 
 export type WebhookSecretSnapshot = Record<string, WebhookSecretEntry>;
