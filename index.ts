@@ -5,7 +5,13 @@ import { setBasecampRuntime } from "./src/runtime.js";
 import { handleBasecampWebhook } from "./src/inbound/webhooks.js";
 import { getSurfacePrompt } from "./src/hooks/agent-prompt-context.js";
 
-const plugin = {
+const plugin: {
+  id: string;
+  name: string;
+  description: string;
+  configSchema: ReturnType<typeof emptyPluginConfigSchema>;
+  register: (api: OpenClawPluginApi) => void;
+} = {
   id: "openclaw-basecamp",
   name: "Basecamp",
   description: "Basecamp channel — Campfire, cards, todos, check-ins, pings",

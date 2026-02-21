@@ -8,7 +8,7 @@
     "test:watch": "vitest"
   },
   "devDependencies": {
-    "openclaw": ">=2026.2.0",
+    "openclaw": "2026.2.19-2",
     "vitest": "3"
   },
   "openclaw": {

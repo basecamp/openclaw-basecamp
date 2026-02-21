@@ -8,7 +8,7 @@
  */
 
 import type { ChannelStatusAdapter, ChannelAccountSnapshot, OpenClawConfig } from "openclaw/plugin-sdk";
-import { DEFAULT_ACCOUNT_ID } from "openclaw/plugin-sdk";
+import { DEFAULT_ACCOUNT_ID, createDefaultChannelRuntimeState, buildBaseChannelStatusSummary } from "openclaw/plugin-sdk";
 import type { ResolvedBasecampAccount, BasecampChannelConfig, BasecampProject } from "../types.js";
 import { bcqAuthStatus, bcqMe, bcqApiGet } from "../bcq.js";
 import type { BcqOptions } from "../bcq.js";
@@ -68,13 +68,7 @@ function getBasecampSection(cfg: OpenClawConfig): BasecampChannelConfig | undefi
 }
 
 export const basecampStatusAdapter: ChannelStatusAdapter<ResolvedBasecampAccount, BasecampProbe, BasecampAudit> = {
-  defaultRuntime: {
-    accountId: DEFAULT_ACCOUNT_ID,
-    running: false,
-    lastStartAt: null,
-    lastStopAt: null,
-    lastError: null,
-  },
+  defaultRuntime: createDefaultChannelRuntimeState(DEFAULT_ACCOUNT_ID),
 
   probeAccount: async ({ account }) => {
     const bcqOpts: BcqOptions = {};
@@ -220,12 +214,8 @@ export const basecampStatusAdapter: ChannelStatusAdapter<ResolvedBasecampAccount
   },
 
   buildChannelSummary: ({ snapshot }) => ({
-    configured: snapshot.configured ?? false,
+    ...buildBaseChannelStatusSummary(snapshot),
     tokenSource: snapshot.tokenSource ?? "none",
-    running: snapshot.running ?? false,
-    lastStartAt: snapshot.lastStartAt ?? null,
-    lastStopAt: snapshot.lastStopAt ?? null,
-    lastError: snapshot.lastError ?? null,
     probe: snapshot.probe,
   }),
 
