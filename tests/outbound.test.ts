@@ -1,8 +1,33 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   resolveOutboundTarget,
   chunkMarkdownText,
 } from "../src/adapters/outbound.js";
+import { sendBasecampText, sendBasecampMedia } from "../src/outbound/send.js";
+
+// --- Mocks required to import channel.ts without pulling in heavy deps ---
+vi.mock("openclaw/plugin-sdk", () => ({
+  DEFAULT_ACCOUNT_ID: "default",
+  normalizeAccountId: (v: string | undefined | null) => (v ?? "").trim() || "default",
+  buildChannelConfigSchema: (schema: unknown) => ({ schema: {} }),
+  setAccountEnabledInConfigSection: vi.fn(),
+  deleteAccountFromConfigSection: vi.fn(),
+}));
+vi.mock("../src/runtime.js", () => ({ getBasecampRuntime: vi.fn(() => ({})) }));
+vi.mock("../src/dispatch.js", () => ({ dispatchBasecampEvent: vi.fn() }));
+vi.mock("../src/bcq.js", () => ({ bcqAuthStatus: vi.fn() }));
+vi.mock("../src/adapters/onboarding.js", () => ({ basecampOnboardingAdapter: {} }));
+vi.mock("../src/adapters/setup.js", () => ({ basecampSetupAdapter: {} }));
+vi.mock("../src/adapters/status.js", () => ({ basecampStatusAdapter: {} }));
+vi.mock("../src/adapters/pairing.js", () => ({ basecampPairingAdapter: {} }));
+vi.mock("../src/adapters/directory.js", () => ({ basecampDirectoryAdapter: {} }));
+vi.mock("../src/adapters/messaging.js", () => ({ basecampMessagingAdapter: {} }));
+vi.mock("../src/adapters/resolver.js", () => ({ basecampResolverAdapter: {} }));
+vi.mock("../src/adapters/heartbeat.js", () => ({ basecampHeartbeatAdapter: {} }));
+vi.mock("../src/adapters/groups.js", () => ({ basecampGroupAdapter: {} }));
+vi.mock("../src/adapters/agent-prompt.js", () => ({ basecampAgentPromptAdapter: {} }));
+
+import { basecampChannel } from "../src/channel.js";
 
 // ---------------------------------------------------------------------------
 // resolveOutboundTarget
@@ -130,5 +155,36 @@ describe("outbound.chunkMarkdownText", () => {
     for (const p of paragraphs) {
       expect(rejoined).toContain(p);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// sendBasecampText / sendBasecampMedia — diagnostic stubs
+// ---------------------------------------------------------------------------
+
+describe("outbound.sendBasecampText", () => {
+  it("throws with diagnostic message for any target", async () => {
+    await expect(
+      sendBasecampText({ to: "recording:123", text: "hello" }),
+    ).rejects.toThrow("dispatch bridge");
+  });
+});
+
+describe("outbound.sendBasecampMedia", () => {
+  it("throws with diagnostic message for any target", async () => {
+    await expect(
+      sendBasecampMedia({ to: "recording:123", text: "hello", mediaUrl: "https://example.com/img.png" }),
+    ).rejects.toThrow("agent tools");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Outbound adapter contract — both sendText and sendMedia must be present
+// ---------------------------------------------------------------------------
+
+describe("outbound adapter contract", () => {
+  it("exposes both sendText and sendMedia on the channel plugin", () => {
+    expect(typeof basecampChannel.outbound!.sendText).toBe("function");
+    expect(typeof (basecampChannel.outbound as any).sendMedia).toBe("function");
   });
 });

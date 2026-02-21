@@ -39,6 +39,7 @@ function typesMatch(webhookTypes: string[] | undefined, configTypes: string[]): 
 export interface ReconcileResult {
   created: string[];
   existing: string[];
+  recovered: string[];
   failed: string[];
 }
 
@@ -57,7 +58,7 @@ export async function reconcileWebhooks(
   registry: WebhookSecretRegistry,
   log?: StructuredLog,
 ): Promise<ReconcileResult> {
-  const result: ReconcileResult = { created: [], existing: [], failed: [] };
+  const result: ReconcileResult = { created: [], existing: [], recovered: [], failed: [] };
 
   for (const projectId of config.projects) {
     try {
@@ -76,6 +77,8 @@ export async function reconcileWebhooks(
         (wh) => wh.payload_url === config.payloadUrl && wh.active,
       );
 
+      let secretRecovery = false;
+
       if (urlMatch && typesMatch(urlMatch.types, config.types)) {
         log?.debug("webhook_exists", {
           project: projectId,
@@ -88,18 +91,42 @@ export async function reconcileWebhooks(
         if (!registry.get(projectId)) {
           registry.set(projectId, {
             webhookId: String(urlMatch.id),
-            secret: "", // Unknown — created before lifecycle management
+            secret: "",
             payloadUrl: urlMatch.payload_url,
             types: urlMatch.types ?? [],
           });
         }
 
-        result.existing.push(projectId);
-        continue;
+        const entry = registry.get(projectId);
+        if (entry && entry.secret === "" && !entry.recoveryFailed) {
+          // Secret is missing and recovery hasn't been attempted or hasn't
+          // permanently failed. Delete the stale webhook and recreate to
+          // mint a fresh HMAC secret.
+          log?.info("webhook_secret_recovery", {
+            project: projectId,
+            webhookId: urlMatch.id,
+          });
+          try {
+            await bcqWebhookDelete(projectId, String(urlMatch.id), config.bcqOpts ?? {});
+            registry.remove(projectId);
+            secretRecovery = true;
+          } catch (delErr) {
+            log?.error("webhook_secret_recovery_delete_failed", {
+              project: projectId,
+              error: String(delErr),
+            });
+            result.failed.push(projectId);
+            continue;
+          }
+          // Fall through to create path
+        } else {
+          result.existing.push(projectId);
+          continue;
+        }
       }
 
       // URL matches but types differ — delete stale webhook before creating new one
-      if (urlMatch) {
+      if (!secretRecovery && urlMatch) {
         log?.info("webhook_types_changed", {
           project: projectId,
           webhookId: urlMatch.id,
@@ -148,15 +175,36 @@ export async function reconcileWebhooks(
         secret: webhook.secret ?? "",
         payloadUrl: webhook.payload_url ?? config.payloadUrl,
         types: webhook.types ?? config.types,
+        recoveryFailed: !webhook.secret || undefined,
       });
 
-      log?.info("webhook_created", {
-        project: projectId,
-        webhookId: webhook.id,
-        hasSecret: Boolean(webhook.secret),
-      });
+      if (!webhook.secret) {
+        // BC3 returned webhook without secret — HMAC verification will fail.
+        // Mark recoveryFailed to prevent repeated delete/recreate churn on
+        // subsequent reconciliation cycles.
+        log?.error("webhook_create_no_secret", {
+          project: projectId,
+          webhookId: webhook.id,
+          recovery: secretRecovery,
+          reason: "BC3 returned webhook without secret — HMAC will fail",
+        });
+        result.failed.push(projectId);
+        continue;
+      }
 
-      result.created.push(projectId);
+      if (secretRecovery) {
+        result.recovered.push(projectId);
+        log?.info("webhook_secret_recovered", {
+          project: projectId,
+          webhookId: webhook.id,
+        });
+      } else {
+        log?.info("webhook_created", {
+          project: projectId,
+          webhookId: webhook.id,
+        });
+        result.created.push(projectId);
+      }
     } catch (err) {
       log?.error("webhook_reconcile_failed", {
         project: projectId,
