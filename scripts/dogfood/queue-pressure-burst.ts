@@ -9,7 +9,8 @@
  *   npx tsx scripts/dogfood/queue-pressure-burst.ts \
  *     --endpoint http://localhost:3000/webhooks/basecamp \
  *     --secret <hmac-secret> \
- *     [--count 150] [--bucket 1]
+ *     [--count 150] [--bucket 1] \
+ *     [--status-url http://localhost:3000/status]
  */
 import crypto from "node:crypto";
 import { parseArgs } from "node:util";
