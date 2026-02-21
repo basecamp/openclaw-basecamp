@@ -364,10 +364,11 @@ export async function normalizeActivityEvent(
     raw.recording?.recordable_type === "Ping";
 
   // Enrich Ping participant count via Circle API (activity feed lacks it).
-  // Defaults to undefined → resolveBasecampPeer conservatively uses "group".
+  // Defaults to undefined → resolveBasecampPeer fail-closed uses "dm".
   let participantCount: number | undefined;
   if (isPing) {
-    const bcqAccountId = account.config.bcqAccountId ?? account.accountId;
+    const bcqAccountId = account.config.bcqAccountId ??
+      (/^\d+$/.test(account.accountId) ? account.accountId : undefined);
     const circleInfo = await resolveCircleInfoCached(bucketId, bcqAccountId, account.bcqProfile);
     participantCount = circleInfo?.participantCount;
   }
@@ -642,7 +643,8 @@ export async function normalizeWebhookPayload(
   // Enrich Ping participant count via Circle API (webhooks lack it)
   let participantCount: number | undefined;
   if (isPing) {
-    const bcqAccountId = account.config.bcqAccountId ?? account.accountId;
+    const bcqAccountId = account.config.bcqAccountId ??
+      (/^\d+$/.test(account.accountId) ? account.accountId : undefined);
     const circleInfo = await resolveCircleInfoCached(bucketId, bcqAccountId, account.bcqProfile);
     participantCount = circleInfo?.participantCount;
   }
