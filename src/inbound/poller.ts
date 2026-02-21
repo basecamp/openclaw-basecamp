@@ -401,6 +401,9 @@ export async function startCompositePoller(
     if (saveResult === "saved") {
       slog.info("stopped");
     } else {
+      // Prevent any belated background write from overwriting newer cursors
+      // saved by a restarted poller instance.
+      cursors.abandon();
       slog.warn("stopped_with_cursor_save_timeout");
     }
   } catch (err) {

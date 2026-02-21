@@ -28,6 +28,7 @@ export interface PollCursors {
 export class CursorStore {
   private cursors: PollCursors = {};
   private dirty = false;
+  private abandoned = false;
   private readonly filePath: string;
 
   constructor(stateDir: string, accountId: string) {
@@ -50,9 +51,18 @@ export class CursorStore {
     return this.cursors;
   }
 
+  /**
+   * Mark this store as abandoned. Subsequent save() calls become no-ops.
+   * Used on shutdown timeout to prevent a belated background write from
+   * overwriting newer cursors saved by a restarted poller instance.
+   */
+  abandon(): void {
+    this.abandoned = true;
+  }
+
   /** Persist cursors to disk if any changes were made. */
   async save(): Promise<void> {
-    if (!this.dirty) return;
+    if (!this.dirty || this.abandoned) return;
 
     // Ensure directory exists
     const { dirname } = await import("node:path");
