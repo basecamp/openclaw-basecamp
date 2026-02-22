@@ -389,3 +389,32 @@ export function resolveAccountForBucket(
   // No virtual account mapping for this bucket
   return undefined;
 }
+
+/**
+ * Scope webhook projects to a specific account.
+ *
+ * In multi-account mode, only projects mapped to this account via
+ * virtualAccounts are included. Unmapped projects are allowed only when
+ * there is exactly one concrete account (single-account mode).
+ */
+export function scopeWebhookProjects(opts: {
+  cfg: OpenClawConfig;
+  projects: string[];
+  accountId: string;
+  log?: { warn: (msg: string) => void };
+}): string[] {
+  const { cfg, projects, accountId, log } = opts;
+  const concreteAccountIds = listBasecampAccountIds(cfg);
+  const isSingleAccount = concreteAccountIds.length <= 1;
+
+  return projects.filter((projectId) => {
+    const owner = resolveAccountForBucket(cfg, projectId);
+    if (owner) return owner === accountId;
+    if (isSingleAccount) return true;
+    log?.warn(
+      `[${accountId}] skipping unmapped webhook project ${projectId} — ` +
+      `add a virtualAccounts entry to assign it to an account`,
+    );
+    return false;
+  });
+}
