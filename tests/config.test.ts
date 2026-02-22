@@ -17,6 +17,7 @@ import {
   resolvePollingIntervals,
   resolveBasecampDmPolicy,
   resolveBasecampAllowFrom,
+  resolveBasecampBucketAllowFrom,
   resolveAccountForBucket,
 } from "../src/config.js";
 
@@ -524,6 +525,57 @@ describe("resolveBasecampAllowFrom", () => {
     expect(
       resolveBasecampAllowFrom(cfg({ allowFrom: ["abc", 42, "def"] })),
     ).toEqual(["abc", "42", "def"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveBasecampBucketAllowFrom
+// ---------------------------------------------------------------------------
+
+describe("resolveBasecampBucketAllowFrom", () => {
+  it("returns undefined when no buckets configured", () => {
+    expect(resolveBasecampBucketAllowFrom(cfg({}), "456")).toBeUndefined();
+  });
+
+  it("returns string array from exact bucket match", () => {
+    expect(
+      resolveBasecampBucketAllowFrom(
+        cfg({ buckets: { "456": { allowFrom: ["100", "200"] } } }),
+        "456",
+      ),
+    ).toEqual(["100", "200"]);
+  });
+
+  it("falls back to wildcard", () => {
+    expect(
+      resolveBasecampBucketAllowFrom(
+        cfg({ buckets: { "*": { allowFrom: ["111"] } } }),
+        "456",
+      ),
+    ).toEqual(["111"]);
+  });
+
+  it("coerces numbers to strings", () => {
+    expect(
+      resolveBasecampBucketAllowFrom(
+        cfg({ buckets: { "456": { allowFrom: [100, 200] } } }),
+        "456",
+      ),
+    ).toEqual(["100", "200"]);
+  });
+
+  it("exact match takes precedence over wildcard", () => {
+    expect(
+      resolveBasecampBucketAllowFrom(
+        cfg({
+          buckets: {
+            "456": { allowFrom: ["777"] },
+            "*": { allowFrom: ["111"] },
+          },
+        }),
+        "456",
+      ),
+    ).toEqual(["777"]);
   });
 });
 

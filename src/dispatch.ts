@@ -15,7 +15,7 @@ import type { BasecampInboundMessage, BasecampChannelConfig, BasecampEngagementT
 import { DEFAULT_ENGAGE } from "./types.js";
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import { getBasecampRuntime } from "./runtime.js";
-import { resolvePersonaAccountId, resolveBasecampAccount, resolveBasecampDmPolicy, resolveBasecampAllowFrom, resolveCircuitBreakerConfig } from "./config.js";
+import { resolvePersonaAccountId, resolveBasecampAccount, resolveBasecampDmPolicy, resolveBasecampAllowFrom, resolveBasecampBucketAllowFrom, resolveCircuitBreakerConfig } from "./config.js";
 import { postReplyToEvent } from "./outbound/send.js";
 import { markdownToBasecampHtml } from "./outbound/format.js";
 import { chunkMarkdownText, BASECAMP_TEXT_CHUNK_LIMIT } from "./adapters/outbound.js";
@@ -99,6 +99,21 @@ export async function dispatchBasecampEvent(
       type: msg.meta.recordableType,
       peer: msg.peer.id,
       policy: engagePolicy.join(","),
+    });
+    return false;
+  }
+
+  // ----- Per-bucket sender gate -----
+  // When a bucket configures allowFrom, only listed senders can trigger
+  // the agent — regardless of engagement type. This is distinct from the
+  // DM policy allowFrom which only applies to Pings.
+  const bucketAllowFrom = resolveBasecampBucketAllowFrom(cfg, msg.meta.bucketId);
+  if (bucketAllowFrom && !bucketAllowFrom.includes(msg.sender.id)) {
+    slog.debug("bucket_sender_gate_dropped", {
+      correlationId,
+      sender: msg.sender.id,
+      bucket: msg.meta.bucketId,
+      engagement,
     });
     return false;
   }

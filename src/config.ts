@@ -40,6 +40,7 @@ const BasecampBucketConfigSchema = z.object({
   }).optional(),
   enabled: z.boolean().optional(),
   engage: z.array(EngagementTypeSchema).optional(),
+  allowFrom: z.array(z.union([z.string(), z.number()])).optional(),
 });
 
 export const BasecampConfigSchema = z.object({
@@ -331,6 +332,17 @@ export function resolveBasecampAllowFrom(cfg: OpenClawConfig): string[] {
   return (section?.allowFrom ?? []).map((entry) => String(entry));
 }
 
+/** Get the allow-from list for a specific bucket. Returns undefined if unset (all senders allowed). */
+export function resolveBasecampBucketAllowFrom(
+  cfg: OpenClawConfig,
+  bucketId: string,
+): string[] | undefined {
+  const section = getBasecampSection(cfg);
+  const bucketConfig = section?.buckets?.[bucketId] ?? section?.buckets?.["*"];
+  if (!bucketConfig?.allowFrom) return undefined;
+  return bucketConfig.allowFrom.map((entry) => String(entry));
+}
+
 /** Get the webhook secret (undefined = webhooks disabled). */
 export function resolveWebhookSecret(cfg: OpenClawConfig): string | undefined {
   const section = getBasecampSection(cfg);
@@ -376,4 +388,33 @@ export function resolveAccountForBucket(
   }
   // No virtual account mapping for this bucket
   return undefined;
+}
+
+/**
+ * Scope webhook projects to a specific account.
+ *
+ * In multi-account mode, only projects mapped to this account via
+ * virtualAccounts are included. Unmapped projects are allowed only when
+ * there is exactly one concrete account (single-account mode).
+ */
+export function scopeWebhookProjects(opts: {
+  cfg: OpenClawConfig;
+  projects: string[];
+  accountId: string;
+  log?: { warn: (msg: string) => void };
+}): string[] {
+  const { cfg, projects, accountId, log } = opts;
+  const concreteAccountIds = listBasecampAccountIds(cfg);
+  const isSingleAccount = concreteAccountIds.length <= 1;
+
+  return projects.filter((projectId) => {
+    const owner = resolveAccountForBucket(cfg, projectId);
+    if (owner) return owner === accountId;
+    if (isSingleAccount) return true;
+    log?.warn(
+      `[${accountId}] skipping unmapped webhook project ${projectId} — ` +
+      `add a virtualAccounts entry to assign it to an account`,
+    );
+    return false;
+  });
 }

@@ -5,7 +5,7 @@ import type {
   ResolvedBasecampAccount,
 } from "../src/types.js";
 import { getBasecampRuntime } from "../src/runtime.js";
-import { resolvePersonaAccountId, resolveBasecampAccount, resolveBasecampDmPolicy, resolveBasecampAllowFrom } from "../src/config.js";
+import { resolvePersonaAccountId, resolveBasecampAccount, resolveBasecampDmPolicy, resolveBasecampAllowFrom, resolveBasecampBucketAllowFrom } from "../src/config.js";
 import { postReplyToEvent } from "../src/outbound/send.js";
 import { markdownToBasecampHtml } from "../src/outbound/format.js";
 
@@ -22,6 +22,7 @@ vi.mock("../src/config.js", () => ({
   resolveBasecampDmPolicy: vi.fn(() => "open"),
   resolveBasecampAllowFrom: vi.fn(() => []),
   resolveCircuitBreakerConfig: vi.fn(() => ({ threshold: 5, cooldownMs: 300000 })),
+  resolveBasecampBucketAllowFrom: vi.fn(() => undefined),
 }));
 vi.mock("../src/outbound/send.js", () => ({
   postReplyToEvent: vi.fn(),
@@ -89,7 +90,15 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(getBasecampRuntime).mockReturnValue(mockRuntime as any);
   vi.mocked(resolvePersonaAccountId).mockReturnValue(undefined);
+  vi.mocked(resolveBasecampBucketAllowFrom).mockReturnValue(undefined);
   vi.mocked(postReplyToEvent).mockResolvedValue({ ok: true });
+  mockRuntime.config.loadConfig.mockReturnValue({
+    channels: {
+      basecamp: {
+        accounts: { "test-acct": { personId: "999" } },
+      },
+    },
+  });
   mockRuntime.channel.routing.resolveAgentRoute.mockReturnValue({
     agentId: "agent-1",
     matchedBy: "peer",
@@ -597,6 +606,111 @@ describe("dispatchBasecampEvent", () => {
     };
 
     const result = await dispatchBasecampEvent(dmMsg, { account: mockAccount });
+    expect(result).toBe(true);
+  });
+
+  // -----------------------------------------------------------------------
+  // Per-bucket sender gate
+  // -----------------------------------------------------------------------
+
+  it("drops events when sender not in bucket allowFrom", async () => {
+    vi.mocked(resolveBasecampBucketAllowFrom).mockReturnValue(["111"]);
+
+    const result = await dispatchBasecampEvent(mockMsg, { account: mockAccount });
+    expect(result).toBe(false);
+  });
+
+  it("allows events when sender is in bucket allowFrom", async () => {
+    vi.mocked(resolveBasecampBucketAllowFrom).mockReturnValue(["777"]);
+
+    const result = await dispatchBasecampEvent(mockMsg, { account: mockAccount });
+    expect(result).toBe(true);
+  });
+
+  it("bucket allowFrom applies to all engagement types (conversation)", async () => {
+    vi.mocked(resolveBasecampBucketAllowFrom).mockReturnValue(["111"]);
+
+    // Enable conversation for the bucket so engagement gate passes
+    mockRuntime.config.loadConfig.mockReturnValue({
+      channels: {
+        basecamp: {
+          accounts: { "test-acct": { personId: "999" } },
+          buckets: { "456": { engage: ["conversation"], allowFrom: ["111"] } },
+        },
+      },
+    });
+
+    const chatMsg: BasecampInboundMessage = {
+      ...mockMsg,
+      meta: {
+        ...mockMsg.meta,
+        recordableType: "Chat::Line",
+        mentionsAgent: false,
+        sources: ["activity_feed"],
+      },
+    };
+
+    const result = await dispatchBasecampEvent(chatMsg, { account: mockAccount });
+    expect(result).toBe(false);
+  });
+
+  it("wildcard bucket allowFrom gates all buckets", async () => {
+    vi.mocked(resolveBasecampBucketAllowFrom).mockReturnValue(["111"]);
+
+    const result = await dispatchBasecampEvent(mockMsg, { account: mockAccount });
+    expect(result).toBe(false);
+  });
+
+  it("exact bucket allowFrom overrides wildcard", async () => {
+    // The resolver handles precedence; mock returns the resolved list for bucket 456
+    vi.mocked(resolveBasecampBucketAllowFrom).mockReturnValue(["777"]);
+
+    const result = await dispatchBasecampEvent(mockMsg, { account: mockAccount });
+    expect(result).toBe(true);
+  });
+
+  it("DM policy still applies after bucket sender gate passes", async () => {
+    vi.mocked(resolveBasecampBucketAllowFrom).mockReturnValue(["777"]);
+    vi.mocked(resolveBasecampDmPolicy).mockReturnValue("disabled");
+
+    const dmMsg: BasecampInboundMessage = {
+      ...mockMsg,
+      peer: { kind: "dm", id: "ping:789" },
+      meta: {
+        ...mockMsg.meta,
+        recordableType: "Chat::Line",
+        mentionsAgent: false,
+        sources: ["activity_feed"],
+      },
+    };
+
+    const result = await dispatchBasecampEvent(dmMsg, { account: mockAccount });
+    expect(result).toBe(false);
+  });
+
+  it("no bucket allowFrom = all senders pass (existing behavior)", async () => {
+    vi.mocked(resolveBasecampBucketAllowFrom).mockReturnValue(undefined);
+
+    mockRuntime.config.loadConfig.mockReturnValue({
+      channels: {
+        basecamp: {
+          accounts: { "test-acct": { personId: "999" } },
+          buckets: { "456": { engage: ["conversation"] } },
+        },
+      },
+    });
+
+    const chatMsg: BasecampInboundMessage = {
+      ...mockMsg,
+      meta: {
+        ...mockMsg.meta,
+        recordableType: "Chat::Line",
+        mentionsAgent: false,
+        sources: ["activity_feed"],
+      },
+    };
+
+    const result = await dispatchBasecampEvent(chatMsg, { account: mockAccount });
     expect(result).toBe(true);
   });
 });

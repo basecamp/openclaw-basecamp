@@ -41,6 +41,7 @@ vi.mock("../../src/config.js", () => ({
   resolveBasecampDmPolicy: vi.fn(() => "open"),
   resolveBasecampAllowFrom: vi.fn(() => []),
   resolveCircuitBreakerConfig: vi.fn(() => ({ threshold: 2, cooldownMs: 50 })),
+  resolveBasecampBucketAllowFrom: vi.fn(() => undefined),
 }));
 
 const mockPostReply = vi.fn();

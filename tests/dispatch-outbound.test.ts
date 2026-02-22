@@ -22,6 +22,7 @@ vi.mock("../src/config.js", () => ({
   resolveBasecampDmPolicy: vi.fn(() => "open"),
   resolveBasecampAllowFrom: vi.fn(() => []),
   resolveCircuitBreakerConfig: vi.fn(() => ({ threshold: 5, cooldownMs: 300000 })),
+  resolveBasecampBucketAllowFrom: vi.fn(() => undefined),
 }));
 vi.mock("../src/outbound/send.js", () => ({
   postReplyToEvent: vi.fn(),

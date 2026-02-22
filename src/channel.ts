@@ -17,6 +17,7 @@ import {
   resolveBasecampAllowFrom,
   resolveWebhooksConfig,
   resolveAccountForBucket,
+  scopeWebhookProjects,
 } from "./config.js";
 import { getBasecampRuntime } from "./runtime.js";
 import { sendBasecampText, sendBasecampMedia } from "./outbound/send.js";
@@ -322,17 +323,11 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
       // projects are only eligible when there is exactly one concrete account
       // (single-account mode) — otherwise skip + warn to prevent cross-account
       // delete/recreate churn.
-      const concreteAccountIds = listBasecampAccountIds(ctx.cfg);
-      const isSingleAccount = concreteAccountIds.length <= 1;
-      const accountProjects = whConfig.projects.filter((projectId) => {
-        const owner = resolveAccountForBucket(ctx.cfg, projectId);
-        if (owner) return owner === account.accountId;
-        if (isSingleAccount) return true;
-        ctx.log?.warn(
-          `[${account.accountId}] skipping unmapped webhook project ${projectId} — ` +
-          `add a virtualAccounts entry to assign it to an account`,
-        );
-        return false;
+      const accountProjects = scopeWebhookProjects({
+        cfg: ctx.cfg,
+        projects: whConfig.projects,
+        accountId: account.accountId,
+        log: ctx.log,
       });
       let webhookActiveProjects: Set<string> | undefined;
       if (whConfig.autoRegister && whConfig.payloadUrl && accountProjects.length > 0) {
@@ -465,3 +460,4 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
     },
   },
 };
+
