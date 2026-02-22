@@ -40,6 +40,7 @@ const BasecampBucketConfigSchema = z.object({
   }).optional(),
   enabled: z.boolean().optional(),
   engage: z.array(EngagementTypeSchema).optional(),
+  allowFrom: z.array(z.union([z.string(), z.number()])).optional(),
 });
 
 export const BasecampConfigSchema = z.object({
@@ -329,6 +330,17 @@ export function resolveBasecampDmPolicy(cfg: OpenClawConfig) {
 export function resolveBasecampAllowFrom(cfg: OpenClawConfig): string[] {
   const section = getBasecampSection(cfg);
   return (section?.allowFrom ?? []).map((entry) => String(entry));
+}
+
+/** Get the allow-from list for a specific bucket. Returns undefined if unset (all senders allowed). */
+export function resolveBasecampBucketAllowFrom(
+  cfg: OpenClawConfig,
+  bucketId: string,
+): string[] | undefined {
+  const section = getBasecampSection(cfg);
+  const bucketConfig = section?.buckets?.[bucketId] ?? section?.buckets?.["*"];
+  if (!bucketConfig?.allowFrom) return undefined;
+  return bucketConfig.allowFrom.map((entry) => String(entry));
 }
 
 /** Get the webhook secret (undefined = webhooks disabled). */

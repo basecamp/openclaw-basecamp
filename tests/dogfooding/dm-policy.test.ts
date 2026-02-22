@@ -37,6 +37,7 @@ vi.mock("../../src/config.js", () => ({
   resolveBasecampDmPolicy: (...args: unknown[]) => mockResolveDmPolicy(...args),
   resolveBasecampAllowFrom: (...args: unknown[]) => mockResolveAllowFrom(...args),
   resolveCircuitBreakerConfig: vi.fn(() => ({ threshold: 5, cooldownMs: 300000 })),
+  resolveBasecampBucketAllowFrom: vi.fn(() => undefined),
 }));
 
 vi.mock("../../src/outbound/send.js", () => ({

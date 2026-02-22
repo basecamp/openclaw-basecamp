@@ -400,6 +400,8 @@ export type BasecampBucketConfig = {
   enabled?: boolean;
   /** Override engagement types for this bucket. */
   engage?: BasecampEngagementType[];
+  /** Sender person IDs allowed to trigger the agent in this bucket. Unset = all senders. */
+  allowFrom?: Array<string | number>;
 };
 
 // ---------------------------------------------------------------------------
