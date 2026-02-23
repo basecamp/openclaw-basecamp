@@ -65,12 +65,35 @@ vi.mock("../../src/inbound/normalize.js", () => ({
   isSelfMessage: vi.fn(() => false),
 }));
 
+let _stateDirSeq = 0;
+vi.mock("../../src/inbound/state-dir.js", () => ({
+  resolvePluginStateDir: vi.fn(() => `/tmp/dogfood-auth-${process.pid}-${_stateDirSeq}`),
+}));
+
+vi.mock("../../src/inbound/dedup-registry.js", () => {
+  // Lightweight in-memory dedup mock — no SQLite dependency
+  const seen = new Set<string>();
+  return {
+    getAccountDedup: vi.fn(() => ({
+      isDuplicate: (key: string) => {
+        if (seen.has(key)) return true;
+        seen.add(key);
+        return false;
+      },
+      flush: vi.fn(),
+      size: seen.size,
+    })),
+    closeAccountDedup: vi.fn(() => { seen.clear(); }),
+    closeAllAccountDedup: vi.fn(() => { seen.clear(); }),
+    flushAccountDedup: vi.fn(),
+  };
+});
+
 import {
   handleBasecampWebhook,
   getWebhookSecretRegistry,
-  setWebhookStateDir,
-  flushWebhookDedup,
 } from "../../src/inbound/webhooks.js";
+import { closeAllAccountDedup } from "../../src/inbound/dedup-registry.js";
 import { dispatchBasecampEvent } from "../../src/dispatch.js";
 import { clearMetrics } from "../../src/metrics.js";
 
@@ -164,8 +187,8 @@ describe("dogfooding — webhook auth", () => {
     vi.clearAllMocks();
     clearMetrics();
     dedupSeq = 0;
-    setWebhookStateDir("/tmp/dogfood-reset");
-    setWebhookStateDir(undefined as any);
+    _stateDirSeq++;
+    closeAllAccountDedup();
 
     // Default config
     mockLoadConfig.mockReturnValue(defaultConfig({ webhookSecret: "tok-auth" }));
@@ -176,7 +199,7 @@ describe("dogfooding — webhook auth", () => {
   });
 
   afterEach(() => {
-    flushWebhookDedup();
+    closeAllAccountDedup();
   });
 
   // DF-005: correct query-string token

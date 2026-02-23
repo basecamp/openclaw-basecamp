@@ -65,10 +65,15 @@ vi.mock("../src/adapters/actions.js", () => ({ basecampActionsAdapter: {} }));
 vi.mock("../src/adapters/agent-tools.js", () => ({ basecampAgentTools: [] }));
 
 vi.mock("../src/inbound/webhooks.js", () => ({
-  setWebhookStateDir: vi.fn(),
-  flushWebhookDedup: vi.fn(),
   flushWebhookSecrets: vi.fn(),
   getWebhookSecretRegistry: vi.fn().mockReturnValue({}),
+}));
+
+vi.mock("../src/inbound/dedup-registry.js", () => ({
+  getAccountDedup: vi.fn(() => ({ size: 0, isDuplicate: () => false, flush: vi.fn() })),
+  closeAccountDedup: vi.fn(),
+  closeAllAccountDedup: vi.fn(),
+  flushAccountDedup: vi.fn(),
 }));
 
 vi.mock("../src/inbound/webhook-lifecycle.js", () => ({

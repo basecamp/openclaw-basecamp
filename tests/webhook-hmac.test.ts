@@ -33,6 +33,10 @@ vi.mock("../src/config.js", () => ({
   resolveAccountForBucket: vi.fn(() => undefined),
   listBasecampAccountIds: vi.fn(() => ["default"]),
 }));
+let _hmacStateDirSeq = 0;
+vi.mock("../src/inbound/state-dir.js", () => ({
+  resolvePluginStateDir: vi.fn(() => `/tmp/hmac-test-${process.pid}-${_hmacStateDirSeq}`),
+}));
 let hmacDedupSeq = 100;
 vi.mock("../src/inbound/normalize.js", () => ({
   normalizeWebhookPayload: vi.fn(() => {
@@ -65,8 +69,8 @@ import {
   verifyWebhookSignature,
   handleBasecampWebhook,
   getWebhookSecretRegistry,
-  setWebhookStateDir,
 } from "../src/inbound/webhooks.js";
+import { closeAllAccountDedup } from "../src/inbound/dedup-registry.js";
 import { WebhookSecretRegistry, JsonFileWebhookSecretStore } from "../src/inbound/webhook-secrets.js";
 import { resolveAccountForBucket } from "../src/config.js";
 
@@ -317,6 +321,7 @@ describe("handleBasecampWebhook — HMAC authentication", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    _hmacStateDirSeq++;
     // Seed a webhook secret into the registry so HMAC verification can find it
     const reg = getWebhookSecretRegistry("default");
     reg.set("100", {
@@ -328,8 +333,8 @@ describe("handleBasecampWebhook — HMAC authentication", () => {
   });
 
   afterEach(() => {
-    // Clean up registries
-    setWebhookStateDir("");
+    // Clean up dedup registry
+    closeAllAccountDedup();
   });
 
   it("accepts request with valid HMAC signature (no query token needed)", async () => {

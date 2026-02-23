@@ -71,12 +71,35 @@ vi.mock("../../src/inbound/normalize.js", () => ({
   isSelfMessage: vi.fn(() => false),
 }));
 
+let _stateDirSeq = 0;
+vi.mock("../../src/inbound/state-dir.js", () => ({
+  resolvePluginStateDir: vi.fn(() => `/tmp/dogfood-qp-${process.pid}-${_stateDirSeq}`),
+}));
+
+vi.mock("../../src/inbound/dedup-registry.js", () => {
+  // Lightweight in-memory dedup mock — no SQLite dependency
+  const seen = new Set<string>();
+  return {
+    getAccountDedup: vi.fn(() => ({
+      isDuplicate: (key: string) => {
+        if (seen.has(key)) return true;
+        seen.add(key);
+        return false;
+      },
+      flush: vi.fn(),
+      size: seen.size,
+    })),
+    closeAccountDedup: vi.fn(() => { seen.clear(); }),
+    closeAllAccountDedup: vi.fn(() => { seen.clear(); }),
+    flushAccountDedup: vi.fn(),
+  };
+});
+
 import {
   Semaphore,
   handleBasecampWebhook,
-  setWebhookStateDir,
-  flushWebhookDedup,
 } from "../../src/inbound/webhooks.js";
+import { closeAllAccountDedup } from "../../src/inbound/dedup-registry.js";
 import { getAccountMetrics, clearMetrics } from "../../src/metrics.js";
 
 // ---------------------------------------------------------------------------
@@ -124,13 +147,12 @@ describe("dogfooding — queue pressure", () => {
     vi.clearAllMocks();
     clearMetrics();
     dedupSeq = 0;
-    // Force dedup registry clear by toggling state dir
-    setWebhookStateDir("/tmp/dogfood-reset");
-    setWebhookStateDir(undefined as any);
+    _stateDirSeq++;
+    closeAllAccountDedup();
   });
 
   afterEach(() => {
-    flushWebhookDedup();
+    closeAllAccountDedup();
   });
 
   // DF-001: queue_full when real dispatchSemaphore is saturated
