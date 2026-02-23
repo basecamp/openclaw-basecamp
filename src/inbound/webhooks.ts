@@ -5,9 +5,9 @@
  * them to BasecampInboundMessage, and dispatches to agents. Supplements
  * the polling-based inbound pipeline with real-time delivery.
  *
- * Webhook events use their own EventDedup instance. Cross-source dedup
- * with the poller relies on the secondary key (recording:id:kind:ts)
- * which both sources generate for the same underlying Basecamp event.
+ * Webhook events share a per-account EventDedup instance with the poller
+ * via the dedup registry. Cross-source dedup relies on the secondary key
+ * (recording:id:kind:ts) which both sources generate for the same event.
  */
 
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -16,7 +16,8 @@ import { join } from "node:path";
 import type { BasecampWebhookPayload, ResolvedBasecampAccount } from "../types.js";
 import { normalizeWebhookPayload, isSelfMessage } from "./normalize.js";
 import { EventDedup } from "./dedup.js";
-import { JsonFileDedupStore } from "./dedup-store.js";
+import { getAccountDedup } from "./dedup-registry.js";
+import { resolvePluginStateDir } from "./state-dir.js";
 import { WebhookSecretRegistry, JsonFileWebhookSecretStore } from "./webhook-secrets.js";
 import { dispatchBasecampEvent } from "../dispatch.js";
 import { getBasecampRuntime } from "../runtime.js";
@@ -69,67 +70,24 @@ const MAX_QUEUED_DISPATCHES = 100;
 export const dispatchSemaphore = new Semaphore(MAX_CONCURRENT_DISPATCHES);
 
 // ---------------------------------------------------------------------------
-// Dedup
+// Dedup — shared per-account instance via dedup-registry.ts
 // ---------------------------------------------------------------------------
-
-/** Per-account dedup instances for webhook events. */
-const dedupRegistry = new Map<string, EventDedup>();
-
-/** State directory for persistent dedup stores. Set via setWebhookStateDir(). */
-let webhookStateDir: string | undefined;
-
-/**
- * Configure the state directory for persistent webhook dedup stores.
- * Must be called before webhooks are processed to enable restart-safe dedup.
- * Idempotent: if the directory hasn't changed, this is a no-op.
- */
-export function setWebhookStateDir(dir: string): void {
-  const normalized = dir || undefined;
-  if (normalized === webhookStateDir) return;
-  // Flush existing instances before switching directories
-  for (const dedup of dedupRegistry.values()) {
-    dedup.flush();
-  }
-  dedupRegistry.clear();
-  webhookStateDir = normalized;
-}
-
-function getDedup(accountId: string): EventDedup {
-  let dedup = dedupRegistry.get(accountId);
-  if (!dedup) {
-    const store = webhookStateDir
-      ? new JsonFileDedupStore(join(webhookStateDir, `webhook-dedup-${accountId}.json`))
-      : undefined;
-    dedup = new EventDedup(store ? { store } : undefined);
-    dedupRegistry.set(accountId, dedup);
-  }
-  return dedup;
-}
-
-/**
- * Flush all webhook dedup stores to disk. Call on graceful shutdown.
- */
-export function flushWebhookDedup(): void {
-  for (const dedup of dedupRegistry.values()) {
-    dedup.flush();
-  }
-}
 
 // ---------------------------------------------------------------------------
 // HMAC-SHA256 verification (Stripe-style: X-Basecamp-Signature + Timestamp)
 // ---------------------------------------------------------------------------
 
 /** Per-account webhook secret registries, keyed by account and bound to a state dir. */
-const secretRegistries = new Map<string, { registry: WebhookSecretRegistry; stateDir: string | undefined }>();
+const secretRegistries = new Map<string, { registry: WebhookSecretRegistry; stateDir: string }>();
 
 /**
  * Get or create a webhook secret registry for an account.
- * The registry is backed by a persistent JSON file when a state dir is set.
- * If the state dir has changed since the registry was created, the old one
- * is flushed and a new one is created for the new path.
+ * The registry is backed by a persistent JSON file in the plugin state dir.
+ * If the resolved state dir has changed since the registry was created, the
+ * old one is flushed and a new one is created for the new path.
  */
 export function getWebhookSecretRegistry(accountId: string): WebhookSecretRegistry {
-  const currentStateDir = webhookStateDir;
+  const currentStateDir = resolvePluginStateDir();
   const entry = secretRegistries.get(accountId);
 
   if (entry && entry.stateDir === currentStateDir) {
@@ -141,9 +99,7 @@ export function getWebhookSecretRegistry(accountId: string): WebhookSecretRegist
     entry.registry.flush();
   }
 
-  const store = currentStateDir
-    ? new JsonFileWebhookSecretStore(join(currentStateDir, `webhook-secrets-${accountId}.json`))
-    : undefined;
+  const store = new JsonFileWebhookSecretStore(join(currentStateDir, `webhook-secrets-${accountId}.json`));
   const registry = new WebhookSecretRegistry(store);
   secretRegistries.set(accountId, { registry, stateDir: currentStateDir });
   return registry;
@@ -449,8 +405,8 @@ export async function handleBasecampWebhook(
     return;
   }
 
-  // Dedup
-  const dedup = getDedup(account.accountId);
+  // Dedup (shared per-account instance — cross-source with poller)
+  const dedup = getAccountDedup(account.accountId);
   const secondaryKey = msg.meta.recordingId
     ? EventDedup.secondaryKey(msg.meta.recordingId, msg.meta.eventKind, msg.createdAt)
     : undefined;

@@ -71,12 +71,38 @@ vi.mock("../../src/inbound/normalize.js", () => ({
   isSelfMessage: vi.fn(() => false),
 }));
 
+let _testStateDir = "";
+vi.mock("../../src/inbound/state-dir.js", () => ({
+  resolvePluginStateDir: vi.fn(() => _testStateDir),
+}));
+
+vi.mock("../../src/inbound/dedup-registry.js", () => {
+  // Lightweight in-memory dedup mock — no SQLite dependency
+  const seen = new Set<string>();
+  return {
+    getAccountDedup: vi.fn(() => ({
+      isDuplicate: (key: string) => {
+        if (seen.has(key)) return true;
+        seen.add(key);
+        return false;
+      },
+      flush: vi.fn(),
+      size: seen.size,
+    })),
+    closeAccountDedup: vi.fn(() => { seen.clear(); }),
+    closeAllAccountDedup: vi.fn(() => { seen.clear(); }),
+    flushAccountDedup: vi.fn(),
+  };
+});
+
+import { mkdtempSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import {
   Semaphore,
   handleBasecampWebhook,
-  setWebhookStateDir,
-  flushWebhookDedup,
 } from "../../src/inbound/webhooks.js";
+import { closeAllAccountDedup } from "../../src/inbound/dedup-registry.js";
 import { getAccountMetrics, clearMetrics } from "../../src/metrics.js";
 
 // ---------------------------------------------------------------------------
@@ -124,13 +150,13 @@ describe("dogfooding — queue pressure", () => {
     vi.clearAllMocks();
     clearMetrics();
     dedupSeq = 0;
-    // Force dedup registry clear by toggling state dir
-    setWebhookStateDir("/tmp/dogfood-reset");
-    setWebhookStateDir(undefined as any);
+    _testStateDir = mkdtempSync(join(tmpdir(), "dogfood-qp-"));
+    closeAllAccountDedup();
   });
 
   afterEach(() => {
-    flushWebhookDedup();
+    closeAllAccountDedup();
+    rmSync(_testStateDir, { recursive: true, force: true });
   });
 
   // DF-001: queue_full when real dispatchSemaphore is saturated
