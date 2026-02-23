@@ -1,3 +1,4 @@
+import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { getBasecampRuntime } from "../runtime.js";
@@ -20,9 +21,11 @@ export function resolvePluginStateDir(): string {
       fallbackWarned = true;
       console.warn(
         `[basecamp:state-dir] runtime unavailable, using fallback ${FALLBACK_STATE_DIR} — ` +
-        "secrets and dedup state will persist here with default file permissions",
+        "secrets and dedup state will persist here until runtime is available",
       );
     }
+    // Create with restrictive permissions — may contain webhook secrets and dedup DBs
+    mkdirSync(FALLBACK_STATE_DIR, { recursive: true, mode: 0o700 });
     return FALLBACK_STATE_DIR;
   }
 }

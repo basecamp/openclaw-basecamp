@@ -71,9 +71,9 @@ vi.mock("../../src/inbound/normalize.js", () => ({
   isSelfMessage: vi.fn(() => false),
 }));
 
-let _stateDirSeq = 0;
+let _testStateDir = "";
 vi.mock("../../src/inbound/state-dir.js", () => ({
-  resolvePluginStateDir: vi.fn(() => `/tmp/dogfood-qp-${process.pid}-${_stateDirSeq}`),
+  resolvePluginStateDir: vi.fn(() => _testStateDir),
 }));
 
 vi.mock("../../src/inbound/dedup-registry.js", () => {
@@ -95,6 +95,9 @@ vi.mock("../../src/inbound/dedup-registry.js", () => {
   };
 });
 
+import { mkdtempSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import {
   Semaphore,
   handleBasecampWebhook,
@@ -147,12 +150,13 @@ describe("dogfooding — queue pressure", () => {
     vi.clearAllMocks();
     clearMetrics();
     dedupSeq = 0;
-    _stateDirSeq++;
+    _testStateDir = mkdtempSync(join(tmpdir(), "dogfood-qp-"));
     closeAllAccountDedup();
   });
 
   afterEach(() => {
     closeAllAccountDedup();
+    rmSync(_testStateDir, { recursive: true, force: true });
   });
 
   // DF-001: queue_full when real dispatchSemaphore is saturated

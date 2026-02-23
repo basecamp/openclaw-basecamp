@@ -16,25 +16,33 @@ import { openDedupDb } from "./dedup-store-sqlite.js";
 import type { DedupDb } from "./dedup-store-sqlite.js";
 import { resolvePluginStateDir } from "./state-dir.js";
 
-const registry = new Map<string, { dedup: EventDedup; db?: DedupDb }>();
+const registry = new Map<string, { dedup: EventDedup; db?: DedupDb; stateDir: string }>();
 
 export function getAccountDedup(accountId: string): EventDedup {
+  const currentStateDir = resolvePluginStateDir();
   const existing = registry.get(accountId);
-  if (existing) return existing.dedup;
+
+  if (existing && existing.stateDir === currentStateDir) return existing.dedup;
+
+  // State dir changed (e.g. runtime became available after fallback) — close old entry
+  if (existing) {
+    existing.dedup.flush();
+    existing.db?.close();
+    registry.delete(accountId);
+  }
 
   try {
-    const stateDir = resolvePluginStateDir();
-    const dbPath = join(stateDir, `dedup-${accountId}.sqlite`);
+    const dbPath = join(currentStateDir, `dedup-${accountId}.sqlite`);
     const db = openDedupDb(dbPath);
 
     db.migrateFromJson([
-      join(stateDir, `dedup-${accountId}.json`),
-      join(stateDir, `webhook-dedup-${accountId}.json`),
+      join(currentStateDir, `dedup-${accountId}.json`),
+      join(currentStateDir, `webhook-dedup-${accountId}.json`),
     ]);
 
     const store = db.createStore();
     const dedup = new EventDedup({ store });
-    registry.set(accountId, { dedup, db });
+    registry.set(accountId, { dedup, db, stateDir: currentStateDir });
     return dedup;
   } catch (err) {
     // Fail-open: degrade to in-memory dedup so webhook/poller stays alive.
@@ -43,7 +51,7 @@ export function getAccountDedup(accountId: string): EventDedup {
       err,
     );
     const dedup = new EventDedup();
-    registry.set(accountId, { dedup, db: undefined });
+    registry.set(accountId, { dedup, db: undefined, stateDir: currentStateDir });
     return dedup;
   }
 }

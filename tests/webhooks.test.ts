@@ -32,9 +32,9 @@ vi.mock("../src/config.js", () => ({
   resolveAccountForBucket: vi.fn(() => undefined),
   listBasecampAccountIds: vi.fn(() => ["default"]),
 }));
-let _whStateDirSeq = 0;
+let _whTestStateDir = "";
 vi.mock("../src/inbound/state-dir.js", () => ({
-  resolvePluginStateDir: vi.fn(() => `/tmp/wh-test-${process.pid}-${_whStateDirSeq}`),
+  resolvePluginStateDir: vi.fn(() => _whTestStateDir),
 }));
 let webhookDedupSeq = 0;
 vi.mock("../src/inbound/normalize.js", () => ({
@@ -55,6 +55,9 @@ vi.mock("../src/inbound/normalize.js", () => ({
   isSelfMessage: vi.fn(() => false),
 }));
 
+import { mkdtempSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { Semaphore, handleBasecampWebhook } from "../src/inbound/webhooks.js";
 import { closeAllAccountDedup } from "../src/inbound/dedup-registry.js";
 import { resolveDefaultBasecampAccountId, resolveWebhookSecret, resolveAccountForBucket, listBasecampAccountIds } from "../src/config.js";
@@ -63,13 +66,14 @@ import { getAccountMetrics, clearMetrics } from "../src/metrics.js";
 
 beforeEach(() => {
   vi.clearAllMocks();
-  _whStateDirSeq++;
+  _whTestStateDir = mkdtempSync(join(tmpdir(), "wh-test-"));
   closeAllAccountDedup();
   vi.mocked(resolveWebhookSecret).mockReturnValue("test-secret-123");
 });
 
 afterEach(() => {
   closeAllAccountDedup();
+  rmSync(_whTestStateDir, { recursive: true, force: true });
 });
 
 // ---------------------------------------------------------------------------

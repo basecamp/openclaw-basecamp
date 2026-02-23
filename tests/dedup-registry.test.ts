@@ -100,6 +100,28 @@ describe("dedup-registry", () => {
     expect(existsSync(dbFile)).toBe(true);
   });
 
+  it("rebinds when resolved stateDir changes (e.g. fallback → runtime)", () => {
+    const first = getAccountDedup("rebind");
+    first.isDuplicate("activity:1");
+
+    const oldDir = tmpDir;
+
+    // Simulate runtime becoming available — stateDir changes
+    tmpDir = mkdtempSync(join(tmpdir(), "dedup-reg-rebind-"));
+
+    const second = getAccountDedup("rebind");
+    expect(second).not.toBe(first);
+
+    // New instance uses the new stateDir
+    const dbFile = join(tmpDir, "plugins", "basecamp", "dedup-rebind.sqlite");
+    expect(existsSync(dbFile)).toBe(true);
+
+    // Clean up the extra dir
+    closeAccountDedup("rebind");
+    rmSync(tmpDir, { recursive: true, force: true });
+    tmpDir = oldDir;
+  });
+
   it("fail-open: returns in-memory EventDedup on DB open error and logs warning", () => {
     const spy = vi.spyOn(sqliteStore, "openDedupDb").mockImplementation(() => {
       throw new Error("EPERM: permission denied");
