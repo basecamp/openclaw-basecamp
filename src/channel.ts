@@ -38,7 +38,9 @@ import { resolveOutboundTarget, chunkMarkdownText, BASECAMP_TEXT_CHUNK_LIMIT } f
 import { basecampMentionAdapter } from "./adapters/mentions.js";
 import { basecampActionsAdapter } from "./adapters/actions.js";
 import { basecampAgentTools } from "./adapters/agent-tools.js";
-import { setWebhookStateDir, flushWebhookDedup, flushWebhookSecrets, getWebhookSecretRegistry } from "./inbound/webhooks.js";
+import { flushWebhookSecrets, getWebhookSecretRegistry } from "./inbound/webhooks.js";
+import { closeAccountDedup } from "./inbound/dedup-registry.js";
+import { resolvePluginStateDir } from "./inbound/state-dir.js";
 import { reconcileWebhooks, deactivateWebhooks } from "./inbound/webhook-lifecycle.js";
 import { withTimeout } from "./util.js";
 
@@ -299,22 +301,10 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
         return;
       }
 
-      // Resolve state directory for cursor persistence.
-      // runtime.state.resolveStateDir(env, homedir) returns the base OpenClaw
-      // state dir; we append a plugin-specific subdirectory.
-      let stateDir: string;
-      try {
-        const os = await import("node:os");
-        const path = await import("node:path");
-        const runtime = getBasecampRuntime();
-        const baseDir = runtime.state.resolveStateDir(process.env, os.homedir);
-        stateDir = path.join(baseDir, "plugins", "basecamp");
-      } catch {
-        stateDir = "/tmp/openclaw-basecamp-state";
-      }
-
-      // Share state directory with webhook handler for persistent dedup
-      setWebhookStateDir(stateDir);
+      // Resolve state directory for cursor + dedup persistence.
+      // Single source of truth: resolvePluginStateDir() is used by both the
+      // poller (cursors via stateDir) and dedup-registry (SQLite via same fn).
+      const stateDir = resolvePluginStateDir();
 
       // Auto-register webhooks for configured projects
       const whConfig = resolveWebhooksConfig(ctx.cfg);
@@ -437,10 +427,10 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
           );
         }
 
-        // Flush webhook dedup + secret stores (with timeout)
+        // Close account dedup (flush + close SQLite) + flush secret stores (with timeout)
         await withTimeout(
           Promise.resolve().then(() => {
-            flushWebhookDedup();
+            closeAccountDedup(account.accountId);
             flushWebhookSecrets();
           }),
           5000,

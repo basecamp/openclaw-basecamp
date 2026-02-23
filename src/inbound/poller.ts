@@ -20,7 +20,7 @@
 import type { BasecampInboundMessage, ResolvedBasecampAccount } from "../types.js";
 import { resolvePollingIntervals, resolveCircuitBreakerConfig } from "../config.js";
 import { EventDedup } from "./dedup.js";
-import { JsonFileDedupStore } from "./dedup-store.js";
+import { getAccountDedup } from "./dedup-registry.js";
 import { CursorStore } from "./cursors.js";
 import { pollActivityFeed } from "./activity.js";
 import { pollReadings } from "./readings.js";
@@ -106,7 +106,6 @@ export async function startCompositePoller(
   // Validate state directory
   const { mkdir, access } = await import("node:fs/promises");
   const { constants } = await import("node:fs");
-  const { join } = await import("node:path");
   try {
     await mkdir(stateDir, { recursive: true });
     await access(stateDir, constants.W_OK);
@@ -116,9 +115,8 @@ export async function startCompositePoller(
     throw err;
   }
 
-  // Persistent dedup store — survives gateway restarts
-  const dedupStore = new JsonFileDedupStore(join(stateDir, `dedup-${account.accountId}.json`));
-  const dedup = new EventDedup({ store: dedupStore });
+  // Shared per-account dedup — survives gateway restarts (SQLite-backed)
+  const dedup = getAccountDedup(account.accountId);
   slog.info("dedup_loaded", { entries: dedup.size });
 
   const cursors = new CursorStore(stateDir, account.accountId);
