@@ -17,7 +17,7 @@ function getBasecampSection(cfg: OpenClawConfig): BasecampChannelConfig | undefi
 export const basecampDirectoryAdapter: ChannelDirectoryAdapter = {
   self: async ({ cfg, accountId }) => {
     const account = resolveBasecampAccount(cfg, accountId);
-    if (!account.bcqProfile && !account.token && !account.config.tokenFile) return null;
+    if (!account.bcqProfile && !account.token && !account.config.tokenFile && !account.config.oauthTokenFile) return null;
 
     try {
       const client = getClient(account);

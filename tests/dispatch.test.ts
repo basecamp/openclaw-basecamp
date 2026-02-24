@@ -212,6 +212,18 @@ describe("dispatchBasecampEvent", () => {
     ).not.toHaveBeenCalled();
   });
 
+  it("accepts basecampAccountId for OAuth accounts", async () => {
+    const oauthAccount: ResolvedBasecampAccount = {
+      ...mockAccount,
+      accountId: "work",
+      config: { personId: "999", basecampAccountId: "2914079" },
+    };
+
+    const result = await dispatchBasecampEvent(mockMsg, { account: oauthAccount });
+
+    expect(result).toBe(true);
+  });
+
   it("falls back to numeric accountId when bcqAccountId is unset", async () => {
     const accountNumericId: ResolvedBasecampAccount = {
       ...mockAccount,

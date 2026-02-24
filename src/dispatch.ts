@@ -164,12 +164,13 @@ export async function dispatchBasecampEvent(
     : account;
   // Resolve the numeric account ID for circuit breaker keying and logging.
   const outboundBcqAccountId =
+    outboundAccount.config.basecampAccountId ??
     outboundAccount.config.bcqAccountId ??
     (/^\d+$/.test(outboundAccount.accountId) ? outboundAccount.accountId : undefined);
   if (!outboundBcqAccountId) {
     slog.error("outbound_account_id_missing", {
       outboundAccount: outboundAccount.accountId,
-      hint: "Set config.bcqAccountId to a valid Basecamp account id",
+      hint: "Set config.basecampAccountId to a valid Basecamp account id",
     });
     return false;
   }

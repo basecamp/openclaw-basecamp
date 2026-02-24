@@ -88,6 +88,29 @@ describe("directory.self", () => {
     expect(result).toBeNull();
   });
 
+  it("passes precheck for OAuth accounts with oauthTokenFile", async () => {
+    vi.mocked(resolveBasecampAccount).mockReturnValue({
+      ...mockAccount,
+      token: "",
+      bcqProfile: undefined,
+      tokenSource: "oauth" as const,
+      config: { personId: "1", oauthTokenFile: "/tmp/tokens/work.json" },
+    } as any);
+    mockClient.authorization.getInfo.mockResolvedValue({
+      identity: { id: 1, firstName: "Test", lastName: "", emailAddress: "t@example.com" },
+      accounts: [],
+    });
+
+    const result = await basecampDirectoryAdapter.self!({
+      cfg: cfg({}),
+      accountId: "test",
+      runtime: {} as any,
+    });
+
+    expect(result).not.toBeNull();
+    expect(result!.id).toBe("1");
+  });
+
   it("returns null when account has no token or profile", async () => {
     vi.mocked(resolveBasecampAccount).mockReturnValue({
       ...mockAccount,
