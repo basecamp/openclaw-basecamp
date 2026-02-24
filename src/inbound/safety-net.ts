@@ -23,6 +23,18 @@ import type {
 } from "../types.js";
 import { EventDedup } from "./dedup.js";
 import { resolveDockToolIds, invalidateDockCache } from "./dock-cache.js";
+import { BasecampError } from "../basecamp-client.js";
+
+function isStaleResourceError(err: unknown): boolean {
+  if (err instanceof BasecampError) {
+    return (
+      err.httpStatus === 404 ||
+      err.httpStatus === 410 ||
+      err.code === "not_found"
+    );
+  }
+  return false;
+}
 
 // ---------------------------------------------------------------------------
 // Snapshot types
@@ -159,12 +171,14 @@ export async function pollSafetyNet(
 
   for (const projectId of projectIds) {
     const dockIds = await resolveDockToolIds(client, projectId);
+    const prevProject = previousSnapshot?.projects[String(projectId)];
     if (!dockIds) {
       log?.warn?.(`[${account.accountId}] safety_net: project ${projectId} dock inaccessible, skipping`);
+      // Carry forward previous snapshot to avoid state loss on transient failures
+      if (prevProject) newSnapshot.projects[String(projectId)] = prevProject;
       continue;
     }
 
-    const prevProject = previousSnapshot?.projects[String(projectId)];
     const projectSnap: ProjectSnapshot = {
       cards: {},
       todos: {},
@@ -263,6 +277,9 @@ export async function pollSafetyNet(
           }
         }
       } catch (err) {
+        if (isStaleResourceError(err)) invalidateDockCache(projectId);
+        // Carry forward previous cards to avoid false "appeared" bursts on recovery
+        if (prevProject) projectSnap.cards = prevProject.cards;
         log?.warn?.(`[${account.accountId}] safety_net: cards crawl failed for project ${projectId}: ${String(err)}`);
       }
     }
@@ -340,6 +357,8 @@ export async function pollSafetyNet(
           }
         }
       } catch (err) {
+        if (isStaleResourceError(err)) invalidateDockCache(projectId);
+        if (prevProject) projectSnap.todos = prevProject.todos;
         log?.warn?.(`[${account.accountId}] safety_net: todos crawl failed for project ${projectId}: ${String(err)}`);
       }
     }
@@ -372,6 +391,8 @@ export async function pollSafetyNet(
           }
         }
       } catch (err) {
+        if (isStaleResourceError(err)) invalidateDockCache(projectId);
+        if (prevProject) projectSnap.checkins = prevProject.checkins;
         log?.warn?.(`[${account.accountId}] safety_net: checkins crawl failed for project ${projectId}: ${String(err)}`);
       }
     }
