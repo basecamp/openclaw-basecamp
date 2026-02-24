@@ -1,29 +1,15 @@
 import { describe, it, expect, vi } from "vitest";
 
 // Mock transitive dependencies to avoid module resolution issues
-vi.mock("../src/bcq.js", () => ({
-  bcqPost: vi.fn(),
-  bcqApiPost: vi.fn(),
-  bcqPut: vi.fn(),
-  bcqDelete: vi.fn(),
-  bcqResolvePingTranscript: vi.fn(),
-  withRetry: vi.fn(),
-  isRetryableError: vi.fn(),
-  BcqError: class extends Error { name = "BcqError"; },
-}));
-
-vi.mock("../src/runtime.js", () => ({
-  getBasecampRuntime: vi.fn(() => ({
-    config: { loadConfig: vi.fn(() => ({})) },
-  })),
-}));
-
-vi.mock("../src/config.js", () => ({
-  resolveBasecampAccount: vi.fn(() => ({})),
-}));
-
-vi.mock("../src/outbound/format.js", () => ({
-  markdownToBasecampHtml: vi.fn((s: string) => s),
+vi.mock("../src/basecamp-client.js", () => ({
+  getClient: vi.fn(() => ({})),
+  numId: (_label: string, value: string | number) => Number(value),
+  rawOrThrow: vi.fn(async (result: any) => result?.data),
+  BasecampError: class BasecampError extends Error {
+    code: string;
+    constructor(msg: string, code: string) { super(msg); this.code = code; }
+  },
+  clearClients: vi.fn(),
 }));
 
 // Test the LRU cache directly

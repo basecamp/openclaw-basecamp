@@ -220,6 +220,7 @@ describe("dispatch outbound reliability", () => {
     vi.mocked(postReplyToEvent).mockResolvedValue({
       ok: false,
       error: "403 Forbidden",
+      message: "403 Forbidden",
     });
 
     await dispatchBasecampEvent(mockMsg, { account: mockAccount });
@@ -253,7 +254,7 @@ describe("dispatch outbound reliability", () => {
       expect(postCall[0]).toMatchObject({
         bucketId: "456",
         recordingId: "123",
-        accountId: "12345",
+        account: mockAccount,
         retries: 2,
       });
     }
@@ -277,8 +278,8 @@ describe("dispatch outbound reliability", () => {
     let callCount = 0;
     vi.mocked(postReplyToEvent).mockImplementation(async () => {
       callCount++;
-      if (callCount >= 2) return { ok: false, error: "rate limited", channel: "basecamp" };
-      return { ok: true, channel: "basecamp" };
+      if (callCount >= 2) return { ok: false, error: "rate limited", message: "rate limited" };
+      return { ok: true };
     });
 
     await dispatchBasecampEvent(mockMsg, { account: mockAccount });

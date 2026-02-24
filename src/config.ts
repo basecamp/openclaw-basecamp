@@ -21,6 +21,10 @@ const BasecampAccountConfigSchema = z.object({
   enabled: z.boolean().optional(),
   bcqProfile: z.string().optional(),
   bcqAccountId: z.string().optional(),
+  basecampAccountId: z.string().optional(),
+  oauthTokenFile: z.string().optional(),
+  oauthClientId: z.string().optional(),
+  oauthClientSecret: z.string().optional(),
 });
 
 const BasecampVirtualAccountSchema = z.object({
@@ -62,6 +66,12 @@ export const BasecampConfigSchema = z.object({
       types: z.array(z.string()).optional(),
       autoRegister: z.boolean().optional(),
       deactivateOnStop: z.boolean().optional(),
+    })
+    .optional(),
+  oauth: z
+    .object({
+      clientId: z.string(),
+      clientSecret: z.string().optional(),
     })
     .optional(),
   polling: z
@@ -142,7 +152,7 @@ export function resolveDefaultBasecampAccountId(cfg: OpenClawConfig): string {
  * Expands `~` and `~/...` to the user's home directory.
  * Paths like `~username/...` are treated as literal (not expanded).
  */
-async function readTokenFile(filePath: string): Promise<string> {
+export async function readTokenFile(filePath: string): Promise<string> {
   const { readFile } = await import("node:fs/promises");
   const { resolve } = await import("node:path");
   const { homedir } = await import("node:os");
@@ -236,8 +246,12 @@ export function resolveBasecampAccount(
   if (!token && accountCfg.tokenFile) {
     tokenSource = "tokenFile";
   }
-  // If no token and no tokenFile, but a bcqProfile is configured, bcq manages auth
-  if (!token && !accountCfg.tokenFile && accountCfg.bcqProfile) {
+  // oauthTokenFile means token lifecycle is managed by the OAuth credentials module
+  if (!token && !accountCfg.tokenFile && accountCfg.oauthTokenFile) {
+    tokenSource = "oauth";
+  }
+  // If no token and no tokenFile/oauthTokenFile, but a bcqProfile is configured, bcq manages auth
+  if (!token && !accountCfg.tokenFile && !accountCfg.oauthTokenFile && accountCfg.bcqProfile) {
     tokenSource = "bcq";
   }
 
@@ -250,6 +264,8 @@ export function resolveBasecampAccount(
     token,
     tokenSource,
     bcqProfile: accountCfg.bcqProfile,
+    oauthClientId: accountCfg.oauthClientId ?? section?.oauth?.clientId,
+    oauthClientSecret: accountCfg.oauthClientSecret ?? section?.oauth?.clientSecret,
     config: accountCfg,
   };
 }

@@ -8,35 +8,25 @@
 import type { ChannelDirectoryAdapter, ChannelDirectoryEntry, OpenClawConfig } from "openclaw/plugin-sdk";
 import type { ResolvedBasecampAccount, BasecampPerson, BasecampProject, BasecampChannelConfig } from "../types.js";
 import { resolveBasecampAccount } from "../config.js";
-import { bcqMe, bcqApiGet } from "../bcq.js";
+import { getClient, numId } from "../basecamp-client.js";
 
 function getBasecampSection(cfg: OpenClawConfig): BasecampChannelConfig | undefined {
   return cfg.channels?.basecamp as BasecampChannelConfig | undefined;
 }
 
-function bcqOptsForAccount(account: ResolvedBasecampAccount) {
-  return {
-    accountId: account.config.bcqAccountId,
-    profile: account.bcqProfile,
-  };
-}
-
 export const basecampDirectoryAdapter: ChannelDirectoryAdapter = {
   self: async ({ cfg, accountId }) => {
     const account = resolveBasecampAccount(cfg, accountId);
-    if (!account.bcqProfile && !account.token) return null;
+    if (!account.bcqProfile && !account.token && !account.config.tokenFile && !account.config.oauthTokenFile) return null;
 
     try {
-      const me = await bcqMe({
-        profile: account.bcqProfile,
-        accountId: account.config.bcqAccountId,
-      });
-      const data = me.data as { id: number; name: string; email_address: string };
+      const client = getClient(account);
+      const info = await client.authorization.getInfo();
       return {
         kind: "user" as const,
-        id: String(data.id),
-        name: data.name,
-        handle: data.email_address,
+        id: String(info.identity.id),
+        name: `${info.identity.firstName} ${info.identity.lastName}`.trim(),
+        handle: info.identity.emailAddress,
       };
     } catch {
       return null;
@@ -75,11 +65,11 @@ export const basecampDirectoryAdapter: ChannelDirectoryAdapter = {
 
   listPeersLive: async ({ cfg, accountId, query }) => {
     const account = resolveBasecampAccount(cfg, accountId);
-    const opts = bcqOptsForAccount(account);
 
-    let people: BasecampPerson[];
+    let people: Array<{ id: number; name: string; email_address: string; avatar_url?: string }>;
     try {
-      people = await bcqApiGet<BasecampPerson[]>("/people.json", opts.accountId, opts.profile);
+      const client = getClient(account);
+      people = await client.people.list() as any;
     } catch {
       return [];
     }
@@ -126,11 +116,11 @@ export const basecampDirectoryAdapter: ChannelDirectoryAdapter = {
 
   listGroupsLive: async ({ cfg, accountId, query }) => {
     const account = resolveBasecampAccount(cfg, accountId);
-    const opts = bcqOptsForAccount(account);
 
-    let projects: BasecampProject[];
+    let projects: Array<{ id: number; name: string }>;
     try {
-      projects = await bcqApiGet<BasecampProject[]>("/projects.json", opts.accountId, opts.profile);
+      const client = getClient(account);
+      projects = await client.projects.list() as any;
     } catch {
       return [];
     }
@@ -154,17 +144,13 @@ export const basecampDirectoryAdapter: ChannelDirectoryAdapter = {
     const bucketMatch = groupId.match(/^bucket:(\d+)$/);
     if (!bucketMatch) return [];
 
-    const bucketId = bucketMatch[1];
+    const projectId = numId("project", bucketMatch[1]);
     const account = resolveBasecampAccount(cfg, accountId);
-    const opts = bcqOptsForAccount(account);
 
-    let people: BasecampPerson[];
+    let people: Array<{ id: number; name: string; email_address: string; avatar_url?: string }>;
     try {
-      people = await bcqApiGet<BasecampPerson[]>(
-        `/buckets/${bucketId}/people.json`,
-        opts.accountId,
-        opts.profile,
-      );
+      const client = getClient(account);
+      people = await client.people.listForProject(projectId) as any;
     } catch {
       return [];
     }

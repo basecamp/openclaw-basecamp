@@ -1,8 +1,11 @@
 /**
  * Basecamp status adapter — probes account health and builds snapshots.
  *
- * Uses bcq to verify authentication and connectivity. Builds the
- * ChannelAccountSnapshot used by `openclaw status` output.
+ * Uses the SDK client to verify authentication and connectivity for all
+ * token sources. The client's TokenProvider handles auth per source
+ * (static token for "config", file read for "tokenFile", auto-refresh
+ * for "oauth", Basecamp CLI extraction for "bcq").
+ *
  * Enhanced with identity resolution, project audit, persona validation,
  * and status issue collection.
  */
@@ -10,8 +13,7 @@
 import type { ChannelStatusAdapter, ChannelAccountSnapshot, OpenClawConfig } from "openclaw/plugin-sdk";
 import { DEFAULT_ACCOUNT_ID } from "openclaw/plugin-sdk";
 import type { ResolvedBasecampAccount, BasecampChannelConfig, BasecampProject } from "../types.js";
-import { bcqAuthStatus, bcqMe, bcqApiGet } from "../bcq.js";
-import type { BcqOptions } from "../bcq.js";
+import { getClient, numId } from "../basecamp-client.js";
 import { resolveBasecampAccount } from "../config.js";
 import { getAccountMetrics } from "../metrics.js";
 import type { AccountMetrics, PollerSourceMetrics } from "../metrics.js";
@@ -81,36 +83,11 @@ export const basecampStatusAdapter: ChannelStatusAdapter<ResolvedBasecampAccount
   },
 
   probeAccount: async ({ account }) => {
-    const bcqOpts: BcqOptions = {};
-    if (account.bcqProfile) {
-      bcqOpts.profile = account.bcqProfile;
-    }
-    if (account.config.bcqAccountId) {
-      bcqOpts.accountId = account.config.bcqAccountId;
-    }
-
     try {
-      const result = await bcqAuthStatus(bcqOpts);
-      if (!result.data.authenticated) {
-        const metrics = getAccountMetrics(account.accountId);
-        return { ok: false, authenticated: false, metrics };
-      }
-
-      // Also call bcqMe to get identity details
-      let personName: string | undefined;
-      let accountCount: number | undefined;
-      try {
-        const meResult = await bcqMe(bcqOpts);
-        const data = meResult.data as unknown as {
-          name?: string;
-          accounts?: unknown[];
-        };
-        personName = data.name;
-        accountCount = Array.isArray(data.accounts) ? data.accounts.length : undefined;
-      } catch {
-        // Identity fetch is best-effort
-      }
-
+      const client = getClient(account);
+      const info = await client.authorization.getInfo();
+      const personName = `${info.identity.firstName} ${info.identity.lastName}`.trim();
+      const accountCount = info.accounts.length;
       const metrics = getAccountMetrics(account.accountId);
       return { ok: true, authenticated: true, personName, accountCount, metrics };
     } catch (err) {
@@ -126,18 +103,13 @@ export const basecampStatusAdapter: ChannelStatusAdapter<ResolvedBasecampAccount
 
   auditAccount: async ({ account, cfg, probe }) => {
     const errors: Array<{ kind: "config" | "runtime"; message: string }> = [];
-    const opts: BcqOptions = {
-      profile: account.bcqProfile,
-      accountId: account.config.bcqAccountId,
-    };
 
     // Check project access
     let projectsAccessible = 0;
     try {
-      const projects = await bcqApiGet<BasecampProject[]>("/projects.json", opts.accountId, opts.profile);
-      if (Array.isArray(projects)) {
-        projectsAccessible = projects.length;
-      }
+      const client = getClient(account);
+      const projects = await client.projects.list();
+      projectsAccessible = projects.length;
     } catch (err) {
       errors.push({ kind: "runtime", message: `Failed to verify project access: ${String(err)}` });
     }
@@ -153,7 +125,7 @@ export const basecampStatusAdapter: ChannelStatusAdapter<ResolvedBasecampAccount
       personasMapped++;
       if (accounts[targetAccountId]) {
         const resolved = resolveBasecampAccount(cfg, targetAccountId);
-        if (resolved.token || resolved.bcqProfile || resolved.config.tokenFile) {
+        if (resolved.tokenSource !== "none") {
           personasValid++;
         } else {
           errors.push({ kind: "config", message: `Persona "${agentId}" → account "${targetAccountId}": no auth configured` });
@@ -208,7 +180,7 @@ export const basecampStatusAdapter: ChannelStatusAdapter<ResolvedBasecampAccount
 
   buildAccountSnapshot: ({ account, runtime, probe, audit }) => {
     const configured = Boolean(
-      account.token?.trim() || account.config.tokenFile || account.bcqProfile,
+      account.token?.trim() || account.config.tokenFile || account.config.oauthTokenFile || account.bcqProfile,
     );
     return {
       accountId: account.accountId,
@@ -260,14 +232,29 @@ export const basecampStatusAdapter: ChannelStatusAdapter<ResolvedBasecampAccount
     for (const s of accounts) {
       const probe = s.probe as BasecampProbe | undefined;
 
-      // Unauthenticated accounts
+      // Unauthenticated accounts — token-source-specific fix message
       if (probe && !probe.authenticated) {
+        let fix: string;
+        switch (s.tokenSource) {
+          case "bcq":
+            fix = `Run \`basecamp auth login${(s as any).bcqProfile ? ` --profile ${(s as any).bcqProfile}` : ""}\``;
+            break;
+          case "oauth":
+            fix = `Run \`openclaw channels login --channel basecamp --account ${s.accountId}\``;
+            break;
+          case "config":
+          case "tokenFile":
+            fix = `Check token or tokenFile configuration for account ${s.accountId}`;
+            break;
+          default:
+            fix = "Run `openclaw channels add` and select Basecamp to configure credentials";
+        }
         issues.push({
           channel: "basecamp",
           accountId: s.accountId,
           kind: "auth",
           message: "Account is not authenticated",
-          fix: "Run `bcq auth login` to authenticate",
+          fix,
         });
       }
 

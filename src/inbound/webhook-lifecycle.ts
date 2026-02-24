@@ -9,8 +9,8 @@
  * so HMAC verification survives restarts.
  */
 
-import type { BcqOptions, BcqWebhook } from "../bcq.js";
-import { bcqWebhookList, bcqWebhookCreate, bcqWebhookDelete } from "../bcq.js";
+import type { ResolvedBasecampAccount } from "../types.js";
+import { getClient, numId, rawOrThrow } from "../basecamp-client.js";
 import type { WebhookSecretRegistry } from "./webhook-secrets.js";
 import type { StructuredLog } from "../logging.js";
 
@@ -21,8 +21,20 @@ export interface WebhookLifecycleConfig {
   projects: string[];
   /** Recordable types to subscribe to. Empty = all types. */
   types: string[];
-  /** bcq options for API calls (accountId, profile, etc). */
-  bcqOpts?: BcqOptions;
+  /** Resolved account for API calls. */
+  account: ResolvedBasecampAccount;
+}
+
+/** Shape from the SDK's Webhook type (may lack secret). */
+interface WebhookRecord {
+  id: number;
+  active: boolean;
+  payload_url: string;
+  types?: string[];
+  kinds?: string[];
+  secret?: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
 /**
@@ -59,14 +71,15 @@ export async function reconcileWebhooks(
   log?: StructuredLog,
 ): Promise<ReconcileResult> {
   const result: ReconcileResult = { created: [], existing: [], recovered: [], failed: [] };
+  const client = getClient(config.account);
 
   for (const projectId of config.projects) {
     try {
       // List existing webhooks for this project
-      let existing: BcqWebhook[] = [];
+      let existing: WebhookRecord[] = [];
       try {
-        const listResult = await bcqWebhookList(projectId, config.bcqOpts ?? {});
-        existing = Array.isArray(listResult.data) ? listResult.data : [];
+        const listResult = await client.webhooks.list(numId("project", projectId));
+        existing = Array.isArray(listResult) ? listResult as any : [];
       } catch {
         // List failed — treat as empty (will attempt create)
         existing = [];
@@ -87,7 +100,6 @@ export async function reconcileWebhooks(
 
         // If we don't have a secret stored for this project (e.g., first
         // startup after manual webhook creation), record what we can.
-        // We can't recover the secret from the API — it's only returned on create.
         if (!registry.get(projectId)) {
           registry.set(projectId, {
             webhookId: String(urlMatch.id),
@@ -107,7 +119,7 @@ export async function reconcileWebhooks(
             webhookId: urlMatch.id,
           });
           try {
-            await bcqWebhookDelete(projectId, String(urlMatch.id), config.bcqOpts ?? {});
+            await client.webhooks.delete(numId("project", projectId), urlMatch.id);
             registry.remove(projectId);
             secretRecovery = true;
           } catch (delErr) {
@@ -134,7 +146,7 @@ export async function reconcileWebhooks(
           newTypes: config.types.length > 0 ? config.types.join(",") : "all",
         });
         try {
-          await bcqWebhookDelete(projectId, String(urlMatch.id), config.bcqOpts ?? {});
+          await client.webhooks.delete(numId("project", projectId), urlMatch.id);
           registry.remove(projectId);
         } catch (delErr) {
           log?.warn("webhook_stale_delete_failed", {
@@ -145,21 +157,26 @@ export async function reconcileWebhooks(
         }
       }
 
-      // Create a new webhook
+      // Create a new webhook via raw POST to capture the secret field
+      // (SDK's Webhook type omits secret from the OpenAPI spec)
       log?.info("webhook_creating", {
         project: projectId,
         url: config.payloadUrl,
         types: config.types.length > 0 ? config.types.join(",") : "all",
       });
 
-      const createResult = await bcqWebhookCreate(
-        projectId,
-        config.payloadUrl,
-        config.types.length > 0 ? config.types : undefined,
-        config.bcqOpts ?? {},
+      const createBody: Record<string, unknown> = { payload_url: config.payloadUrl };
+      if (config.types.length > 0) {
+        createBody.types = config.types;
+      }
+
+      const webhook = await rawOrThrow<WebhookRecord>(
+        await client.raw.POST(
+          `/buckets/${projectId}/webhooks.json` as any,
+          { body: createBody as any },
+        ),
       );
 
-      const webhook = createResult.data;
       if (!webhook?.id) {
         log?.error("webhook_create_failed", {
           project: projectId,
@@ -179,9 +196,6 @@ export async function reconcileWebhooks(
       });
 
       if (!webhook.secret) {
-        // BC3 returned webhook without secret — HMAC verification will fail.
-        // Mark recoveryFailed to prevent repeated delete/recreate churn on
-        // subsequent reconciliation cycles.
         log?.error("webhook_create_no_secret", {
           project: projectId,
           webhookId: webhook.id,
@@ -228,6 +242,8 @@ export async function deactivateWebhooks(
   registry: WebhookSecretRegistry,
   log?: StructuredLog,
 ): Promise<void> {
+  const client = getClient(config.account);
+
   for (const projectId of config.projects) {
     const entry = registry.get(projectId);
     if (!entry?.webhookId) continue;
@@ -245,7 +261,7 @@ export async function deactivateWebhooks(
     }
 
     try {
-      await bcqWebhookDelete(projectId, entry.webhookId, config.bcqOpts ?? {});
+      await client.webhooks.delete(numId("project", projectId), Number(entry.webhookId));
       registry.remove(projectId);
       log?.info("webhook_deactivated", {
         project: projectId,

@@ -187,8 +187,10 @@ describe("dispatchBasecampEvent", () => {
 
     expect(postReplyToEvent).toHaveBeenCalledWith(
       expect.objectContaining({
-        accountId: "67890",
-        profile: "persona-profile",
+        account: expect.objectContaining({
+          accountId: "persona-acct",
+          bcqProfile: "persona-profile",
+        }),
       }),
     );
   });
@@ -210,6 +212,18 @@ describe("dispatchBasecampEvent", () => {
     ).not.toHaveBeenCalled();
   });
 
+  it("accepts basecampAccountId for OAuth accounts", async () => {
+    const oauthAccount: ResolvedBasecampAccount = {
+      ...mockAccount,
+      accountId: "work",
+      config: { personId: "999", basecampAccountId: "2914079" },
+    };
+
+    const result = await dispatchBasecampEvent(mockMsg, { account: oauthAccount });
+
+    expect(result).toBe(true);
+  });
+
   it("falls back to numeric accountId when bcqAccountId is unset", async () => {
     const accountNumericId: ResolvedBasecampAccount = {
       ...mockAccount,
@@ -226,7 +240,9 @@ describe("dispatchBasecampEvent", () => {
     await deliver({ text: "Reply" }, {});
 
     expect(postReplyToEvent).toHaveBeenCalledWith(
-      expect.objectContaining({ accountId: "2914079" }),
+      expect.objectContaining({
+        account: expect.objectContaining({ accountId: "2914079" }),
+      }),
     );
   });
 
@@ -247,10 +263,10 @@ describe("dispatchBasecampEvent", () => {
       recordableType: "Chat::Transcript",
       peerId: "recording:123",
       content: "<p>Agent reply</p>",
-      accountId: "12345",
-      profile: undefined,
+      account: mockAccount,
       retries: 2,
       circuitBreaker: expect.objectContaining({ key: "outbound" }),
+      correlationId: undefined,
     });
   });
 

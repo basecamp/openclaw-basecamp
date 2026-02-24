@@ -22,7 +22,7 @@ import {
 import { getBasecampRuntime } from "./runtime.js";
 import { sendBasecampText, sendBasecampMedia } from "./outbound/send.js";
 import { dispatchBasecampEvent } from "./dispatch.js";
-import { bcqAuthStatus, execBcqAuthLogin } from "./bcq.js";
+import { bcqAuthStatus } from "./bcq.js";
 import { basecampOnboardingAdapter } from "./adapters/onboarding.js";
 import { basecampSetupAdapter } from "./adapters/setup.js";
 import { basecampStatusAdapter } from "./adapters/status.js";
@@ -107,8 +107,27 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
   auth: {
     login: async ({ cfg, accountId }) => {
       const account = resolveBasecampAccount(cfg, accountId);
-      const profile = account.bcqProfile;
-      await execBcqAuthLogin({ profile });
+      switch (account.tokenSource) {
+        case "bcq": {
+          const { execBcqAuthLogin } = await import("./bcq.js");
+          await execBcqAuthLogin({ profile: account.bcqProfile });
+          break;
+        }
+        case "oauth": {
+          const { interactiveLogin } = await import("./oauth-credentials.js");
+          await interactiveLogin(account);
+          break;
+        }
+        case "config":
+          throw new Error("Account uses an inline token — no login needed. Update the token in config directly.");
+        case "tokenFile":
+          throw new Error(`Account uses a token file (${account.config.tokenFile}). Update the file contents directly.`);
+        case "none":
+          throw new Error(
+            "No authentication configured for this account. " +
+            "Run `openclaw channels add` and select Basecamp to set up credentials.",
+          );
+      }
     },
   },
 
@@ -125,8 +144,14 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
     uiHints: {
       "accounts.*.tokenFile": { label: "Token file path", help: "Path to file containing OAuth token", sensitive: true },
       "accounts.*.token": { label: "Token", help: "Inline OAuth token (prefer tokenFile)", sensitive: true, advanced: true },
-      "accounts.*.bcqProfile": { label: "bcq profile", help: "bcq CLI profile name for auth" },
+      "accounts.*.bcqProfile": { label: "Basecamp CLI profile", help: "Basecamp CLI profile name for auth" },
       "accounts.*.personId": { label: "Person ID", help: "Your Basecamp person ID (numeric)" },
+      "accounts.*.basecampAccountId": { label: "Basecamp Account ID", help: "Numeric Basecamp account ID (auto-set during onboarding)" },
+      "accounts.*.oauthTokenFile": { label: "OAuth token file", help: "Path to OAuth token JSON (auto-managed)", sensitive: true },
+      "accounts.*.oauthClientId": { label: "OAuth Client ID (override)", help: "Override channel-level OAuth client ID for this account" },
+      "accounts.*.oauthClientSecret": { label: "OAuth Client Secret (override)", help: "Override channel-level OAuth secret", sensitive: true },
+      "oauth.clientId": { label: "OAuth Client ID", help: "Basecamp OAuth app client ID for browser-based login" },
+      "oauth.clientSecret": { label: "OAuth Client Secret", help: "Basecamp OAuth app secret", sensitive: true },
       "personas": { label: "Agent personas", help: "Maps agent IDs to Basecamp account IDs for multi-identity outbound", advanced: true },
       "virtualAccounts": { label: "Project scopes", help: "Maps synthetic account IDs to specific projects", advanced: true },
       "dmPolicy": { label: "DM policy", help: "Controls who can DM agents: pairing, allowlist, open, disabled" },
@@ -140,15 +165,15 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
     listAccountIds: (cfg) => listBasecampAccountIds(cfg),
     resolveAccount: (cfg, accountId) => resolveBasecampAccount(cfg, accountId),
     defaultAccountId: (cfg) => resolveDefaultBasecampAccountId(cfg),
-    isConfigured: (account) => Boolean(account.token?.trim() || account.config.tokenFile || account.bcqProfile),
+    isConfigured: (account) => Boolean(account.token?.trim() || account.config.tokenFile || account.config.oauthTokenFile || account.bcqProfile),
     isEnabled: (account) => account.enabled,
     disabledReason: () => "Manually disabled",
-    unconfiguredReason: () => "No bcq profile or token configured",
+    unconfiguredReason: () => "No bcq profile, token, or OAuth token file configured",
     describeAccount: (account) => ({
       accountId: account.accountId,
       name: account.displayName,
       enabled: account.enabled,
-      configured: Boolean(account.token?.trim() || account.config.tokenFile || account.bcqProfile),
+      configured: Boolean(account.token?.trim() || account.config.tokenFile || account.config.oauthTokenFile || account.bcqProfile),
       tokenSource: account.tokenSource,
       bcqProfile: account.bcqProfile,
     }),
@@ -245,42 +270,64 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
         }
       }
 
-      // If bcqProfile is configured, verify bcq auth status before proceeding
-      if (account.bcqProfile) {
+      // Startup token validation for OAuth accounts
+      if (account.tokenSource === "oauth") {
         try {
-          const authResult = await bcqAuthStatus({ profile: account.bcqProfile });
-          if (!authResult.data.authenticated) {
-            ctx.log?.error(
-              `[${account.accountId}] cannot start: bcq profile "${account.bcqProfile}" is not authenticated`,
-            );
-            return;
-          }
+          const { createTokenManager } = await import("./oauth-credentials.js");
+          const tm = createTokenManager(account);
+          await tm.getToken(); // validates + refreshes if needed
         } catch (err) {
           ctx.log?.error(
-            `[${account.accountId}] cannot start: bcq auth check failed for profile "${account.bcqProfile}": ${String(err)}`,
+            `[${account.accountId}] cannot start: OAuth token invalid: ${String(err)}`,
           );
           return;
         }
       }
 
-      if (!account.token && !account.bcqProfile) {
+      // Legacy: verify Basecamp CLI auth status for bcq accounts
+      if (account.tokenSource === "bcq" && account.bcqProfile) {
+        try {
+          const authResult = await bcqAuthStatus({ profile: account.bcqProfile });
+          if (!authResult.data.authenticated) {
+            ctx.log?.error(
+              `[${account.accountId}] cannot start: Basecamp CLI profile "${account.bcqProfile}" is not authenticated`,
+            );
+            return;
+          }
+        } catch (err) {
+          ctx.log?.error(
+            `[${account.accountId}] cannot start: Basecamp CLI auth check failed for profile "${account.bcqProfile}": ${String(err)}`,
+          );
+          return;
+        }
+      }
+
+      if (account.tokenSource === "none") {
         ctx.log?.error(
-          `[${account.accountId}] cannot start: no token (check tokenFile or token config) and no bcqProfile`,
+          `[${account.accountId}] cannot start: no authentication configured`,
         );
         return;
       }
 
-      // Resolve the bcq numeric account ID for API calls.
-      // Prefers explicit bcqAccountId config, falls back to accountId only if numeric.
-      const bcqAccountId =
+      if (!account.token && !account.bcqProfile && account.tokenSource !== "oauth") {
+        ctx.log?.error(
+          `[${account.accountId}] cannot start: no token (check tokenFile or token config), no bcqProfile, and no oauthTokenFile`,
+        );
+        return;
+      }
+
+      // Resolve the numeric Basecamp account ID for API calls.
+      // Prefers explicit basecampAccountId, falls back to bcqAccountId (legacy), then accountId if numeric.
+      const basecampAccountId =
+        account.config.basecampAccountId ??
         account.config.bcqAccountId ??
         (/^\d+$/.test(account.accountId) ? account.accountId : undefined);
 
-      if (!bcqAccountId) {
+      if (!basecampAccountId) {
         ctx.log?.warn(
-          `[${account.accountId}] validation: bcqAccountId could not be resolved — ` +
+          `[${account.accountId}] validation: Basecamp account ID could not be resolved — ` +
           `outbound dispatch and API tools will fail. ` +
-          `Set channels.basecamp.accounts.${account.accountId}.bcqAccountId`,
+          `Set channels.basecamp.accounts.${account.accountId}.basecampAccountId`,
         );
       }
 
@@ -328,7 +375,7 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
               payloadUrl: whConfig.payloadUrl,
               projects: accountProjects,
               types: whConfig.types,
-              bcqOpts: { accountId: bcqAccountId, profile: account.bcqProfile },
+              account,
             },
             registry,
             ctx.log ? {
@@ -407,7 +454,7 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
                 payloadUrl: whShutdownConfig.payloadUrl,
                 projects: whShutdownConfig.projects,
                 types: whShutdownConfig.types,
-                bcqOpts: { accountId: bcqAccountId, profile: account.bcqProfile },
+                account,
               },
               registry,
               ctx.log ? {

@@ -9,7 +9,7 @@
 import type { ChannelResolverAdapter, ChannelResolveResult } from "openclaw/plugin-sdk";
 import type { BasecampPerson, BasecampProject } from "../types.js";
 import { resolveBasecampAccount } from "../config.js";
-import { bcqApiGet } from "../bcq.js";
+import { getClient } from "../basecamp-client.js";
 
 function matchPerson(input: string, people: BasecampPerson[]): BasecampPerson | undefined {
   const lower = input.toLowerCase();
@@ -55,15 +55,12 @@ function matchProject(input: string, projects: BasecampProject[]): BasecampProje
 export const basecampResolverAdapter: ChannelResolverAdapter = {
   resolveTargets: async ({ cfg, accountId, inputs, kind }) => {
     const account = resolveBasecampAccount(cfg, accountId);
-    const opts = {
-      accountId: account.config.bcqAccountId,
-      profile: account.bcqProfile,
-    };
 
     if (kind === "user") {
       let people: BasecampPerson[];
       try {
-        people = await bcqApiGet<BasecampPerson[]>("/people.json", opts.accountId, opts.profile);
+        const client = getClient(account);
+        people = await client.people.list() as any;
       } catch {
         return inputs.map((input) => ({
           input,
@@ -93,7 +90,8 @@ export const basecampResolverAdapter: ChannelResolverAdapter = {
     if (kind === "group") {
       let projects: BasecampProject[];
       try {
-        projects = await bcqApiGet<BasecampProject[]>("/projects.json", opts.accountId, opts.profile);
+        const client = getClient(account);
+        projects = await client.projects.list() as any;
       } catch {
         return inputs.map((input) => ({
           input,

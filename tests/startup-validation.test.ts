@@ -11,10 +11,6 @@ vi.mock("openclaw/plugin-sdk", () => ({
 vi.mock("../src/bcq.js", () => ({
   bcqAuthStatus: vi.fn(),
   execBcqAuthLogin: vi.fn(),
-  bcqApiGet: vi.fn(),
-  bcqMe: vi.fn(),
-  bcqMarkReadingsRead: vi.fn(),
-  CircuitBreaker: vi.fn(),
 }));
 
 vi.mock("../src/config.js", () => ({
@@ -231,7 +227,7 @@ describe("PF-003: bcqAccountId startup warning", () => {
     await basecampChannel.gateway!.startAccount!(ctx as any);
 
     expect(ctx.log.warn).toHaveBeenCalledWith(
-      expect.stringContaining("bcqAccountId could not be resolved"),
+      expect.stringContaining("Basecamp account ID could not be resolved"),
     );
     expect(ctx.log.warn).toHaveBeenCalledWith(
       expect.stringContaining("my-org"),
@@ -250,17 +246,17 @@ describe("PF-003: bcqAccountId startup warning", () => {
     const ctx = makeCtx({}, "12345");
     await basecampChannel.gateway!.startAccount!(ctx as any);
 
-    const bcqWarns = vi.mocked(ctx.log.warn).mock.calls.filter(
-      (c) => String(c[0]).includes("bcqAccountId"),
+    const accountIdWarns = vi.mocked(ctx.log.warn).mock.calls.filter(
+      (c) => String(c[0]).includes("Basecamp account ID"),
     );
-    expect(bcqWarns).toHaveLength(0);
+    expect(accountIdWarns).toHaveLength(0);
   });
 
-  it("does not warn when explicit bcqAccountId is configured", async () => {
+  it("does not warn when explicit basecampAccountId is configured", async () => {
     vi.mocked(resolveBasecampAccountAsync).mockResolvedValue(
       makeAccount({
         accountId: "my-org",
-        config: { personId: "42", bcqProfile: "default", bcqAccountId: "99" },
+        config: { personId: "42", bcqProfile: "default", basecampAccountId: "99" },
       }) as any,
     );
     vi.mocked(bcqAuthStatus).mockResolvedValue({ data: { authenticated: true }, raw: "" });
@@ -268,9 +264,9 @@ describe("PF-003: bcqAccountId startup warning", () => {
     const ctx = makeCtx({}, "my-org");
     await basecampChannel.gateway!.startAccount!(ctx as any);
 
-    const bcqWarns = vi.mocked(ctx.log.warn).mock.calls.filter(
-      (c) => String(c[0]).includes("bcqAccountId"),
+    const accountIdWarns = vi.mocked(ctx.log.warn).mock.calls.filter(
+      (c) => String(c[0]).includes("Basecamp account ID"),
     );
-    expect(bcqWarns).toHaveLength(0);
+    expect(accountIdWarns).toHaveLength(0);
   });
 });

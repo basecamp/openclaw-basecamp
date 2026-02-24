@@ -29,6 +29,7 @@
     }
   },
   "dependencies": {
+    "@basecamp/sdk": "github:basecamp/basecamp-sdk#main",
     "typescript": "^5.0.0",
     "zod": "^4.3.6"
   }

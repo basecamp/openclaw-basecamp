@@ -20,7 +20,8 @@ import { postReplyToEvent } from "./outbound/send.js";
 import { markdownToBasecampHtml } from "./outbound/format.js";
 import { chunkMarkdownText, BASECAMP_TEXT_CHUNK_LIMIT } from "./adapters/outbound.js";
 import { createStructuredLog } from "./logging.js";
-import { CircuitBreaker } from "./bcq.js";
+import { CircuitBreaker } from "./circuit-breaker.js";
+import { BasecampError } from "./basecamp-client.js";
 import { recordCircuitBreakerState, recordDispatchFailure } from "./metrics.js";
 
 /** Per-account outbound circuit breakers. Separate from poller CBs. */
@@ -72,12 +73,16 @@ export async function dispatchBasecampEvent(
   const effectiveAccountId = resolveProjectScopeAccountId(cfg, msg) ?? msg.accountId;
 
   // ----- Route resolution -----
+  // Map BasecampPeerKind ("dm" | "group") → ChatType ("direct" | "group")
+  const toRoutePeer = (p?: { kind: "dm" | "group"; id: string }) =>
+    p ? { kind: (p.kind === "dm" ? "direct" : p.kind) as "direct" | "group", id: p.id } : undefined;
+
   const route = runtime.channel.routing.resolveAgentRoute({
     cfg,
     channel: "basecamp",
     accountId: effectiveAccountId,
-    peer: msg.peer,
-    parentPeer: msg.parentPeer,
+    peer: toRoutePeer(msg.peer),
+    parentPeer: toRoutePeer(msg.parentPeer),
   });
 
   if (!route) {
@@ -154,20 +159,18 @@ export async function dispatchBasecampEvent(
   // ----- Resolve persona for outbound -----
   // The agent may have a dedicated Basecamp persona (service account).
   const personaAccountId = resolvePersonaAccountId(cfg, route.agentId);
-  // Resolve the outbound account's bcqProfile (persona may have its own profile)
   const outboundAccount = personaAccountId
     ? resolveBasecampAccount(cfg, personaAccountId)
     : account;
-  const outboundProfile = outboundAccount.bcqProfile;
-  // Use the bcq account ID for API calls — NOT the OpenClaw account ID.
-  // The OpenClaw account ID ("default") is never valid for bcq --account.
+  // Resolve the numeric account ID for circuit breaker keying and logging.
   const outboundBcqAccountId =
+    outboundAccount.config.basecampAccountId ??
     outboundAccount.config.bcqAccountId ??
     (/^\d+$/.test(outboundAccount.accountId) ? outboundAccount.accountId : undefined);
   if (!outboundBcqAccountId) {
     slog.error("outbound_account_id_missing", {
       outboundAccount: outboundAccount.accountId,
-      hint: "Set config.bcqAccountId to a valid Basecamp account id",
+      hint: "Set config.basecampAccountId to a valid Basecamp account id",
     });
     return false;
   }
@@ -230,15 +233,16 @@ export async function dispatchBasecampEvent(
             recordableType: msg.meta.recordableType,
             peerId: msg.peer.id,
             content: htmlContent,
-            accountId: outboundBcqAccountId,
-            profile: outboundProfile,
+            account: outboundAccount,
             retries: 2,
             circuitBreaker: { instance: outboundCb, key: outboundCbKey },
             correlationId,
           });
 
           if (!result.ok) {
-            throw new Error(result.error ?? "Outbound delivery failed");
+            // Preserve original error for classifyDispatchError
+            if (result.error instanceof Error) throw result.error;
+            throw new Error(result.message ?? "Outbound delivery failed");
           }
         }
       },
@@ -349,11 +353,28 @@ function resolveEngagePolicy(
 
 /**
  * Classify a dispatch error into a broad category for structured logging.
- * Prefers structured error properties (code, status) over message heuristics.
+ * Prefers BasecampError.code when available, falls back to message heuristics.
  */
 function classifyDispatchError(err: unknown): string {
-  const anyErr = err as { message?: unknown; code?: unknown; status?: unknown; statusCode?: unknown };
+  // SDK errors carry a structured code
+  if (err instanceof BasecampError) {
+    switch (err.code) {
+      case "auth":
+      case "forbidden":
+        return "auth";
+      case "rate_limit":
+        return "rate_limit";
+      case "network":
+        return "network";
+      case "not_found":
+        return "not_found";
+      default:
+        return err.code;
+    }
+  }
 
+  // Fallback for non-BasecampError exceptions (network TypeErrors, etc.)
+  const anyErr = err as { message?: unknown; code?: unknown; status?: unknown; statusCode?: unknown };
   const message = typeof anyErr?.message === "string" ? anyErr.message : String(err);
   const lowerMessage = message.toLowerCase();
   const code = typeof anyErr?.code === "string" || typeof anyErr?.code === "number" ? String(anyErr.code) : undefined;
@@ -364,20 +385,18 @@ function classifyDispatchError(err: unknown): string {
         ? anyErr.statusCode
         : undefined;
 
-  // Auth errors: prefer structured HTTP status, then message heuristics.
   if (statusValue === 401 || statusValue === 403) return "auth";
   if (lowerMessage.includes("unauthorized") || lowerMessage.includes("forbidden")) return "auth";
 
-  // Network errors: prefer error codes when available, fall back to message.
   if (code === "ETIMEDOUT" || code === "ECONNREFUSED" || code === "ECONNRESET") return "network";
   if (
     lowerMessage.includes("etimedout") ||
     lowerMessage.includes("econnrefused") ||
     lowerMessage.includes("econnreset") ||
-    lowerMessage.includes("timeout")
+    lowerMessage.includes("timeout") ||
+    lowerMessage.includes("fetch")
   ) return "network";
 
-  // Routing errors: be specific to avoid matching HTTP 404s.
   if (/\bno route\b/.test(lowerMessage)) return "routing";
 
   return "unknown";

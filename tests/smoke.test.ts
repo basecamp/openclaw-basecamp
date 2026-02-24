@@ -1,9 +1,9 @@
 /**
  * Smoke tests: exercise our actual module code against live Basecamp API.
  *
- * These tests call the real plugin functions (pollActivityFeed, bcqGet, etc.)
+ * These tests call the real plugin functions (pollActivityFeed, SDK client, etc.)
  * and verify they handle real API responses correctly. This is NOT a unit test
- * with mocked responses -- it hits the live API via bcq.
+ * with mocked responses -- it hits the live API via @basecamp/sdk.
  *
  * Gated behind OPENCLAW_INTEGRATION=1. When the env var is unset, all tests
  * are skipped (shown as "skipped" in vitest output).
@@ -20,7 +20,8 @@ vi.mock("../src/outbound/send.js", () => ({
   resolveCircleInfoCached: vi.fn(() => undefined),
 }));
 
-import { bcqGet, bcqMe, bcqTimeline, bcqReadings, bcqApiGet } from "../src/bcq.js";
+import { bcqMe } from "../src/bcq.js";
+import { getClient, rawOrThrow } from "../src/basecamp-client.js";
 import { pollActivityFeed } from "../src/inbound/activity.js";
 import { pollReadings } from "../src/inbound/readings.js";
 import { EventDedup } from "../src/inbound/dedup.js";
@@ -42,8 +43,8 @@ const testAccount: ResolvedBasecampAccount = {
   enabled: true,
   personId: "3", // Jeremy's person ID from bcq me
   token: "", // bcq handles auth
-  tokenSource: "none",
-  config: { personId: "3" },
+  tokenSource: "bcq",
+  config: { personId: "3", bcqAccountId: "2914079" },
 };
 
 const log = {
@@ -54,53 +55,40 @@ const log = {
 };
 
 // ---------------------------------------------------------------------------
-// bcq.ts -- verify our wrapper works
+// SDK client -- verify our wrapper works
 // ---------------------------------------------------------------------------
 
-describeIntegration("smoke: bcq.ts", () => {
+describeIntegration("smoke: SDK client", () => {
   it("bcqMe returns authenticated user", async () => {
     const result = await bcqMe();
     expect(result.data).toBeDefined();
-    // bcq me returns { identity: { id, first_name, ... }, accounts: [...] }
     const me = result.data as any;
     expect(me.identity?.id ?? me.id).toBeTruthy();
     console.log("bcqMe:", JSON.stringify(result.data).slice(0, 200));
   });
 
-  it("bcqGet fetches a known API endpoint", async () => {
-    const result = await bcqGet<any[]>("/projects.json", {
-      accountId: testAccount.accountId,
-    });
-    expect(Array.isArray(result.data)).toBe(true);
-    expect(result.data.length).toBeGreaterThan(0);
-    console.log(`bcqGet /projects.json: ${result.data.length} projects`);
-  });
-
-  it("bcqTimeline returns activity events", async () => {
-    const result = await bcqTimeline<any[]>({
-      accountId: testAccount.accountId,
-    });
-    expect(Array.isArray(result.data)).toBe(true);
-    expect(result.data.length).toBeGreaterThan(0);
-    // Verify shape of first event
-    const first = result.data[0];
+  it("client.reports.progress() returns activity events", async () => {
+    const client = getClient(testAccount);
+    const events = await client.reports.progress() as any[];
+    expect(Array.isArray(events)).toBe(true);
+    expect(events.length).toBeGreaterThan(0);
+    const first = events[0];
     expect(first.id).toBeTruthy();
     expect(first.kind).toBeTruthy();
     expect(first.created_at).toBeTruthy();
     expect(first.bucket?.id).toBeTruthy();
-    console.log(`bcqTimeline: ${result.data.length} events, newest kind=${first.kind}`);
+    console.log(`client.reports.progress(): ${events.length} events, newest kind=${first.kind}`);
   });
 
-  it("bcqReadings returns null or readings object", async () => {
-    const result = await bcqReadings<any>({
-      accountId: testAccount.accountId,
-    });
-    // 204 No Content -> null, 200 -> { unreads, reads, memories }
-    if (result.data === null) {
-      console.log("bcqReadings: 204 No Content (no unread items)");
+  it("client.raw.GET /my/readings.json returns null or readings object", async () => {
+    const client = getClient(testAccount);
+    const result = await client.raw.GET("/my/readings.json" as any, {});
+    if (result.response.status === 204) {
+      console.log("readings: 204 No Content (no unread items)");
     } else {
-      expect(result.data).toHaveProperty("unreads");
-      console.log(`bcqReadings: ${result.data.unreads?.length ?? 0} unreads`);
+      const data = await rawOrThrow(result);
+      expect(data).toHaveProperty("unreads");
+      console.log(`readings: ${(data as any).unreads?.length ?? 0} unreads`);
     }
   });
 });
@@ -276,8 +264,9 @@ describeIntegration("smoke: URL parsing with real data", () => {
 // ---------------------------------------------------------------------------
 
 describeIntegration("smoke: directory integration", () => {
-  it("bcqApiGet /people.json returns people array", async () => {
-    const people = await bcqApiGet<any[]>("/people.json", testAccount.accountId);
+  it("client.people.list returns people array", async () => {
+    const client = getClient(testAccount);
+    const people = await client.people.list(Number(testAccount.accountId)) as any[];
     expect(Array.isArray(people)).toBe(true);
     expect(people.length).toBeGreaterThan(0);
     expect(people[0]).toHaveProperty("id");

@@ -1,29 +1,29 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-vi.mock("../src/bcq.js", () => ({
-  bcqApiPost: vi.fn(),
-  bcqPost: vi.fn(),
-  withRetry: vi.fn(),
-  isRetryableError: vi.fn(),
-  BcqError: class BcqError extends Error {
-    constructor(
-      msg: string,
-      public exitCode: number | null,
-      public stderr: string,
-      public command: string[],
-    ) {
-      super(msg);
-      this.name = "BcqError";
-    }
+const mockClient = {
+  projects: { list: vi.fn() },
+  people: { list: vi.fn(), listForProject: vi.fn() },
+  authorization: { getInfo: vi.fn() },
+  campfires: { createLine: vi.fn() },
+  comments: { create: vi.fn() },
+  reports: { progress: vi.fn() },
+  raw: {
+    GET: vi.fn(),
+    POST: vi.fn(),
+    PUT: vi.fn(),
+    DELETE: vi.fn(),
   },
-  CircuitBreaker: class CircuitBreaker {
-    private _open = false;
-    isOpen() { return this._open; }
-    recordFailure() {}
-    recordSuccess() {}
-    getState() { return { failures: 0, trippedAt: null }; }
-    setOpen(v: boolean) { this._open = v; }
+};
+
+vi.mock("../src/basecamp-client.js", () => ({
+  getClient: vi.fn(() => mockClient),
+  numId: (_label: string, value: string | number) => Number(value),
+  rawOrThrow: vi.fn(async (result: any) => result?.data),
+  BasecampError: class BasecampError extends Error {
+    code: string;
+    constructor(msg: string, code: string) { super(msg); this.code = code; }
   },
+  clearClients: vi.fn(),
 }));
 vi.mock("../src/outbound/format.js", () => ({
   markdownToBasecampHtml: vi.fn((t: string) => t),
@@ -36,7 +36,16 @@ vi.mock("../src/config.js", () => ({
 }));
 
 import { postCampfireLine, postComment, postReplyToEvent } from "../src/outbound/send.js";
-import { bcqApiPost, bcqPost, withRetry, isRetryableError, BcqError, CircuitBreaker } from "../src/bcq.js";
+import type { ResolvedBasecampAccount } from "../src/types.js";
+
+const TEST_ACCOUNT: ResolvedBasecampAccount = {
+  accountId: "test-account",
+  enabled: true,
+  personId: "99",
+  token: "test-token",
+  tokenSource: "config" as const,
+  config: { personId: "99", bcqAccountId: "12345" },
+};
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -47,78 +56,84 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("postCampfireLine", () => {
-  it("calls bcqApiPost directly when retries is not set", async () => {
-    vi.mocked(bcqApiPost).mockResolvedValue({ id: 42 });
+  it("calls client.campfires.createLine and returns ok", async () => {
+    mockClient.campfires.createLine.mockResolvedValue({ id: 42 });
 
     const result = await postCampfireLine({
       bucketId: "1",
       transcriptId: "2",
       content: "Hello",
+      account: TEST_ACCOUNT,
     });
 
     expect(result).toEqual({ ok: true, recordingId: "42" });
-    expect(bcqApiPost).toHaveBeenCalledTimes(1);
-    expect(withRetry).not.toHaveBeenCalled();
+    expect(mockClient.campfires.createLine).toHaveBeenCalledTimes(1);
+    expect(mockClient.campfires.createLine).toHaveBeenCalledWith(1, 2, { content: "Hello" });
   });
 
-  it("calls withRetry with correct maxAttempts when retries > 0", async () => {
-    vi.mocked(withRetry).mockResolvedValue({ id: 99 });
+  it("retries on retryable TypeError and succeeds", async () => {
+    mockClient.campfires.createLine
+      .mockRejectedValueOnce(new TypeError("fetch failed"))
+      .mockResolvedValueOnce({ id: 99 });
 
     const result = await postCampfireLine({
       bucketId: "1",
       transcriptId: "2",
       content: "Hello",
+      account: TEST_ACCOUNT,
       retries: 3,
     });
 
     expect(result).toEqual({ ok: true, recordingId: "99" });
-    expect(withRetry).toHaveBeenCalledTimes(1);
-    expect(withRetry).toHaveBeenCalledWith(expect.any(Function), { maxAttempts: 4 });
-    expect(bcqApiPost).not.toHaveBeenCalled(); // withRetry wraps it
+    expect(mockClient.campfires.createLine).toHaveBeenCalledTimes(2);
   });
 
-  it("returns retryable=true on transient BcqError", async () => {
-    const err = new (BcqError as any)("timeout", 1, "ETIMEDOUT", ["bcq"]);
-    vi.mocked(bcqApiPost).mockRejectedValue(err);
-    vi.mocked(isRetryableError).mockReturnValue(true);
+  it("returns retryable=true on TypeError with fetch message", async () => {
+    mockClient.campfires.createLine.mockRejectedValue(new TypeError("Failed to fetch"));
 
     const result = await postCampfireLine({
       bucketId: "1",
       transcriptId: "2",
       content: "Hello",
+      account: TEST_ACCOUNT,
     });
 
     expect(result.ok).toBe(false);
-    expect(result.retryable).toBe(true);
-    expect(result.error).toContain("timeout");
+    if (!result.ok) {
+      expect(result.retryable).toBe(true);
+    }
   });
 
-  it("returns retryable=false on permanent BcqError", async () => {
-    const err = new (BcqError as any)("forbidden", 1, "403 Forbidden", ["bcq"]);
-    vi.mocked(bcqApiPost).mockRejectedValue(err);
-    vi.mocked(isRetryableError).mockReturnValue(false);
+  it("returns retryable=false on non-retryable Error", async () => {
+    mockClient.campfires.createLine.mockRejectedValue(new Error("403 Forbidden"));
 
     const result = await postCampfireLine({
       bucketId: "1",
       transcriptId: "2",
       content: "Hello",
+      account: TEST_ACCOUNT,
     });
 
     expect(result.ok).toBe(false);
-    expect(result.retryable).toBe(false);
+    if (!result.ok) {
+      expect(result.retryable).toBe(false);
+    }
   });
 
-  it("returns retryable=false for non-BcqError", async () => {
-    vi.mocked(bcqApiPost).mockRejectedValue(new Error("generic error"));
+  it("returns retryable=false for non-TypeError", async () => {
+    mockClient.campfires.createLine.mockRejectedValue(new Error("generic error"));
 
     const result = await postCampfireLine({
       bucketId: "1",
       transcriptId: "2",
       content: "Hello",
+      account: TEST_ACCOUNT,
     });
 
     expect(result.ok).toBe(false);
-    expect(result.retryable).toBe(false);
+    if (!result.ok) {
+      expect(result.retryable).toBe(false);
+    }
   });
 });
 
@@ -127,47 +142,52 @@ describe("postCampfireLine", () => {
 // ---------------------------------------------------------------------------
 
 describe("postComment", () => {
-  it("calls bcqApiPost directly when retries is not set", async () => {
-    vi.mocked(bcqApiPost).mockResolvedValue({ id: 55 });
+  it("calls client.comments.create and returns ok", async () => {
+    mockClient.comments.create.mockResolvedValue({ id: 55 });
 
     const result = await postComment({
       bucketId: "1",
       recordingId: "2",
       content: "A comment",
+      account: TEST_ACCOUNT,
     });
 
     expect(result).toEqual({ ok: true, commentId: "55" });
-    expect(bcqApiPost).toHaveBeenCalledTimes(1);
-    expect(withRetry).not.toHaveBeenCalled();
+    expect(mockClient.comments.create).toHaveBeenCalledTimes(1);
+    expect(mockClient.comments.create).toHaveBeenCalledWith(1, 2, { content: "A comment" });
   });
 
-  it("calls withRetry with correct maxAttempts when retries > 0", async () => {
-    vi.mocked(withRetry).mockResolvedValue({ id: 77 });
+  it("retries on retryable TypeError and succeeds", async () => {
+    mockClient.comments.create
+      .mockRejectedValueOnce(new TypeError("fetch failed"))
+      .mockResolvedValueOnce({ id: 77 });
 
     const result = await postComment({
       bucketId: "1",
       recordingId: "2",
       content: "A comment",
+      account: TEST_ACCOUNT,
       retries: 2,
     });
 
     expect(result).toEqual({ ok: true, commentId: "77" });
-    expect(withRetry).toHaveBeenCalledWith(expect.any(Function), { maxAttempts: 3 });
+    expect(mockClient.comments.create).toHaveBeenCalledTimes(2);
   });
 
-  it("returns retryable on BcqError failure", async () => {
-    const err = new (BcqError as any)("fail", 1, "ECONNRESET", ["bcq"]);
-    vi.mocked(bcqApiPost).mockRejectedValue(err);
-    vi.mocked(isRetryableError).mockReturnValue(true);
+  it("returns retryable on TypeError failure", async () => {
+    mockClient.comments.create.mockRejectedValue(new TypeError("Failed to fetch"));
 
     const result = await postComment({
       bucketId: "1",
       recordingId: "2",
       content: "A comment",
+      account: TEST_ACCOUNT,
     });
 
     expect(result.ok).toBe(false);
-    expect(result.retryable).toBe(true);
+    if (!result.ok) {
+      expect(result.retryable).toBe(true);
+    }
   });
 });
 
@@ -176,8 +196,8 @@ describe("postComment", () => {
 // ---------------------------------------------------------------------------
 
 describe("postReplyToEvent", () => {
-  it("passes retries through to postCampfireLine for Chat::Transcript", async () => {
-    vi.mocked(withRetry).mockResolvedValue({ id: 10 });
+  it("posts campfire line for Chat::Transcript and returns messageId", async () => {
+    mockClient.campfires.createLine.mockResolvedValue({ id: 10 });
 
     const result = await postReplyToEvent({
       bucketId: "1",
@@ -185,16 +205,16 @@ describe("postReplyToEvent", () => {
       recordableType: "Chat::Transcript",
       peerId: "recording:2",
       content: "Reply",
+      account: TEST_ACCOUNT,
       retries: 2,
     });
 
     expect(result.ok).toBe(true);
     expect(result.messageId).toBe("10");
-    expect(withRetry).toHaveBeenCalledWith(expect.any(Function), { maxAttempts: 3 });
   });
 
-  it("passes retries through to postComment for non-chat types", async () => {
-    vi.mocked(withRetry).mockResolvedValue({ id: 20 });
+  it("posts comment for non-chat types and returns messageId", async () => {
+    mockClient.comments.create.mockResolvedValue({ id: 20 });
 
     const result = await postReplyToEvent({
       bucketId: "1",
@@ -202,18 +222,16 @@ describe("postReplyToEvent", () => {
       recordableType: "Todo",
       peerId: "recording:2",
       content: "Comment reply",
+      account: TEST_ACCOUNT,
       retries: 1,
     });
 
     expect(result.ok).toBe(true);
     expect(result.messageId).toBe("20");
-    expect(withRetry).toHaveBeenCalledWith(expect.any(Function), { maxAttempts: 2 });
   });
 
   it("returns retryable field from underlying call", async () => {
-    const err = new (BcqError as any)("timeout", 1, "ETIMEDOUT", ["bcq"]);
-    vi.mocked(bcqApiPost).mockRejectedValue(err);
-    vi.mocked(isRetryableError).mockReturnValue(true);
+    mockClient.comments.create.mockRejectedValue(new TypeError("Failed to fetch"));
 
     const result = await postReplyToEvent({
       bucketId: "1",
@@ -221,6 +239,7 @@ describe("postReplyToEvent", () => {
       recordableType: "Message",
       peerId: "recording:2",
       content: "Reply",
+      account: TEST_ACCOUNT,
     });
 
     expect(result.ok).toBe(false);
@@ -233,60 +252,58 @@ describe("postReplyToEvent", () => {
 // ---------------------------------------------------------------------------
 
 describe("postCampfireLine with circuit breaker", () => {
-  it("uses bcqPost instead of bcqApiPost when circuitBreaker is provided", async () => {
-    const cb = new (CircuitBreaker as any)();
-    vi.mocked(bcqPost).mockResolvedValue({ data: { id: 100 }, raw: "" });
+  it("calls createLine through circuit breaker", async () => {
+    const { CircuitBreaker } = await import("../src/circuit-breaker.js");
+    const cb = new CircuitBreaker();
+    mockClient.campfires.createLine.mockResolvedValue({ id: 100 });
 
     const result = await postCampfireLine({
       bucketId: "1",
       transcriptId: "2",
       content: "Hello",
+      account: TEST_ACCOUNT,
       circuitBreaker: { instance: cb, key: "outbound" },
     });
 
     expect(result).toEqual({ ok: true, recordingId: "100" });
-    expect(bcqPost).toHaveBeenCalledTimes(1);
-    expect(bcqApiPost).not.toHaveBeenCalled();
-    expect(bcqPost).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.objectContaining({
-        circuitBreaker: { instance: cb, key: "outbound" },
-      }),
-    );
+    expect(mockClient.campfires.createLine).toHaveBeenCalledTimes(1);
   });
 
-  it("returns error when bcqPost fails with circuit breaker", async () => {
-    const cb = new (CircuitBreaker as any)();
-    const err = new (BcqError as any)("Circuit breaker open", null, "", ["bcq"]);
-    vi.mocked(bcqPost).mockRejectedValue(err);
-    vi.mocked(isRetryableError).mockReturnValue(false);
+  it("returns error when circuit breaker is open", async () => {
+    const { CircuitBreaker } = await import("../src/circuit-breaker.js");
+    const cb = new CircuitBreaker({ threshold: 1, cooldownMs: 60_000 });
+    cb.recordFailure("outbound"); // trips at threshold=1
 
     const result = await postCampfireLine({
       bucketId: "1",
       transcriptId: "2",
       content: "Hello",
+      account: TEST_ACCOUNT,
       circuitBreaker: { instance: cb, key: "outbound" },
     });
 
     expect(result.ok).toBe(false);
-    expect(result.error).toContain("Circuit breaker open");
+    if (!result.ok) {
+      expect(result.message).toContain("Circuit breaker open");
+    }
   });
 });
 
 describe("postComment with circuit breaker", () => {
-  it("uses bcqPost instead of bcqApiPost when circuitBreaker is provided", async () => {
-    const cb = new (CircuitBreaker as any)();
-    vi.mocked(bcqPost).mockResolvedValue({ data: { id: 200 }, raw: "" });
+  it("calls create through circuit breaker", async () => {
+    const { CircuitBreaker } = await import("../src/circuit-breaker.js");
+    const cb = new CircuitBreaker();
+    mockClient.comments.create.mockResolvedValue({ id: 200 });
 
     const result = await postComment({
       bucketId: "1",
       recordingId: "2",
       content: "A comment",
+      account: TEST_ACCOUNT,
       circuitBreaker: { instance: cb, key: "outbound" },
     });
 
     expect(result).toEqual({ ok: true, commentId: "200" });
-    expect(bcqPost).toHaveBeenCalledTimes(1);
-    expect(bcqApiPost).not.toHaveBeenCalled();
+    expect(mockClient.comments.create).toHaveBeenCalledTimes(1);
   });
 });

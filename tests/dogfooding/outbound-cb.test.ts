@@ -12,7 +12,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { dispatchBasecampEvent } from "../../src/dispatch.js";
 import type { BasecampInboundMessage, ResolvedBasecampAccount } from "../../src/types.js";
-import { CircuitBreaker } from "../../src/bcq.js";
+import { CircuitBreaker } from "../../src/circuit-breaker.js";
 import { getAccountMetrics, clearMetrics, recordCircuitBreakerState, recordDispatchFailure } from "../../src/metrics.js";
 
 // ---------------------------------------------------------------------------
