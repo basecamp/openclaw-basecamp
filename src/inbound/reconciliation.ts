@@ -13,8 +13,8 @@
  */
 
 import type { BasecampActivityEvent, BasecampRecordableType, ResolvedBasecampAccount } from "../types.js";
-import type { EventDedup } from "./dedup.js";
-import { isNormalizableKind, recordableTypeForKind } from "./normalize.js";
+import { EventDedup } from "./dedup.js";
+import { isNormalizableKind, recordableTypeForKind, resolveEventKind } from "./normalize.js";
 
 // Which recordable types can be promoted to safety-net direct polling
 const PROMOTABLE_TYPES: Partial<Record<BasecampRecordableType, string>> = {
@@ -128,7 +128,7 @@ export async function runReconciliation(
     const primaryKey = `activity:${event.id}`;
     const recordingId = event.recording?.id;
     const secondaryKey = recordingId
-      ? `${recordingId}:${resolveEventKindFromRaw(event.kind)}:${event.created_at}`
+      ? EventDedup.secondaryKey(String(recordingId), resolveEventKind(event.kind), event.created_at)
       : undefined;
 
     if (!dedup.hasSeen(primaryKey, secondaryKey)) {
@@ -217,16 +217,6 @@ function applyPromotionLogic(opts: {
   }
 
   return result;
-}
-
-/** Simplified event kind resolver (mirrors normalize.ts resolveEventKind). */
-function resolveEventKindFromRaw(kind: string): string {
-  if (kind.endsWith("_created")) return "created";
-  if (kind.endsWith("_completed")) return "completed";
-  if (kind.endsWith("_edited") || kind === "edited") return "edited";
-  if (kind.endsWith("_moved")) return "moved";
-  if (kind.endsWith("_assignment_changed")) return "assigned";
-  return kind;
 }
 
 // ---------------------------------------------------------------------------

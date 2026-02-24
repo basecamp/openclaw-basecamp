@@ -106,7 +106,7 @@ export function recordableTypeForKind(kind: string): BasecampRecordableType | un
 }
 
 /** Map event.kind to a normalized eventKind for our domain model. */
-function resolveEventKind(kind: string): string {
+export function resolveEventKind(kind: string): string {
   if (kind.endsWith("_created")) return "created";
   if (kind.endsWith("_completed")) return "completed";
   if (kind.endsWith("_edited") || kind === "edited") return "edited";
