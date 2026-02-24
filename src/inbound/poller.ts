@@ -225,10 +225,6 @@ export async function startCompositePoller(
 
   let lastReconciliationPoll = 0;
 
-  // Tier-2 escalation state
-  const tier2 = snConfig.tier2;
-  const escalationState = new Map<string, { rapidCycles: number; escalatedAt: number }>();
-
   slog.info("started", {
     activityMs: activityIntervalMs,
     readingsMs: readingsIntervalMs,
@@ -507,7 +503,6 @@ export async function startCompositePoller(
     if (rcConfig.enabled) {
       const rcDue = now - lastReconciliationPoll >= rcConfig.intervalMs;
       if (rcDue) {
-        lastReconciliationPoll = now;
         try {
           const client = getClient(account);
           const result = await runReconciliation({
@@ -519,6 +514,8 @@ export async function startCompositePoller(
             promotionState,
             log,
           });
+
+          lastReconciliationPoll = now;
 
           promotionState = {
             promotions: result.promotions,
@@ -536,6 +533,7 @@ export async function startCompositePoller(
             promotedTypes: result.promotions.map((p) => p.type),
           });
         } catch (err) {
+          // Don't update lastReconciliationPoll — retry on next loop iteration
           slog.error("reconciliation_error", { error: String(err) });
         }
       }
@@ -548,6 +546,9 @@ export async function startCompositePoller(
     const sleepCandidates = [nextActivityDue, nextReadingsDue, nextAssignmentsDue];
     if (accountSnProjects.length > 0) {
       sleepCandidates.push(lastSafetyNetPoll + safetyNetIntervalMs + safetyNetBackoff - Date.now());
+    }
+    if (rcConfig.enabled) {
+      sleepCandidates.push(lastReconciliationPoll + rcConfig.intervalMs - Date.now());
     }
     const sleepMs = Math.max(1000, Math.min(...sleepCandidates));
 

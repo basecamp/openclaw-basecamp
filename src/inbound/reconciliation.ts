@@ -17,11 +17,11 @@ import type { EventDedup } from "./dedup.js";
 import { isNormalizableKind, recordableTypeForKind } from "./normalize.js";
 
 // Which recordable types can be promoted to safety-net direct polling
-const PROMOTABLE_TYPES: Record<BasecampRecordableType, string> = {
+const PROMOTABLE_TYPES: Partial<Record<BasecampRecordableType, string>> = {
   "Kanban::Card": "cards",
   "Todo": "todos",
   "Question::Answer": "checkins",
-} as any;
+};
 
 // ---------------------------------------------------------------------------
 // Promotion state
