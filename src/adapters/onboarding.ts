@@ -1,8 +1,11 @@
 /**
  * Basecamp onboarding adapter — guides users through initial channel setup.
  *
- * Prompts for bcq profile selection, Basecamp account, person ID, and DM policy
- * using the WizardPrompter from the onboarding context.
+ * Supports two authentication paths:
+ * - Browser-based OAuth (recommended) — uses @basecamp/sdk interactive login
+ * - Legacy Basecamp CLI profile — uses bcq auth for token management
+ *
+ * Both paths converge on discoverIdentity() for account/person resolution.
  */
 
 import type { OpenClawConfig, ChannelOnboardingAdapter, ChannelOnboardingDmPolicy } from "openclaw/plugin-sdk";
@@ -14,7 +17,7 @@ import {
   resolveDefaultBasecampAccountId,
   resolveBasecampAccount,
 } from "../config.js";
-import { bcqMe, bcqAuthStatus, bcqProfileList } from "../bcq.js";
+import { bcqAuthStatus, bcqProfileList } from "../bcq.js";
 import type { BcqOptions } from "../bcq.js";
 
 const channel = "basecamp" as const;
@@ -64,14 +67,14 @@ export const basecampOnboardingAdapter: ChannelOnboardingAdapter = {
     const accountIds = listBasecampAccountIds(cfg);
     const configured = accountIds.some((id) => {
       const account = resolveBasecampAccount(cfg, id);
-      return account.tokenSource !== "none" && account.personId;
+      return account.tokenSource !== "none" && !!account.personId;
     });
 
     return {
       channel,
       configured,
       statusLines: [`Basecamp: ${configured ? "configured" : "needs setup"}`],
-      selectionHint: configured ? "configured" : "requires bcq auth",
+      selectionHint: configured ? "configured" : "requires setup",
       quickstartScore: configured ? 1 : 5,
     };
   },
@@ -84,91 +87,7 @@ export const basecampOnboardingAdapter: ChannelOnboardingAdapter = {
   }) => {
     let next = cfg;
 
-    // Step 1: Discover available bcq profiles
-    let profileNames: string[] = [];
-    try {
-      const profileResult = await bcqProfileList();
-      profileNames = profileResult.data;
-    } catch {
-      // bcq profiles not available — proceed without profile selection
-    }
-
-    let selectedProfile: string | undefined;
-    if (profileNames.length > 1) {
-      const choice = await prompter.select({
-        message: "bcq profile",
-        options: [
-          ...profileNames.map((name) => ({ value: name, label: name })),
-          { value: "__none__", label: "Use default (no profile)" },
-        ],
-      });
-      selectedProfile = choice === "__none__" ? undefined : choice;
-    } else if (profileNames.length === 1) {
-      selectedProfile = profileNames[0];
-    }
-
-    // Step 2: Check auth status
-    const bcqOpts: BcqOptions = selectedProfile ? { profile: selectedProfile } : {};
-    let authenticated = false;
-    try {
-      const authResult = await bcqAuthStatus(bcqOpts);
-      authenticated = authResult.data.authenticated;
-    } catch {
-      // Auth check failed
-    }
-
-    if (!authenticated) {
-      await prompter.note(
-        [
-          "bcq is not authenticated. Run:",
-          selectedProfile
-            ? `  bcq auth login --profile ${selectedProfile}`
-            : "  bcq auth login",
-          "Then re-run setup.",
-        ].join("\n"),
-        "Basecamp auth",
-      );
-    }
-
-    // Step 3: Discover Basecamp accounts from bcq me
-    type BcqAccount = { id: number; name: string; href?: string };
-    let bcqAccounts: BcqAccount[] = [];
-    let meIdentity: { id: number; name: string; email_address: string } | undefined;
-
-    if (authenticated) {
-      try {
-        const meResult = await bcqMe(bcqOpts);
-        const data = meResult.data as unknown as {
-          accounts?: BcqAccount[];
-          identity?: { id: number; name: string; email_address: string };
-        };
-        bcqAccounts = data.accounts ?? [];
-        meIdentity = data.identity;
-      } catch {
-        // bcq me failed — proceed without account list
-      }
-    }
-
-    // Step 4: Select Basecamp account (bcq --account)
-    let selectedBcqAccountId: string | undefined;
-    if (bcqAccounts.length > 1) {
-      const choice = await prompter.select({
-        message: "Basecamp account",
-        options: bcqAccounts.map((a) => ({
-          value: String(a.id),
-          label: `${a.name} (${a.id})`,
-        })),
-      });
-      selectedBcqAccountId = choice;
-    } else if (bcqAccounts.length === 1) {
-      selectedBcqAccountId = String(bcqAccounts[0]!.id);
-      await prompter.note(
-        `Using account: ${bcqAccounts[0]!.name} (${selectedBcqAccountId})`,
-        "Basecamp account",
-      );
-    }
-
-    // Step 5: Resolve OpenClaw account ID
+    // Step 1: Resolve OpenClaw account ID
     const basecampOverride = accountOverrides.basecamp?.trim();
     const defaultAccountId = resolveDefaultBasecampAccountId(cfg);
     let accountId = basecampOverride
@@ -200,8 +119,171 @@ export const basecampOnboardingAdapter: ChannelOnboardingAdapter = {
       }
     }
 
-    // Step 6: Resolve person ID
-    let personId = meIdentity ? String(meIdentity.id) : "";
+    // Step 2: Auth method choice
+    // Probe for CLI availability
+    let cliProfileNames: string[] = [];
+    try {
+      const profileResult = await bcqProfileList();
+      cliProfileNames = profileResult.data;
+    } catch {
+      // CLI not installed or profiles unavailable
+    }
+
+    const cliAvailable = cliProfileNames.length > 0;
+
+    type AuthMethod = "oauth" | "cli";
+    let authMethod: AuthMethod;
+
+    if (cliAvailable) {
+      const choice = await prompter.select({
+        message: "How do you want to authenticate?",
+        options: [
+          { value: "oauth", label: "Authenticate with browser (recommended)" },
+          { value: "cli", label: "Use existing Basecamp CLI profile" },
+        ],
+      });
+      authMethod = choice as AuthMethod;
+    } else {
+      authMethod = "oauth";
+    }
+
+    // Step 3: Obtain token provider (branched by auth method)
+    let accessToken: string | undefined;
+    let selectedProfile: string | undefined;
+    let oauthTokenFile: string | undefined;
+    let promptedClientId: string | undefined;
+    let promptedClientSecret: string | undefined;
+
+    if (authMethod === "oauth") {
+      // Resolve clientId: check resolved account's oauthClientId (falls through to channel-level)
+      const resolved = resolveBasecampAccount(cfg, accountId);
+      let clientId = resolved.oauthClientId;
+      let clientSecret = resolved.oauthClientSecret;
+
+      if (!clientId) {
+        await prompter.note(
+          "You'll need a Basecamp OAuth app. Register one at:\nhttps://launchpad.37signals.com/integrations",
+          "OAuth setup",
+        );
+        const enteredId = await prompter.text({
+          message: "Enter your Basecamp OAuth app Client ID",
+          validate: (value) => (value?.trim() ? undefined : "Required"),
+        });
+        clientId = String(enteredId).trim();
+        promptedClientId = clientId;
+
+        const enteredSecret = await prompter.text({
+          message: "Client Secret (leave blank to skip)",
+        });
+        const secretVal = String(enteredSecret).trim();
+        if (secretVal) {
+          clientSecret = secretVal;
+          promptedClientSecret = secretVal;
+        }
+      }
+
+      // Run interactive login
+      const { interactiveLogin, resolveTokenFilePath } = await import("../oauth-credentials.js");
+      oauthTokenFile = resolveTokenFilePath(accountId);
+      const partialAccount = {
+        ...resolved,
+        accountId,
+        oauthClientId: clientId,
+        oauthClientSecret: clientSecret,
+        config: { ...resolved.config, oauthTokenFile },
+      };
+      const token = await interactiveLogin(partialAccount, { clientId, clientSecret });
+      accessToken = token.accessToken;
+
+      // Build a token provider for later use if needed
+    } else {
+      // CLI path
+      if (cliProfileNames.length > 1) {
+        const choice = await prompter.select({
+          message: "Basecamp CLI profile",
+          options: [
+            ...cliProfileNames.map((name) => ({ value: name, label: name })),
+            { value: "__none__", label: "Use default (no profile)" },
+          ],
+        });
+        selectedProfile = choice === "__none__" ? undefined : choice;
+      } else if (cliProfileNames.length === 1) {
+        selectedProfile = cliProfileNames[0];
+      }
+
+      const bcqOpts: BcqOptions = selectedProfile ? { profile: selectedProfile } : {};
+      let authenticated = false;
+      try {
+        const authResult = await bcqAuthStatus(bcqOpts);
+        authenticated = authResult.data.authenticated;
+      } catch {
+        // Auth check failed
+      }
+
+      if (!authenticated) {
+        await prompter.note(
+          [
+            "Basecamp CLI is not authenticated. Run:",
+            selectedProfile
+              ? `  basecamp auth login --profile ${selectedProfile}`
+              : "  basecamp auth login",
+            "Then re-run setup.",
+          ].join("\n"),
+          "Basecamp auth",
+        );
+      }
+
+      // Get token for identity discovery
+      if (authenticated) {
+        try {
+          const { bcqTokenProvider } = await import("../basecamp-client.js");
+          const provider = bcqTokenProvider(selectedProfile);
+          accessToken = await provider();
+        } catch {
+          // Token extraction failed — will fall back to manual entry
+        }
+      }
+    }
+
+    // Step 4: Discover identity
+    type DiscoveredAccount = { id: number; name: string; product: string; href: string; appHref: string };
+    let discoveredAccounts: DiscoveredAccount[] = [];
+    let identityId: number | undefined;
+    let identityName: string | undefined;
+
+    if (accessToken) {
+      try {
+        const { discoverIdentity } = await import("@basecamp/sdk/oauth");
+        const info = await discoverIdentity(accessToken);
+        identityId = info.identity.id;
+        identityName = [info.identity.firstName, info.identity.lastName].filter(Boolean).join(" ");
+        discoveredAccounts = info.accounts.filter((a: DiscoveredAccount) => a.product === "bc3");
+      } catch {
+        // Discovery failed — fall back to manual entry
+      }
+    }
+
+    // Step 5: Select Basecamp account
+    let basecampAccountId: string | undefined;
+    if (discoveredAccounts.length > 1) {
+      const choice = await prompter.select({
+        message: "Basecamp account",
+        options: discoveredAccounts.map((a) => ({
+          value: String(a.id),
+          label: `${a.name} (${a.id})`,
+        })),
+      });
+      basecampAccountId = choice;
+    } else if (discoveredAccounts.length === 1) {
+      basecampAccountId = String(discoveredAccounts[0]!.id);
+      await prompter.note(
+        `Using account: ${discoveredAccounts[0]!.name} (${basecampAccountId})`,
+        "Basecamp account",
+      );
+    }
+
+    // Step 6: Resolve personId
+    let personId = identityId ? String(identityId) : "";
     if (!personId) {
       const entered = await prompter.text({
         message: "Basecamp person ID (your service account's person ID)",
@@ -210,7 +292,7 @@ export const basecampOnboardingAdapter: ChannelOnboardingAdapter = {
       personId = String(entered).trim();
     } else {
       await prompter.note(
-        `Detected person ID: ${personId} (${meIdentity?.name ?? ""})`,
+        `Detected person ID: ${personId}${identityName ? ` (${identityName})` : ""}`,
         "Basecamp identity",
       );
     }
@@ -220,6 +302,35 @@ export const basecampOnboardingAdapter: ChannelOnboardingAdapter = {
     const accounts = (section.accounts ?? {}) as Record<string, Record<string, unknown>>;
     const existingAccount = accounts[accountId] ?? {};
 
+    // Auth-method conflict cleanup: build patch and clear stale keys
+    const accountPatch: Record<string, unknown> = {
+      ...existingAccount,
+      personId,
+      enabled: true,
+      ...(basecampAccountId ? { basecampAccountId } : {}),
+    };
+
+    if (authMethod === "oauth") {
+      accountPatch.oauthTokenFile = oauthTokenFile;
+      // Clear CLI-path keys
+      delete accountPatch.bcqProfile;
+    } else {
+      if (selectedProfile) accountPatch.bcqProfile = selectedProfile;
+      if (basecampAccountId) accountPatch.bcqAccountId = basecampAccountId;
+      // Clear OAuth-path keys
+      delete accountPatch.oauthTokenFile;
+      delete accountPatch.oauthClientId;
+      delete accountPatch.oauthClientSecret;
+    }
+
+    // Build channel-level OAuth config when credentials were prompted
+    const channelOauth = promptedClientId
+      ? {
+          clientId: promptedClientId,
+          ...(promptedClientSecret ? { clientSecret: promptedClientSecret } : {}),
+        }
+      : section.oauth;
+
     next = {
       ...next,
       channels: {
@@ -227,41 +338,34 @@ export const basecampOnboardingAdapter: ChannelOnboardingAdapter = {
         basecamp: {
           ...section,
           enabled: true,
+          ...(channelOauth ? { oauth: channelOauth } : {}),
           accounts: {
             ...accounts,
-            [accountId]: {
-              ...existingAccount,
-              personId,
-              enabled: true,
-              ...(selectedProfile ? { bcqProfile: selectedProfile } : {}),
-              ...(selectedBcqAccountId ? { bcqAccountId: selectedBcqAccountId } : {}),
-            },
+            [accountId]: accountPatch,
           },
         },
       },
     };
 
-    // Step 8: Offer to add another identity via hatch flow
-    if (authenticated) {
-      const postChoice = await prompter.select({
-        message: "What would you like to do?",
-        options: [
-          { value: "done", label: "Done — use this account" },
-          { value: "hatch", label: "Add another identity" },
-        ],
-      });
+    // Step 8: Offer to add another identity via hatch
+    const postChoice = await prompter.select({
+      message: "What would you like to do?",
+      options: [
+        { value: "done", label: "Done — use this account" },
+        { value: "hatch", label: "Add another identity" },
+      ],
+    });
 
-      if (postChoice === "hatch") {
-        try {
-          const { hatchIdentity } = await import("./hatch.js");
-          const result = await hatchIdentity(next, prompter);
-          next = result.cfg;
-        } catch {
-          await prompter.note(
-            "Failed to add another identity. You can add more later with `openclaw channels hatch basecamp`.",
-            "Hatch error",
-          );
-        }
+    if (postChoice === "hatch") {
+      try {
+        const { hatchIdentity } = await import("./hatch.js");
+        const result = await hatchIdentity(next, prompter);
+        next = result.cfg;
+      } catch {
+        await prompter.note(
+          "Failed to add another identity. You can add more later with `openclaw channels hatch basecamp`.",
+          "Hatch error",
+        );
       }
     }
 

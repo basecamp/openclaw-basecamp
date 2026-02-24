@@ -40,9 +40,21 @@ vi.mock("../src/dispatch.js", () => ({
   dispatchBasecampEvent: vi.fn(),
 }));
 
-// Mock bcq
+// Mock bcq (auth functions still used by channel.ts)
 vi.mock("../src/bcq.js", () => ({
   bcqAuthStatus: vi.fn(),
+}));
+
+// Mock basecamp-client (transitive dep via outbound/send.js)
+vi.mock("../src/basecamp-client.js", () => ({
+  getClient: vi.fn(() => ({})),
+  numId: (_label: string, value: string | number) => Number(value),
+  rawOrThrow: vi.fn(async (result: any) => result?.data),
+  BasecampError: class BasecampError extends Error {
+    code: string;
+    constructor(msg: string, code: string) { super(msg); this.code = code; }
+  },
+  clearClients: vi.fn(),
 }));
 
 // Mock adapter imports so channel.ts loads cleanly
@@ -58,6 +70,7 @@ vi.mock("../src/adapters/groups.js", () => ({ basecampGroupAdapter: {} }));
 vi.mock("../src/adapters/agent-prompt.js", () => ({ basecampAgentPromptAdapter: {} }));
 
 import { basecampChannel } from "../src/channel.js";
+import { resolveBasecampAccount } from "../src/config.js";
 import type { BasecampChannelConfig, ResolvedBasecampAccount } from "../src/types.js";
 
 function cfg(basecamp?: Record<string, unknown>) {
@@ -264,5 +277,177 @@ describe("configSchema.uiHints", () => {
     expect(help).toContain("open");
     expect(help).toContain("disabled");
     expect(help).not.toContain("closed");
+  });
+
+  it("marks OAuth fields as sensitive", () => {
+    const hints = basecampChannel.configSchema!.uiHints!;
+    expect(hints["accounts.*.oauthTokenFile"]?.sensitive).toBe(true);
+    expect(hints["accounts.*.oauthClientSecret"]?.sensitive).toBe(true);
+    expect(hints["oauth.clientSecret"]?.sensitive).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveBasecampAccount — OAuth token source
+// ---------------------------------------------------------------------------
+
+describe("resolveBasecampAccount — OAuth", () => {
+  it("resolves tokenSource 'oauth' when oauthTokenFile is set", () => {
+    const result = resolveBasecampAccount(
+      cfg({
+        accounts: {
+          work: { personId: "42", oauthTokenFile: "/tmp/tokens/work.json" },
+        },
+      }),
+      "work",
+    );
+    expect(result.tokenSource).toBe("oauth");
+  });
+
+  it("oauthTokenFile takes priority over bcqProfile", () => {
+    const result = resolveBasecampAccount(
+      cfg({
+        accounts: {
+          work: {
+            personId: "42",
+            oauthTokenFile: "/tmp/tokens/work.json",
+            bcqProfile: "default",
+          },
+        },
+      }),
+      "work",
+    );
+    expect(result.tokenSource).toBe("oauth");
+  });
+
+  it("tokenFile takes priority over oauthTokenFile", () => {
+    const result = resolveBasecampAccount(
+      cfg({
+        accounts: {
+          work: {
+            personId: "42",
+            tokenFile: "/tmp/bearer.txt",
+            oauthTokenFile: "/tmp/tokens/work.json",
+          },
+        },
+      }),
+      "work",
+    );
+    expect(result.tokenSource).toBe("tokenFile");
+  });
+
+  it("inline token takes priority over everything", () => {
+    const result = resolveBasecampAccount(
+      cfg({
+        accounts: {
+          work: {
+            personId: "42",
+            token: "inline-tok",
+            tokenFile: "/tmp/bearer.txt",
+            oauthTokenFile: "/tmp/tokens/work.json",
+            bcqProfile: "default",
+          },
+        },
+      }),
+      "work",
+    );
+    expect(result.tokenSource).toBe("config");
+    expect(result.token).toBe("inline-tok");
+  });
+
+  it("resolves oauthClientId from per-account config", () => {
+    const result = resolveBasecampAccount(
+      cfg({
+        accounts: {
+          work: {
+            personId: "42",
+            oauthTokenFile: "/tmp/tok.json",
+            oauthClientId: "per-account-id",
+          },
+        },
+      }),
+      "work",
+    );
+    expect(result.oauthClientId).toBe("per-account-id");
+  });
+
+  it("resolves oauthClientId from channel-level oauth fallback", () => {
+    const result = resolveBasecampAccount(
+      cfg({
+        accounts: {
+          work: {
+            personId: "42",
+            oauthTokenFile: "/tmp/tok.json",
+          },
+        },
+        oauth: { clientId: "channel-level-id", clientSecret: "channel-secret" },
+      }),
+      "work",
+    );
+    expect(result.oauthClientId).toBe("channel-level-id");
+    expect(result.oauthClientSecret).toBe("channel-secret");
+  });
+
+  it("per-account oauthClientId overrides channel-level", () => {
+    const result = resolveBasecampAccount(
+      cfg({
+        accounts: {
+          work: {
+            personId: "42",
+            oauthTokenFile: "/tmp/tok.json",
+            oauthClientId: "override-id",
+          },
+        },
+        oauth: { clientId: "channel-level-id" },
+      }),
+      "work",
+    );
+    expect(result.oauthClientId).toBe("override-id");
+  });
+
+  it("basecampAccountId field is preserved in config", () => {
+    const result = resolveBasecampAccount(
+      cfg({
+        accounts: {
+          work: {
+            personId: "42",
+            bcqProfile: "default",
+            basecampAccountId: "99999",
+          },
+        },
+      }),
+      "work",
+    );
+    expect(result.config.basecampAccountId).toBe("99999");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isConfigured — OAuth
+// ---------------------------------------------------------------------------
+
+describe("config.isConfigured — OAuth", () => {
+  it("returns true when oauthTokenFile is set", () => {
+    const oauthAccount: ResolvedBasecampAccount = {
+      accountId: "work",
+      enabled: true,
+      personId: "42",
+      token: "",
+      tokenSource: "oauth",
+      config: { personId: "42", oauthTokenFile: "/tmp/tok.json" },
+    };
+    expect(basecampChannel.config.isConfigured!(oauthAccount, cfg({}))).toBe(true);
+  });
+
+  it("returns false when nothing is configured", () => {
+    const emptyAccount: ResolvedBasecampAccount = {
+      accountId: "work",
+      enabled: true,
+      personId: "42",
+      token: "",
+      tokenSource: "none",
+      config: { personId: "42" },
+    };
+    expect(basecampChannel.config.isConfigured!(emptyAccount, cfg({}))).toBe(false);
   });
 });

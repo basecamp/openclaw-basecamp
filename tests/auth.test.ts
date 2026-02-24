@@ -14,6 +14,10 @@ vi.mock("../src/bcq.js", () => ({
   execBcqAuthLogin: vi.fn(),
 }));
 
+vi.mock("../src/oauth-credentials.js", () => ({
+  interactiveLogin: vi.fn(),
+}));
+
 vi.mock("../src/config.js", () => ({
   BasecampConfigSchema: {},
   listBasecampAccountIds: vi.fn(),
@@ -76,21 +80,58 @@ vi.mock("../src/adapters/agent-prompt.js", () => ({
 
 import { basecampChannel } from "../src/channel.js";
 import { execBcqAuthLogin } from "../src/bcq.js";
+import { interactiveLogin } from "../src/oauth-credentials.js";
 import { resolveBasecampAccount } from "../src/config.js";
 
-const mockAccount = {
+const bcqAccount = {
   accountId: "test",
   enabled: true,
   personId: "42",
   token: "tok",
-  tokenSource: "config" as const,
+  tokenSource: "bcq" as const,
   bcqProfile: "myprofile",
   config: { personId: "42", bcqProfile: "myprofile" },
 };
 
+const oauthAccount = {
+  accountId: "oauth-test",
+  enabled: true,
+  personId: "42",
+  token: "",
+  tokenSource: "oauth" as const,
+  oauthClientId: "client123",
+  config: { personId: "42", oauthTokenFile: "/tmp/token.json" },
+};
+
+const configAccount = {
+  accountId: "config-test",
+  enabled: true,
+  personId: "42",
+  token: "inline-token",
+  tokenSource: "config" as const,
+  config: { personId: "42", token: "inline-token" },
+};
+
+const tokenFileAccount = {
+  accountId: "file-test",
+  enabled: true,
+  personId: "42",
+  token: "file-token",
+  tokenSource: "tokenFile" as const,
+  config: { personId: "42", tokenFile: "/path/to/token" },
+};
+
+const noneAccount = {
+  accountId: "none-test",
+  enabled: true,
+  personId: "42",
+  token: "",
+  tokenSource: "none" as const,
+  config: { personId: "42" },
+};
+
 beforeEach(() => {
   vi.clearAllMocks();
-  vi.mocked(resolveBasecampAccount).mockReturnValue(mockAccount as any);
 });
 
 // ---------------------------------------------------------------------------
@@ -98,7 +139,8 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("auth.login", () => {
-  it("calls execBcqAuthLogin with the account's bcqProfile", async () => {
+  it("routes to execBcqAuthLogin for bcq accounts", async () => {
+    vi.mocked(resolveBasecampAccount).mockReturnValue(bcqAccount as any);
     vi.mocked(execBcqAuthLogin).mockResolvedValue(undefined);
 
     await basecampChannel.auth!.login!({
@@ -110,9 +152,58 @@ describe("auth.login", () => {
     expect(execBcqAuthLogin).toHaveBeenCalledWith({ profile: "myprofile" });
   });
 
+  it("routes to interactiveLogin for OAuth accounts", async () => {
+    vi.mocked(resolveBasecampAccount).mockReturnValue(oauthAccount as any);
+    vi.mocked(interactiveLogin).mockResolvedValue({} as any);
+
+    await basecampChannel.auth!.login!({
+      cfg: {} as any,
+      accountId: "oauth-test",
+      runtime: {} as any,
+    });
+
+    expect(interactiveLogin).toHaveBeenCalledWith(oauthAccount);
+  });
+
+  it("throws for config (inline token) accounts", async () => {
+    vi.mocked(resolveBasecampAccount).mockReturnValue(configAccount as any);
+
+    await expect(
+      basecampChannel.auth!.login!({
+        cfg: {} as any,
+        accountId: "config-test",
+        runtime: {} as any,
+      }),
+    ).rejects.toThrow("inline token");
+  });
+
+  it("throws for tokenFile accounts", async () => {
+    vi.mocked(resolveBasecampAccount).mockReturnValue(tokenFileAccount as any);
+
+    await expect(
+      basecampChannel.auth!.login!({
+        cfg: {} as any,
+        accountId: "file-test",
+        runtime: {} as any,
+      }),
+    ).rejects.toThrow("token file");
+  });
+
+  it("throws for unconfigured accounts", async () => {
+    vi.mocked(resolveBasecampAccount).mockReturnValue(noneAccount as any);
+
+    await expect(
+      basecampChannel.auth!.login!({
+        cfg: {} as any,
+        accountId: "none-test",
+        runtime: {} as any,
+      }),
+    ).rejects.toThrow("No authentication configured");
+  });
+
   it("calls execBcqAuthLogin with undefined profile when account has no bcqProfile", async () => {
     vi.mocked(resolveBasecampAccount).mockReturnValue({
-      ...mockAccount,
+      ...bcqAccount,
       bcqProfile: undefined,
     } as any);
     vi.mocked(execBcqAuthLogin).mockResolvedValue(undefined);
@@ -127,7 +218,8 @@ describe("auth.login", () => {
   });
 
   it("propagates errors from execBcqAuthLogin", async () => {
-    vi.mocked(execBcqAuthLogin).mockRejectedValue(new Error("bcq auth login exited with code 1"));
+    vi.mocked(resolveBasecampAccount).mockReturnValue(bcqAccount as any);
+    vi.mocked(execBcqAuthLogin).mockRejectedValue(new Error("Basecamp CLI auth login exited with code 1"));
 
     await expect(
       basecampChannel.auth!.login!({
@@ -135,10 +227,24 @@ describe("auth.login", () => {
         accountId: "test",
         runtime: {} as any,
       }),
-    ).rejects.toThrow("bcq auth login exited with code 1");
+    ).rejects.toThrow("exited with code 1");
+  });
+
+  it("propagates errors from interactiveLogin", async () => {
+    vi.mocked(resolveBasecampAccount).mockReturnValue(oauthAccount as any);
+    vi.mocked(interactiveLogin).mockRejectedValue(new Error("Port 14923 is in use"));
+
+    await expect(
+      basecampChannel.auth!.login!({
+        cfg: {} as any,
+        accountId: "oauth-test",
+        runtime: {} as any,
+      }),
+    ).rejects.toThrow("Port 14923 is in use");
   });
 
   it("uses default account when accountId is not provided", async () => {
+    vi.mocked(resolveBasecampAccount).mockReturnValue(bcqAccount as any);
     vi.mocked(execBcqAuthLogin).mockResolvedValue(undefined);
 
     await basecampChannel.auth!.login!({
