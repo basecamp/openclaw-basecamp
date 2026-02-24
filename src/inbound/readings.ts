@@ -11,8 +11,9 @@ import type {
   BasecampReadingsEntry,
   ResolvedBasecampAccount,
 } from "../types.js";
-import type { CircuitBreaker } from "../bcq.js";
-import { bcqReadings as bcqReadingsCmd } from "../bcq.js";
+import type { CircuitBreaker } from "../circuit-breaker.js";
+import { getClient, rawOrThrow } from "../basecamp-client.js";
+import { withCircuitBreaker } from "../retry.js";
 import { normalizeReadingsEvent } from "./normalize.js";
 
 export interface ReadingsPollResult {
@@ -45,19 +46,22 @@ export async function pollReadings(
 ): Promise<ReadingsPollResult> {
   const { account, since, log } = opts;
 
-  log?.debug?.(`[${account.accountId}] polling readings`);
+  log?.debug?.(`[${account.accountId}] polling readings via SDK`);
 
-  const result = await bcqReadingsCmd<{
-    unreads: BasecampReadingsEntry[];
-    reads?: BasecampReadingsEntry[];
-    memories?: BasecampReadingsEntry[];
-  }>({
-    accountId: account.config.bcqAccountId,
-    profile: account.bcqProfile,
-    circuitBreaker: opts.circuitBreaker,
-  });
+  const fetchReadings = async () => {
+    const client = getClient(account);
+    return rawOrThrow<{
+      unreads: BasecampReadingsEntry[];
+      reads?: BasecampReadingsEntry[];
+      memories?: BasecampReadingsEntry[];
+    }>(await client.raw.GET("/my/readings.json" as any, {}));
+  };
 
-  const unreads = result.data?.unreads;
+  const data = opts.circuitBreaker
+    ? await withCircuitBreaker(opts.circuitBreaker.instance, opts.circuitBreaker.key, fetchReadings)
+    : await fetchReadings();
+
+  const unreads = data?.unreads;
   if (!Array.isArray(unreads) || unreads.length === 0) {
     return { events: [], newestAt: undefined, processedSgids: [] };
   }

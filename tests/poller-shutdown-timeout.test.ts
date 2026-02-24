@@ -15,14 +15,22 @@ vi.mock("../src/config.js", () => ({
   }),
 }));
 
-vi.mock("../src/bcq.js", () => ({
-  CircuitBreaker: vi.fn(() => ({
-    check: vi.fn().mockReturnValue(true),
-    success: vi.fn(),
-    failure: vi.fn(),
-    getState: vi.fn(),
+vi.mock("../src/basecamp-client.js", () => ({
+  getClient: vi.fn(() => ({
+    raw: {
+      GET: vi.fn(),
+      POST: vi.fn(),
+      PUT: vi.fn(),
+      DELETE: vi.fn(),
+    },
   })),
-  bcqMarkReadingsRead: vi.fn(),
+  numId: (_label: string, value: string | number) => Number(value),
+  rawOrThrow: vi.fn(async (result: any) => result?.data),
+  BasecampError: class BasecampError extends Error {
+    code: string;
+    constructor(msg: string, code: string) { super(msg); this.code = code; }
+  },
+  clearClients: vi.fn(),
 }));
 
 vi.mock("../src/inbound/activity.js", () => ({

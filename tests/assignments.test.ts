@@ -6,11 +6,26 @@ import type {
 import { normalizeAssignmentTodo } from "../src/inbound/normalize.js";
 
 // ---------------------------------------------------------------------------
-// Mock bcq
+// Mock basecamp-client
 // ---------------------------------------------------------------------------
 
-vi.mock("../src/bcq.js", () => ({
-  bcqAssignments: vi.fn(),
+const mockClient = {
+  raw: {
+    GET: vi.fn(),
+  },
+};
+
+vi.mock("../src/basecamp-client.js", () => ({
+  getClient: vi.fn(() => mockClient),
+  numId: (_label: string, value: string | number) => Number(value),
+  rawOrThrow: vi.fn(async (r: any) => {
+    if (r?.error) throw new Error("API error");
+    return r?.data;
+  }),
+  BasecampError: class BasecampError extends Error {
+    code: string;
+    constructor(msg: string, code: string) { super(msg); this.code = code; }
+  },
 }));
 
 vi.mock("../src/metrics.js", () => ({
@@ -21,7 +36,6 @@ vi.mock("../src/outbound/send.js", () => ({
   resolveCircleInfoCached: vi.fn(() => undefined),
 }));
 
-import { bcqAssignments } from "../src/bcq.js";
 import { pollAssignments } from "../src/inbound/assignments.js";
 
 // ---------------------------------------------------------------------------
@@ -52,6 +66,15 @@ function makeTodo(overrides: Partial<BasecampAssignmentTodo> = {}): BasecampAssi
     creator: { id: 42, name: "Alice", email_address: "alice@example.com" },
     ...overrides,
   };
+}
+
+/** Helper to set up raw.GET mock for assignments response */
+function mockAssignmentsResponse(data: any) {
+  mockClient.raw.GET.mockResolvedValue({
+    data,
+    error: undefined,
+    response: { ok: true, headers: new Headers() },
+  });
 }
 
 const log = {
@@ -129,12 +152,9 @@ describe("pollAssignments", () => {
   });
 
   it("bootstraps on first poll — records IDs, emits nothing", async () => {
-    vi.mocked(bcqAssignments).mockResolvedValue({
-      data: {
-        priorities: [makeTodo({ id: 1 }), makeTodo({ id: 2 })],
-        non_priorities: [makeTodo({ id: 3 })],
-      },
-      raw: "",
+    mockAssignmentsResponse({
+      priorities: [makeTodo({ id: 1 }), makeTodo({ id: 2 })],
+      non_priorities: [makeTodo({ id: 3 })],
     });
 
     const result = await pollAssignments({
@@ -152,12 +172,9 @@ describe("pollAssignments", () => {
   });
 
   it("emits events for newly assigned todos", async () => {
-    vi.mocked(bcqAssignments).mockResolvedValue({
-      data: {
-        priorities: [makeTodo({ id: 1 }), makeTodo({ id: 2 })],
-        non_priorities: [makeTodo({ id: 3 })],
-      },
-      raw: "",
+    mockAssignmentsResponse({
+      priorities: [makeTodo({ id: 1 }), makeTodo({ id: 2 })],
+      non_priorities: [makeTodo({ id: 3 })],
     });
 
     const result = await pollAssignments({
@@ -174,12 +191,9 @@ describe("pollAssignments", () => {
   });
 
   it("emits nothing when all todos are already known", async () => {
-    vi.mocked(bcqAssignments).mockResolvedValue({
-      data: {
-        priorities: [makeTodo({ id: 1 })],
-        non_priorities: [],
-      },
-      raw: "",
+    mockAssignmentsResponse({
+      priorities: [makeTodo({ id: 1 })],
+      non_priorities: [],
     });
 
     const result = await pollAssignments({
@@ -195,12 +209,9 @@ describe("pollAssignments", () => {
 
   it("removes completed/unassigned IDs from knownIds", async () => {
     // Previously knew about 1, 2, 3 — now only 1 remains
-    vi.mocked(bcqAssignments).mockResolvedValue({
-      data: {
-        priorities: [makeTodo({ id: 1 })],
-        non_priorities: [],
-      },
-      raw: "",
+    mockAssignmentsResponse({
+      priorities: [makeTodo({ id: 1 })],
+      non_priorities: [],
     });
 
     const result = await pollAssignments({
@@ -215,10 +226,7 @@ describe("pollAssignments", () => {
   });
 
   it("handles empty response (no assignments)", async () => {
-    vi.mocked(bcqAssignments).mockResolvedValue({
-      data: { priorities: [], non_priorities: [] },
-      raw: "",
-    });
+    mockAssignmentsResponse({ priorities: [], non_priorities: [] });
 
     const result = await pollAssignments({
       account: mockAccount,
@@ -232,10 +240,7 @@ describe("pollAssignments", () => {
   });
 
   it("handles flat array response shape", async () => {
-    vi.mocked(bcqAssignments).mockResolvedValue({
-      data: [makeTodo({ id: 10 }), makeTodo({ id: 20 })],
-      raw: "",
-    });
+    mockAssignmentsResponse([makeTodo({ id: 10 }), makeTodo({ id: 20 })]);
 
     const result = await pollAssignments({
       account: mockAccount,
@@ -249,15 +254,12 @@ describe("pollAssignments", () => {
   });
 
   it("continues processing when individual normalization fails", async () => {
-    vi.mocked(bcqAssignments).mockResolvedValue({
-      data: {
-        priorities: [
-          { id: 1 } as any, // missing bucket — will throw
-          makeTodo({ id: 2 }),
-        ],
-        non_priorities: [],
-      },
-      raw: "",
+    mockAssignmentsResponse({
+      priorities: [
+        { id: 1 } as any, // missing bucket — will throw
+        makeTodo({ id: 2 }),
+      ],
+      non_priorities: [],
     });
 
     const result = await pollAssignments({
@@ -276,12 +278,9 @@ describe("pollAssignments", () => {
   });
 
   it("all events have assignedToAgent=true", async () => {
-    vi.mocked(bcqAssignments).mockResolvedValue({
-      data: {
-        priorities: [makeTodo({ id: 1 }), makeTodo({ id: 2 })],
-        non_priorities: [],
-      },
-      raw: "",
+    mockAssignmentsResponse({
+      priorities: [makeTodo({ id: 1 }), makeTodo({ id: 2 })],
+      non_priorities: [],
     });
 
     const result = await pollAssignments({
@@ -298,20 +297,17 @@ describe("pollAssignments", () => {
   });
 
   it("flattens nested children into top-level assignments", async () => {
-    vi.mocked(bcqAssignments).mockResolvedValue({
-      data: {
-        priorities: [
-          makeTodo({
-            id: 10,
-            children: [
-              makeTodo({ id: 11 }),
-              makeTodo({ id: 12, children: [makeTodo({ id: 13 })] }),
-            ],
-          }),
-        ],
-        non_priorities: [],
-      },
-      raw: "",
+    mockAssignmentsResponse({
+      priorities: [
+        makeTodo({
+          id: 10,
+          children: [
+            makeTodo({ id: 11 }),
+            makeTodo({ id: 12, children: [makeTodo({ id: 13 })] }),
+          ],
+        }),
+      ],
+      non_priorities: [],
     });
 
     const result = await pollAssignments({

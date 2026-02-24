@@ -1,16 +1,17 @@
 /**
  * Outbound delivery adapter for Basecamp.
  *
- * Phase 1 uses `bcq` for all Basecamp API writes. Provides:
+ * Uses @basecamp/sdk for all Basecamp API writes. Provides:
  * - postCampfireLine: POST /buckets/{id}/chats/{id}/lines.json
  * - postComment: POST /buckets/{id}/recordings/{id}/comments.json
  * - postReplyToEvent: dispatches to the correct endpoint based on recordableType
  * - ChannelOutboundAdapter.sendText for the OpenClaw outbound pipeline
  */
 
-import type { BasecampRecordableType } from "../types.js";
-import { bcqPost, bcqApiPost, withRetry, isRetryableError, BcqError, bcqGetCircle } from "../bcq.js";
-import type { CircuitBreaker, CircleInfo } from "../bcq.js";
+import type { BasecampRecordableType, ResolvedBasecampAccount } from "../types.js";
+import { getClient, numId, rawOrThrow, type BasecampClient } from "../basecamp-client.js";
+import type { CircuitBreaker } from "../circuit-breaker.js";
+import { withRetry, withCircuitBreaker, isRetryableError } from "../retry.js";
 
 // ---------------------------------------------------------------------------
 // Circle info cache — LRU-bounded to avoid unbounded growth.
@@ -51,6 +52,12 @@ class LruCache<K, V> {
   }
 }
 
+export interface CircleInfo {
+  transcriptId: string | undefined;
+  /** Total participant count including the caller (people.length + 1). */
+  participantCount: number;
+}
+
 const circleInfoCache = new LruCache<string, CircleInfo>(PING_CACHE_MAX);
 
 /** Cache key scoped by account to prevent cross-contamination in multi-account deployments. */
@@ -65,14 +72,20 @@ function circleCacheKey(bucketId: string, accountId?: string): string {
  */
 export async function resolveCircleInfoCached(
   bucketId: string,
-  accountId?: string,
-  profile?: string,
+  account: ResolvedBasecampAccount,
 ): Promise<CircleInfo | undefined> {
-  const key = circleCacheKey(bucketId, accountId);
+  const key = circleCacheKey(bucketId, account.accountId);
   const cached = circleInfoCache.get(key);
   if (cached) return cached;
   try {
-    const info = await bcqGetCircle(bucketId, { accountId, profile });
+    const client = getClient(account);
+    const data = await rawOrThrow<{ room_url?: string; people?: Array<{ id: number }> }>(
+      await client.raw.GET(`/circles/${bucketId}.json` as any, {}),
+    );
+    const roomUrl = data?.room_url;
+    const transcriptId = roomUrl ? /\/chats\/(\d+)/.exec(roomUrl)?.[1] : undefined;
+    const participantCount = (data?.people?.length ?? 0) + 1;
+    const info: CircleInfo = { transcriptId, participantCount };
     circleInfoCache.set(key, info);
     return info;
   } catch {
@@ -83,17 +96,24 @@ export async function resolveCircleInfoCached(
 /** Convenience: resolve just the transcript ID from the cache. */
 async function resolvePingTranscriptCached(
   bucketId: string,
-  accountId?: string,
-  profile?: string,
+  account: ResolvedBasecampAccount,
 ): Promise<string | undefined> {
-  const info = await resolveCircleInfoCached(bucketId, accountId, profile);
+  const info = await resolveCircleInfoCached(bucketId, account);
   return info?.transcriptId;
 }
 
 export { LruCache, PING_CACHE_MAX, circleInfoCache };
 
 // ---------------------------------------------------------------------------
-// Helpers — Basecamp API write operations via bcq
+// Outbound result types
+// ---------------------------------------------------------------------------
+
+type OutboundOk = { ok: true; recordingId?: string; commentId?: string };
+type OutboundFail = { ok: false; error: unknown; message: string; retryable?: boolean };
+type OutboundResult = OutboundOk | OutboundFail;
+
+// ---------------------------------------------------------------------------
+// Helpers — Basecamp API write operations via SDK
 // ---------------------------------------------------------------------------
 
 /**
@@ -104,38 +124,43 @@ export async function postCampfireLine(params: {
   bucketId: string;
   transcriptId: string;
   content: string;
-  accountId?: string;
-  profile?: string;
+  account: ResolvedBasecampAccount;
   retries?: number;
   circuitBreaker?: { instance: CircuitBreaker; key: string };
   correlationId?: string;
-}): Promise<{ ok: boolean; recordingId?: string; retryable?: boolean; error?: string }> {
-  const { bucketId, transcriptId, content, accountId, profile, retries, circuitBreaker, correlationId } = params;
-  const path = `/buckets/${bucketId}/chats/${transcriptId}/lines.json`;
-  const body = JSON.stringify({ content });
+}): Promise<OutboundResult> {
+  const { bucketId, transcriptId, content, account, retries, circuitBreaker, correlationId } = params;
 
-  const doPost = () => circuitBreaker
-    ? bcqPost(path, { accountId, profile, extraFlags: ["-d", body], circuitBreaker }).then(r => r.data)
-    : bcqApiPost(path, body, accountId, profile);
+  const doPost = async () => {
+    const client = getClient(account);
+    return client.campfires.createLine(
+      numId("project", bucketId),
+      numId("campfire", transcriptId),
+      { content },
+    );
+  };
+
+  const wrappedPost = circuitBreaker
+    ? () => withCircuitBreaker(circuitBreaker.instance, circuitBreaker.key, doPost)
+    : doPost;
 
   try {
     const result = retries && retries > 0
-      ? await withRetry(doPost, { maxAttempts: retries + 1 })
-      : await doPost();
-    const parsed = typeof result === "string" ? JSON.parse(result) : result;
+      ? await withRetry(wrappedPost, { maxAttempts: retries + 1 })
+      : await wrappedPost();
     console.log(
       `[basecamp:outbound] sent ok — ` +
-      `type=campfire recording=${transcriptId} account=${accountId ?? "default"} correlation=${correlationId ?? "none"}`,
+      `type=campfire recording=${transcriptId} account=${account.accountId} correlation=${correlationId ?? "none"}`,
     );
-    return { ok: true, recordingId: String(parsed?.id ?? "") };
+    return { ok: true, recordingId: String((result as any)?.id ?? "") };
   } catch (err) {
-    const retryable = err instanceof BcqError && isRetryableError(err);
+    const retryable = isRetryableError(err);
     console.warn(
       `[basecamp:outbound] failed — ` +
-      `type=campfire recording=${transcriptId} account=${accountId ?? "default"} ` +
+      `type=campfire recording=${transcriptId} account=${account.accountId} ` +
       `correlation=${correlationId ?? "none"} retryable=${retryable} error=${String(err)}`,
     );
-    return { ok: false, retryable, error: String(err) };
+    return { ok: false, error: err, message: String(err), retryable };
   }
 }
 
@@ -147,38 +172,43 @@ export async function postComment(params: {
   bucketId: string;
   recordingId: string;
   content: string;
-  accountId?: string;
-  profile?: string;
+  account: ResolvedBasecampAccount;
   retries?: number;
   circuitBreaker?: { instance: CircuitBreaker; key: string };
   correlationId?: string;
-}): Promise<{ ok: boolean; commentId?: string; retryable?: boolean; error?: string }> {
-  const { bucketId, recordingId, content, accountId, profile, retries, circuitBreaker, correlationId } = params;
-  const path = `/buckets/${bucketId}/recordings/${recordingId}/comments.json`;
-  const body = JSON.stringify({ content });
+}): Promise<OutboundResult> {
+  const { bucketId, recordingId, content, account, retries, circuitBreaker, correlationId } = params;
 
-  const doPost = () => circuitBreaker
-    ? bcqPost(path, { accountId, profile, extraFlags: ["-d", body], circuitBreaker }).then(r => r.data)
-    : bcqApiPost(path, body, accountId, profile);
+  const doPost = async () => {
+    const client = getClient(account);
+    return client.comments.create(
+      numId("project", bucketId),
+      numId("recording", recordingId),
+      { content },
+    );
+  };
+
+  const wrappedPost = circuitBreaker
+    ? () => withCircuitBreaker(circuitBreaker.instance, circuitBreaker.key, doPost)
+    : doPost;
 
   try {
     const result = retries && retries > 0
-      ? await withRetry(doPost, { maxAttempts: retries + 1 })
-      : await doPost();
-    const parsed = typeof result === "string" ? JSON.parse(result) : result;
+      ? await withRetry(wrappedPost, { maxAttempts: retries + 1 })
+      : await wrappedPost();
     console.log(
       `[basecamp:outbound] sent ok — ` +
-      `type=comment recording=${recordingId} account=${accountId ?? "default"} correlation=${correlationId ?? "none"}`,
+      `type=comment recording=${recordingId} account=${account.accountId} correlation=${correlationId ?? "none"}`,
     );
-    return { ok: true, commentId: String(parsed?.id ?? "") };
+    return { ok: true, commentId: String((result as any)?.id ?? "") };
   } catch (err) {
-    const retryable = err instanceof BcqError && isRetryableError(err);
+    const retryable = isRetryableError(err);
     console.warn(
       `[basecamp:outbound] failed — ` +
-      `type=comment recording=${recordingId} account=${accountId ?? "default"} ` +
+      `type=comment recording=${recordingId} account=${account.accountId} ` +
       `correlation=${correlationId ?? "none"} retryable=${retryable} error=${String(err)}`,
     );
-    return { ok: false, retryable, error: String(err) };
+    return { ok: false, error: err, message: String(err), retryable };
   }
 }
 
@@ -208,32 +238,31 @@ export async function postReplyToEvent(params: {
   recordableType: BasecampRecordableType;
   peerId: string;
   content: string;
-  accountId?: string;
-  profile?: string;
+  account: ResolvedBasecampAccount;
   retries?: number;
   circuitBreaker?: { instance: CircuitBreaker; key: string };
   correlationId?: string;
-}): Promise<{ ok: boolean; messageId?: string; retryable?: boolean; error?: string }> {
-  const { bucketId, recordingId, recordableType, peerId, content, accountId, profile, retries, circuitBreaker, correlationId } = params;
+}): Promise<{ ok: boolean; messageId?: string; retryable?: boolean; error?: unknown; message?: string }> {
+  const { bucketId, recordingId, recordableType, peerId, content, account, retries, circuitBreaker, correlationId } = params;
   const parsed = parsePeerId(peerId);
 
   // Pings: resolve the transcript ID from the circle's bucket ID
   if (parsed.prefix === "ping") {
-    const transcriptId = await resolvePingTranscriptCached(bucketId, accountId, profile);
+    const transcriptId = await resolvePingTranscriptCached(bucketId, account);
     if (!transcriptId) {
-      return { ok: false, error: `Could not resolve Ping transcript for circle bucket=${bucketId}` };
+      return { ok: false, message: `Could not resolve Ping transcript for circle bucket=${bucketId}` };
     }
     const result = await postCampfireLine({
       bucketId,
       transcriptId,
       content,
-      accountId,
-      profile,
+      account,
       retries,
       circuitBreaker,
       correlationId,
     });
-    return { ok: result.ok, messageId: result.recordingId, retryable: result.retryable, error: result.error };
+    if (result.ok) return { ok: true, messageId: result.recordingId };
+    return { ok: false, error: result.error, message: result.message, retryable: result.retryable };
   }
 
   // For child events (Chat::Line, Comment), the peer points to the parent
@@ -252,13 +281,13 @@ export async function postReplyToEvent(params: {
       bucketId,
       transcriptId,
       content,
-      accountId,
-      profile,
+      account,
       retries,
       circuitBreaker,
       correlationId,
     });
-    return { ok: result.ok, messageId: result.recordingId, retryable: result.retryable, error: result.error };
+    if (result.ok) return { ok: true, messageId: result.recordingId };
+    return { ok: false, error: result.error, message: result.message, retryable: result.retryable };
   }
 
   // Everything else gets a comment on the recording
@@ -267,13 +296,13 @@ export async function postReplyToEvent(params: {
     bucketId,
     recordingId: targetRecordingId,
     content,
-    accountId,
-    profile,
+    account,
     retries,
     circuitBreaker,
     correlationId,
   });
-  return { ok: result.ok, messageId: result.commentId, retryable: result.retryable, error: result.error };
+  if (result.ok) return { ok: true, messageId: result.commentId };
+  return { ok: false, error: result.error, message: result.message, retryable: result.retryable };
 }
 
 // ---------------------------------------------------------------------------

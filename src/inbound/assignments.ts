@@ -17,8 +17,9 @@ import type {
   BasecampInboundMessage,
   ResolvedBasecampAccount,
 } from "../types.js";
-import type { CircuitBreaker } from "../bcq.js";
-import { bcqAssignments } from "../bcq.js";
+import type { CircuitBreaker } from "../circuit-breaker.js";
+import { getClient, rawOrThrow } from "../basecamp-client.js";
+import { withCircuitBreaker } from "../retry.js";
 import { normalizeAssignmentTodo } from "./normalize.js";
 
 export interface AssignmentsPollResult {
@@ -93,15 +94,18 @@ export async function pollAssignments(
 ): Promise<AssignmentsPollResult> {
   const { account, knownIds, isBootstrap, log } = opts;
 
-  log?.debug?.(`[${account.accountId}] polling assignments`);
+  log?.debug?.(`[${account.accountId}] polling assignments via SDK`);
 
-  const result = await bcqAssignments({
-    accountId: account.config.bcqAccountId,
-    profile: account.bcqProfile,
-    circuitBreaker: opts.circuitBreaker,
-  });
+  const fetchAssignments = async () => {
+    const client = getClient(account);
+    return rawOrThrow(await client.raw.GET("/my/assignments.json" as any, {}));
+  };
 
-  const todos = extractTodos(result.data);
+  const data = opts.circuitBreaker
+    ? await withCircuitBreaker(opts.circuitBreaker.instance, opts.circuitBreaker.key, fetchAssignments)
+    : await fetchAssignments();
+
+  const todos = extractTodos(data);
   const currentIds = new Set(todos.map((t) => String(t.id)));
 
   log?.debug?.(

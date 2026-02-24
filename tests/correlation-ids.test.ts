@@ -1,11 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-// Mock bcq before importing normalizers
-vi.mock("../src/bcq.js", () => ({
-  bcqApiGet: vi.fn(),
-  bcqApiPost: vi.fn(),
-  bcqPut: vi.fn(),
-  bcqDelete: vi.fn(),
+// Mock basecamp-client (transitive dep via outbound/send.js)
+vi.mock("../src/basecamp-client.js", () => ({
+  getClient: vi.fn(() => ({})),
+  numId: (_label: string, value: string | number) => Number(value),
+  rawOrThrow: vi.fn(async (result: any) => result?.data),
+  BasecampError: class BasecampError extends Error {
+    code: string;
+    constructor(msg: string, code: string) { super(msg); this.code = code; }
+  },
+  clearClients: vi.fn(),
 }));
 
 vi.mock("../src/mentions/parse.js", () => ({

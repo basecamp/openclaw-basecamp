@@ -4,9 +4,25 @@ import type {
   ResolvedBasecampAccount,
 } from "../src/types.js";
 
-vi.mock("../src/bcq.js", () => ({
-  bcqReadings: vi.fn(),
+const mockClient = {
+  raw: {
+    GET: vi.fn(),
+  },
+};
+
+vi.mock("../src/basecamp-client.js", () => ({
+  getClient: vi.fn(() => mockClient),
+  numId: (_label: string, value: string | number) => Number(value),
+  rawOrThrow: vi.fn(async (r: any) => {
+    if (r?.error) throw new Error("API error");
+    return r?.data;
+  }),
+  BasecampError: class BasecampError extends Error {
+    code: string;
+    constructor(msg: string, code: string) { super(msg); this.code = code; }
+  },
 }));
+
 vi.mock("../src/metrics.js", () => ({
   recordUnknownKind: vi.fn(),
 }));
@@ -14,7 +30,6 @@ vi.mock("../src/outbound/send.js", () => ({
   resolveCircleInfoCached: vi.fn(() => undefined),
 }));
 
-import { bcqReadings } from "../src/bcq.js";
 import { recordUnknownKind } from "../src/metrics.js";
 import { pollReadings } from "../src/inbound/readings.js";
 
@@ -47,17 +62,23 @@ function makeReading(overrides: Partial<BasecampReadingsEntry> = {}): BasecampRe
   };
 }
 
+/** Helper to set up raw.GET mock for readings response */
+function mockReadingsResponse(data: any) {
+  mockClient.raw.GET.mockResolvedValue({
+    data,
+    error: undefined,
+    response: { ok: true, headers: new Headers() },
+  });
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
 });
 
 describe("pollReadings", () => {
   it("normalizes known types and collects processedSgids", async () => {
-    vi.mocked(bcqReadings).mockResolvedValue({
-      data: {
-        unreads: [makeReading({ id: 1 }), makeReading({ id: 2, readable_sgid: "sgid://bc3/Comment/201" })],
-      },
-      raw: "",
+    mockReadingsResponse({
+      unreads: [makeReading({ id: 1 }), makeReading({ id: 2, readable_sgid: "sgid://bc3/Comment/201" })],
     });
 
     const result = await pollReadings({ account: mockAccount, log });
@@ -74,10 +95,7 @@ describe("pollReadings", () => {
       readable_sgid: "sgid://bc3/FutureWidget/10",
       unread_at: "2025-01-16T08:00:00Z",
     });
-    vi.mocked(bcqReadings).mockResolvedValue({
-      data: { unreads: [unknownReading] },
-      raw: "",
-    });
+    mockReadingsResponse({ unreads: [unknownReading] });
 
     const result = await pollReadings({ account: mockAccount, log });
 
@@ -92,19 +110,16 @@ describe("pollReadings", () => {
   });
 
   it("mix of known and unknown types: both advance cursor", async () => {
-    vi.mocked(bcqReadings).mockResolvedValue({
-      data: {
-        unreads: [
-          makeReading({ id: 1, unread_at: "2025-01-15T10:00:00Z" }),
-          makeReading({
-            id: 2,
-            type: "FutureWidget",
-            readable_sgid: "sgid://bc3/FutureWidget/2",
-            unread_at: "2025-01-16T12:00:00Z",
-          }),
-        ],
-      },
-      raw: "",
+    mockReadingsResponse({
+      unreads: [
+        makeReading({ id: 1, unread_at: "2025-01-15T10:00:00Z" }),
+        makeReading({
+          id: 2,
+          type: "FutureWidget",
+          readable_sgid: "sgid://bc3/FutureWidget/2",
+          unread_at: "2025-01-16T12:00:00Z",
+        }),
+      ],
     });
 
     const result = await pollReadings({ account: mockAccount, log });
@@ -116,10 +131,7 @@ describe("pollReadings", () => {
   });
 
   it("empty unreads returns empty result", async () => {
-    vi.mocked(bcqReadings).mockResolvedValue({
-      data: { unreads: [] },
-      raw: "",
-    });
+    mockReadingsResponse({ unreads: [] });
 
     const result = await pollReadings({ account: mockAccount, log });
 
@@ -129,7 +141,7 @@ describe("pollReadings", () => {
   });
 
   it("null response returns empty result", async () => {
-    vi.mocked(bcqReadings).mockResolvedValue({ data: null, raw: "" });
+    mockReadingsResponse(null);
 
     const result = await pollReadings({ account: mockAccount, log });
 

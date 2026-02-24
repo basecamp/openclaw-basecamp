@@ -25,7 +25,9 @@ import { CursorStore } from "./cursors.js";
 import { pollActivityFeed } from "./activity.js";
 import { pollReadings } from "./readings.js";
 import { pollAssignments } from "./assignments.js";
-import { CircuitBreaker, bcqMarkReadingsRead } from "../bcq.js";
+import { CircuitBreaker } from "../circuit-breaker.js";
+import { getClient, rawOrThrow } from "../basecamp-client.js";
+import { withCircuitBreaker } from "../retry.js";
 import { isSelfMessage } from "./normalize.js";
 import { createStructuredLog } from "../logging.js";
 import { recordPollAttempt, recordPollSuccess, recordPollError, recordDedupSize, recordCircuitBreakerState } from "../metrics.js";
@@ -283,11 +285,13 @@ export async function startCompositePoller(
         // Mark processed readings as read so they don't reappear
         if (result.processedSgids.length > 0) {
           try {
-            await bcqMarkReadingsRead(result.processedSgids, {
-              accountId: account.config.bcqAccountId,
-              profile: account.bcqProfile,
-              circuitBreaker: { instance: cb, key: "readings:mark-read" },
-            });
+            const markRead = async () => {
+              const client = getClient(account);
+              await rawOrThrow(await client.raw.PUT("/my/unreads.json" as any, {
+                body: { readables: result.processedSgids } as any,
+              }));
+            };
+            await withCircuitBreaker(cb, "readings:mark-read", markRead);
             slog.debug("readings_marked_read", { count: result.processedSgids.length });
           } catch (err) {
             slog.warn("readings_mark_read_failed", { error: String(err) });

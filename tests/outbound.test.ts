@@ -16,6 +16,16 @@ vi.mock("openclaw/plugin-sdk", () => ({
 vi.mock("../src/runtime.js", () => ({ getBasecampRuntime: vi.fn(() => ({})) }));
 vi.mock("../src/dispatch.js", () => ({ dispatchBasecampEvent: vi.fn() }));
 vi.mock("../src/bcq.js", () => ({ bcqAuthStatus: vi.fn() }));
+vi.mock("../src/basecamp-client.js", () => ({
+  getClient: vi.fn(() => ({})),
+  numId: (_label: string, value: string | number) => Number(value),
+  rawOrThrow: vi.fn(async (result: any) => result?.data),
+  BasecampError: class BasecampError extends Error {
+    code: string;
+    constructor(msg: string, code: string) { super(msg); this.code = code; }
+  },
+  clearClients: vi.fn(),
+}));
 vi.mock("../src/adapters/onboarding.js", () => ({ basecampOnboardingAdapter: {} }));
 vi.mock("../src/adapters/setup.js", () => ({ basecampSetupAdapter: {} }));
 vi.mock("../src/adapters/status.js", () => ({ basecampStatusAdapter: {} }));

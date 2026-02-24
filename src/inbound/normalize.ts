@@ -367,9 +367,7 @@ export async function normalizeActivityEvent(
   // Defaults to undefined → resolveBasecampPeer fail-closed uses "dm".
   let participantCount: number | undefined;
   if (isPing) {
-    const bcqAccountId = account.config.bcqAccountId ??
-      (/^\d+$/.test(account.accountId) ? account.accountId : undefined);
-    const circleInfo = await resolveCircleInfoCached(bucketId, bcqAccountId, account.bcqProfile);
+    const circleInfo = await resolveCircleInfoCached(bucketId, account);
     participantCount = circleInfo?.participantCount;
   }
 
@@ -643,9 +641,7 @@ export async function normalizeWebhookPayload(
   // Enrich Ping participant count via Circle API (webhooks lack it)
   let participantCount: number | undefined;
   if (isPing) {
-    const bcqAccountId = account.config.bcqAccountId ??
-      (/^\d+$/.test(account.accountId) ? account.accountId : undefined);
-    const circleInfo = await resolveCircleInfoCached(bucketId, bcqAccountId, account.bcqProfile);
+    const circleInfo = await resolveCircleInfoCached(bucketId, account);
     participantCount = circleInfo?.participantCount;
   }
 

@@ -12,8 +12,9 @@ import type {
   BasecampInboundMessage,
   ResolvedBasecampAccount,
 } from "../types.js";
-import type { CircuitBreaker } from "../bcq.js";
-import { bcqTimeline } from "../bcq.js";
+import type { CircuitBreaker } from "../circuit-breaker.js";
+import { getClient, rawOrThrow } from "../basecamp-client.js";
+import { withCircuitBreaker } from "../retry.js";
 import { normalizeActivityEvent } from "./normalize.js";
 
 export interface ActivityPollResult {
@@ -44,15 +45,16 @@ export async function pollActivityFeed(
 ): Promise<ActivityPollResult> {
   const { account, since, log } = opts;
 
-  log?.debug?.(`[${account.accountId}] polling activity feed via bcq timeline`);
+  log?.debug?.(`[${account.accountId}] polling activity feed via SDK`);
 
-  const result = await bcqTimeline<BasecampActivityEvent[]>({
-    accountId: account.config.bcqAccountId,
-    profile: account.bcqProfile,
-    circuitBreaker: opts.circuitBreaker,
-  });
+  const fetchTimeline = async () => {
+    const client = getClient(account);
+    return client.reports.progress() as Promise<BasecampActivityEvent[]>;
+  };
 
-  const rawEvents = result.data;
+  const rawEvents = opts.circuitBreaker
+    ? await withCircuitBreaker(opts.circuitBreaker.instance, opts.circuitBreaker.key, fetchTimeline)
+    : await fetchTimeline();
   if (!Array.isArray(rawEvents) || rawEvents.length === 0) {
     return { events: [], newestAt: undefined };
   }
