@@ -2,15 +2,21 @@
 /**
  * DF-004: Live queue pressure burst test.
  *
- * Sends a burst of signed webhook payloads to the local OpenClaw endpoint
+ * Sends a burst of webhook payloads to the local OpenClaw endpoint
  * and verifies that all return 200 without triggering queue_full drops.
  *
- * Usage:
+ * Token auth (primary — matches real BC3 webhook flow):
  *   npx tsx scripts/dogfood/queue-pressure-burst.ts \
  *     --endpoint http://localhost:3000/webhooks/basecamp \
- *     --secret <hmac-secret> \
+ *     --token <webhook-secret> \
  *     [--count 150] [--bucket 1] \
  *     [--status-url http://localhost:3000/status]
+ *
+ * HMAC auth (fallback — for testing the HMAC verification path):
+ *   npx tsx scripts/dogfood/queue-pressure-burst.ts \
+ *     --endpoint http://localhost:3000/webhooks/basecamp \
+ *     --hmac-secret <hmac-secret> \
+ *     [--count 150] [--bucket 1]
  */
 import crypto from "node:crypto";
 import { parseArgs } from "node:util";
@@ -18,20 +24,30 @@ import { parseArgs } from "node:util";
 const { values } = parseArgs({
   options: {
     endpoint: { type: "string" },
-    secret: { type: "string" },
+    token: { type: "string" },
+    "hmac-secret": { type: "string" },
     count: { type: "string", default: "150" },
     bucket: { type: "string", default: "1" },
     "status-url": { type: "string" },
   },
 });
 
-if (!values.endpoint || !values.secret) {
-  console.error("Usage: npx tsx queue-pressure-burst.ts --endpoint <url> --secret <hmac-secret> [--status-url <url>]");
+if (!values.endpoint || (!values.token && !values["hmac-secret"])) {
+  console.error(
+    "Usage: npx tsx queue-pressure-burst.ts --endpoint <url> --token <webhook-secret> [--status-url <url>]\n" +
+    "       npx tsx queue-pressure-burst.ts --endpoint <url> --hmac-secret <hmac-secret> [--status-url <url>]",
+  );
+  process.exit(1);
+}
+
+if (values.token && values["hmac-secret"]) {
+  console.error("Error: --token and --hmac-secret are mutually exclusive. Use one or the other.");
   process.exit(1);
 }
 
 const ENDPOINT = values.endpoint;
-const SECRET = values.secret;
+const TOKEN = values.token;
+const HMAC_SECRET = values["hmac-secret"];
 const COUNT = parseInt(values.count!, 10);
 const BUCKET_ID = parseInt(values.bucket!, 10);
 const STATUS_URL = values["status-url"];
@@ -59,28 +75,35 @@ function makePayload(seq: number) {
 
 function sign(body: string): { signature: string; timestamp: string } {
   const ts = String(Math.floor(Date.now() / 1000));
-  const hmac = crypto.createHmac("sha256", SECRET).update(`${ts}.${body}`).digest("hex");
+  const hmac = crypto.createHmac("sha256", HMAC_SECRET!).update(`${ts}.${body}`).digest("hex");
   return { signature: `sha256=${hmac}`, timestamp: ts };
+}
+
+function buildRequest(body: string): { url: string; init: RequestInit } {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  let url = ENDPOINT;
+
+  if (TOKEN) {
+    const sep = url.includes("?") ? "&" : "?";
+    url = `${url}${sep}token=${encodeURIComponent(TOKEN)}`;
+  } else {
+    const { signature, timestamp } = sign(body);
+    headers["X-Basecamp-Signature"] = signature;
+    headers["X-Basecamp-Timestamp"] = timestamp;
+  }
+
+  return { url, init: { method: "POST", headers, body } };
 }
 
 async function sendWebhook(seq: number): Promise<{ seq: number; status: number; ok: boolean }> {
   const body = makePayload(seq);
-  const { signature, timestamp } = sign(body);
-
-  const res = await fetch(ENDPOINT, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Basecamp-Signature": signature,
-      "X-Basecamp-Timestamp": timestamp,
-    },
-    body,
-  });
-
+  const { url, init } = buildRequest(body);
+  const res = await fetch(url, init);
   return { seq, status: res.status, ok: res.ok };
 }
 
 async function main() {
+  console.log(`[DF-004] Auth method: ${TOKEN ? "token" : "hmac"}`);
   console.log(`[DF-004] Sending ${COUNT} webhooks to ${ENDPOINT}`);
   const start = Date.now();
 
