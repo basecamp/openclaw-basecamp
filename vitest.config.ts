@@ -4,6 +4,13 @@ import path from "path";
 export default defineConfig({
   test: {
     include: ["tests/**/*.test.ts"],
+    coverage: {
+      provider: "v8",
+      include: ["src/**/*.ts"],
+      exclude: ["src/types.ts", "src/**/*.d.ts"],
+      reporter: ["text", "json-summary"],
+      thresholds: { lines: 50, functions: 50, branches: 40, statements: 50 },
+    },
   },
   resolve: {
     alias: {

@@ -90,8 +90,6 @@ export async function reconcileWebhooks(
         (wh) => wh.payload_url === config.payloadUrl && wh.active,
       );
 
-      let secretRecovery = false;
-
       if (urlMatch && typesMatch(urlMatch.types, config.types)) {
         log?.debug("webhook_exists", {
           project: projectId,
@@ -109,36 +107,12 @@ export async function reconcileWebhooks(
           });
         }
 
-        const entry = registry.get(projectId);
-        if (entry && entry.secret === "" && !entry.recoveryFailed) {
-          // Secret is missing and recovery hasn't been attempted or hasn't
-          // permanently failed. Delete the stale webhook and recreate to
-          // mint a fresh HMAC secret.
-          log?.info("webhook_secret_recovery", {
-            project: projectId,
-            webhookId: urlMatch.id,
-          });
-          try {
-            await client.webhooks.delete(numId("project", projectId), urlMatch.id);
-            registry.remove(projectId);
-            secretRecovery = true;
-          } catch (delErr) {
-            log?.error("webhook_secret_recovery_delete_failed", {
-              project: projectId,
-              error: String(delErr),
-            });
-            result.failed.push(projectId);
-            continue;
-          }
-          // Fall through to create path
-        } else {
-          result.existing.push(projectId);
-          continue;
-        }
+        result.existing.push(projectId);
+        continue;
       }
 
       // URL matches but types differ — delete stale webhook before creating new one
-      if (!secretRecovery && urlMatch) {
+      if (urlMatch) {
         log?.info("webhook_types_changed", {
           project: projectId,
           webhookId: urlMatch.id,
@@ -186,39 +160,29 @@ export async function reconcileWebhooks(
         continue;
       }
 
-      // Persist the secret — it's only returned on create
+      // Persist the secret — it's only returned on create.
+      // BC3 never returns a secret, so empty string is expected.
+      // Token auth via ?token= handles verification instead.
       registry.set(projectId, {
         webhookId: String(webhook.id),
         secret: webhook.secret ?? "",
         payloadUrl: webhook.payload_url ?? config.payloadUrl,
         types: webhook.types ?? config.types,
-        recoveryFailed: !webhook.secret || undefined,
       });
 
       if (!webhook.secret) {
-        log?.error("webhook_create_no_secret", {
+        log?.info("webhook_create_no_secret", {
           project: projectId,
           webhookId: webhook.id,
-          recovery: secretRecovery,
-          reason: "BC3 returned webhook without secret — HMAC will fail",
+          note: "BC3 does not return secrets — token auth will be used",
         });
-        result.failed.push(projectId);
-        continue;
       }
 
-      if (secretRecovery) {
-        result.recovered.push(projectId);
-        log?.info("webhook_secret_recovered", {
-          project: projectId,
-          webhookId: webhook.id,
-        });
-      } else {
-        log?.info("webhook_created", {
-          project: projectId,
-          webhookId: webhook.id,
-        });
-        result.created.push(projectId);
-      }
+      log?.info("webhook_created", {
+        project: projectId,
+        webhookId: webhook.id,
+      });
+      result.created.push(projectId);
     } catch (err) {
       log?.error("webhook_reconcile_failed", {
         project: projectId,

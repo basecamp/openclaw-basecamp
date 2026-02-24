@@ -18,20 +18,25 @@
  */
 
 import type { BasecampInboundMessage, ResolvedBasecampAccount } from "../types.js";
-import { resolvePollingIntervals, resolveCircuitBreakerConfig } from "../config.js";
+import { resolvePollingIntervals, resolveCircuitBreakerConfig, resolveSafetyNetConfig, resolveReconciliationConfig, resolveAccountForBucket, listBasecampAccountIds } from "../config.js";
 import { EventDedup } from "./dedup.js";
 import { getAccountDedup } from "./dedup-registry.js";
 import { CursorStore } from "./cursors.js";
 import { pollActivityFeed } from "./activity.js";
 import { pollReadings } from "./readings.js";
 import { pollAssignments } from "./assignments.js";
+import { pollSafetyNet, deserializeSnapshot, serializeSnapshot, deserializePending, serializePending } from "./safety-net.js";
+import type { SafetyNetSnapshot, DisappearedPending } from "./safety-net.js";
+import { runReconciliation, deserializePromotionState, serializePromotionState } from "./reconciliation.js";
+import type { PromotionState } from "./reconciliation.js";
 import { CircuitBreaker } from "../circuit-breaker.js";
 import { getClient, rawOrThrow } from "../basecamp-client.js";
 import { withCircuitBreaker } from "../retry.js";
 import { isSelfMessage } from "./normalize.js";
 import { createStructuredLog } from "../logging.js";
-import { recordPollAttempt, recordPollSuccess, recordPollError, recordDedupSize, recordCircuitBreakerState } from "../metrics.js";
+import { recordPollAttempt, recordPollSuccess, recordPollError, recordDedupSize, recordCircuitBreakerState, recordReconciliationRun, recordSafetyNetEscalation } from "../metrics.js";
 import { withTimeout } from "../util.js";
+import type { OpenClawConfig } from "openclaw/plugin-sdk";
 
 export interface CompositePollerOptions {
   account: ResolvedBasecampAccount;
@@ -176,6 +181,49 @@ export async function startCompositePoller(
       slog.warn("corrupt_assignment_cursor");
     }
   }
+
+  // ----- Safety net state -----
+  const snConfig = resolveSafetyNetConfig(cfg as OpenClawConfig);
+  const rcConfig = resolveReconciliationConfig(cfg as OpenClawConfig);
+
+  // Resolve safety-net projects scoped to this account
+  const allSnProjects = snConfig.projects;
+  let accountSnProjects: number[] = [];
+  if (allSnProjects.length > 0) {
+    const concreteAccountIds = listBasecampAccountIds(cfg as OpenClawConfig);
+    const isSingleAccount = concreteAccountIds.length <= 1;
+    for (const pid of allSnProjects) {
+      const owner = resolveAccountForBucket(cfg as OpenClawConfig, pid);
+      if (owner) {
+        if (owner === account.accountId) accountSnProjects.push(Number(pid));
+      } else if (isSingleAccount) {
+        accountSnProjects.push(Number(pid));
+      } else {
+        slog.warn("unmapped_safetynet_project", { projectId: pid });
+      }
+    }
+  }
+
+  const safetyNetIntervalMs = snConfig.intervalMs;
+  const DEEP_CRAWL_EVERY = 6;
+  let safetyNetCycleCount = 0;
+  let lastSafetyNetPoll = 0;
+  let safetyNetBackoff = 0;
+
+  // Load stored snapshot
+  let safetyNetSnapshot: SafetyNetSnapshot | undefined;
+  let safetyNetPending: DisappearedPending | undefined;
+  const storedSnap = cursors.getCustom("safetyNetSnapshot");
+  if (storedSnap) safetyNetSnapshot = deserializeSnapshot(storedSnap);
+  const storedPending = cursors.getCustom("safetyNetPending");
+  if (storedPending) safetyNetPending = deserializePending(storedPending);
+
+  // Load promotion state for reconciliation
+  let promotionState: PromotionState | undefined;
+  const storedPromotion = cursors.getCustom("reconciliation:promotions");
+  if (storedPromotion) promotionState = deserializePromotionState(storedPromotion);
+
+  let lastReconciliationPoll = 0;
 
   slog.info("started", {
     activityMs: activityIntervalMs,
@@ -381,11 +429,128 @@ export async function startCompositePoller(
       }
     }
 
+    // ----- Safety net poll -----
+    if (accountSnProjects.length > 0) {
+      const snDue = now - lastSafetyNetPoll >= safetyNetIntervalMs + safetyNetBackoff;
+      if (snDue) {
+        lastSafetyNetPoll = now;
+        safetyNetCycleCount++;
+        const isDeepCrawl = safetyNetCycleCount % DEEP_CRAWL_EVERY === 0;
+        recordPollAttempt(account.accountId, "safetyNet");
+
+        try {
+          const client = getClient(account);
+          const result = await withCircuitBreaker(cb, "safetyNet", () =>
+            pollSafetyNet({
+              account,
+              client,
+              projectIds: accountSnProjects,
+              previousSnapshot: safetyNetSnapshot,
+              previousPending: safetyNetPending,
+              isDeepCrawl,
+              log,
+            }),
+          );
+
+          let dispatched = 0;
+          let dropped = 0;
+          for (const event of result.events) {
+            if (dedup.isDuplicate(event.dedupKey)) continue;
+
+            try {
+              const delivered = await onEvent(event);
+              if (delivered) dispatched++;
+              else dropped++;
+            } catch (err) {
+              slog.error("dispatch_error", { feed: "safetyNet", key: event.dedupKey, error: String(err) });
+            }
+          }
+
+          safetyNetSnapshot = result.snapshot;
+          safetyNetPending = result.pending;
+          cursors.setCustom("safetyNetSnapshot", serializeSnapshot(result.snapshot));
+          cursors.setCustom("safetyNetPending", serializePending(result.pending));
+          await saveCursorsWithRetry(cursors, slog);
+
+          if (dispatched > 0 || dropped > 0) {
+            slog.info("poll_dispatched", {
+              feed: "safetyNet",
+              total: result.events.length,
+              dispatched,
+              dropped,
+              deep: isDeepCrawl,
+            });
+          }
+
+          recordPollSuccess(account.accountId, "safetyNet", dispatched, dropped);
+          recordDedupSize(account.accountId, dedup.size);
+          syncCircuitBreakerMetrics("safetyNet");
+          safetyNetBackoff = 0;
+        } catch (err) {
+          safetyNetBackoff = clamp(
+            safetyNetBackoff === 0 ? safetyNetIntervalMs : safetyNetBackoff * 2,
+            safetyNetIntervalMs,
+            MAX_BACKOFF_MS,
+          );
+          recordPollError(account.accountId, "safetyNet", String(err), safetyNetBackoff);
+          syncCircuitBreakerMetrics("safetyNet");
+          slog.error("poll_error", { feed: "safetyNet", backoff: safetyNetBackoff, error: String(err) });
+        }
+      }
+    }
+
+    // ----- Reconciliation pass -----
+    if (rcConfig.enabled) {
+      const rcDue = now - lastReconciliationPoll >= rcConfig.intervalMs;
+      if (rcDue) {
+        try {
+          const client = getClient(account);
+          const result = await runReconciliation({
+            account,
+            client,
+            dedup,
+            maxItems: 250,
+            gapThreshold: rcConfig.gapThreshold,
+            promotionState,
+            log,
+          });
+
+          lastReconciliationPoll = now;
+
+          promotionState = {
+            promotions: result.promotions,
+            previousGaps: result.gapsByType,
+          };
+          cursors.setCustom(
+            "reconciliation:promotions",
+            serializePromotionState(result.promotions, result.gapsByType),
+          );
+          await saveCursorsWithRetry(cursors, slog);
+
+          recordReconciliationRun(account.accountId, {
+            replayed: result.replayed,
+            unseen: result.unseen,
+            promotedTypes: result.promotions.map((p) => p.type),
+          });
+        } catch (err) {
+          // Don't update lastReconciliationPoll — retry on next loop iteration
+          slog.error("reconciliation_error", { error: String(err) });
+        }
+      }
+    }
+
     // Sleep until next poll
     const nextActivityDue = lastActivityPoll + activityIntervalMs + activityBackoff - Date.now();
     const nextReadingsDue = lastReadingsPoll + readingsIntervalMs + readingsBackoff - Date.now();
     const nextAssignmentsDue = lastAssignmentsPoll + assignmentsIntervalMs + assignmentsBackoff - Date.now();
-    const sleepMs = Math.max(1000, Math.min(nextActivityDue, nextReadingsDue, nextAssignmentsDue));
+    const sleepCandidates = [nextActivityDue, nextReadingsDue, nextAssignmentsDue];
+    if (accountSnProjects.length > 0) {
+      sleepCandidates.push(lastSafetyNetPoll + safetyNetIntervalMs + safetyNetBackoff - Date.now());
+    }
+    if (rcConfig.enabled) {
+      sleepCandidates.push(lastReconciliationPoll + rcConfig.intervalMs - Date.now());
+    }
+    const sleepMs = Math.max(1000, Math.min(...sleepCandidates));
 
     await abortableSleep(sleepMs, abortSignal);
   }
