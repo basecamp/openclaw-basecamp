@@ -13,7 +13,7 @@ vi.mock("../src/config.js", () => ({
     threshold: 5,
     cooldownMs: 30_000,
   }),
-  resolveSafetyNetConfig: () => ({ projects: [], intervalMs: 600_000, tier2: { enabled: false, lagThresholdMs: 600_000, rapidIntervalMs: 120_000, businessHours: { start: 9, end: 18, timezone: "America/Chicago" } } }),
+  resolveSafetyNetConfig: () => ({ projects: [], intervalMs: 600_000 }),
   resolveReconciliationConfig: () => ({ enabled: false, intervalMs: 21_600_000, gapThreshold: 3 }),
   resolveAccountForBucket: () => undefined,
   listBasecampAccountIds: () => ["default"],

@@ -34,7 +34,7 @@ import { getClient, rawOrThrow } from "../basecamp-client.js";
 import { withCircuitBreaker } from "../retry.js";
 import { isSelfMessage } from "./normalize.js";
 import { createStructuredLog } from "../logging.js";
-import { recordPollAttempt, recordPollSuccess, recordPollError, recordDedupSize, recordCircuitBreakerState, recordReconciliationRun, recordSafetyNetEscalation } from "../metrics.js";
+import { recordPollAttempt, recordPollSuccess, recordPollError, recordDedupSize, recordCircuitBreakerState, recordReconciliationRun } from "../metrics.js";
 import { withTimeout } from "../util.js";
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
 
@@ -538,6 +538,8 @@ export async function startCompositePoller(
         }
       }
     }
+    // Promotions are observability-only: persisted to cursor state and metrics
+    // for operator visibility. Frequency escalation (tier-2) deferred.
 
     // Sleep until next poll
     const nextActivityDue = lastActivityPoll + activityIntervalMs + activityBackoff - Date.now();

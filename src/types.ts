@@ -531,16 +531,8 @@ export type BasecampChannelConfig = {
   safetyNet?: {
     projects?: string[];
     intervalMs?: number;
-    tier2?: {
-      enabled?: boolean;
-      lagThresholdMs?: number;
-      rapidIntervalMs?: number;
-      businessHours?: {
-        start?: number;
-        end?: number;
-        timezone?: string;
-      };
-    };
+    /** @deprecated Accepted but ignored. Frequency escalation deferred. */
+    tier2?: unknown;
   };
   /** Reconciliation pass config. */
   reconciliation?: {

@@ -39,11 +39,6 @@ export interface ReconciliationMetrics {
   promotedTypes: string[];
 }
 
-export interface SafetyNetEscalation {
-  escalatedAt: number | null;
-  deescalatedAt: number | null;
-}
-
 export interface AccountMetrics {
   poller: {
     activity: PollerSourceMetrics;
@@ -54,7 +49,6 @@ export interface AccountMetrics {
   webhook: WebhookMetrics & { authMethods: Record<string, number> };
   circuitBreaker: Record<string, CircuitBreakerMetrics>;
   reconciliation: ReconciliationMetrics;
-  safetyNet: { escalations: Record<string, SafetyNetEscalation> };
   dedupSize: number;
   webhookDedupSize: number;
   dispatchFailureCount: number;
@@ -103,7 +97,6 @@ function getOrCreate(accountId: string): AccountMetrics {
       webhook: { ...emptyWebhookMetrics(), authMethods: {} },
       circuitBreaker: {},
       reconciliation: { lastRunAt: null, replayed: 0, unseen: 0, promotedTypes: [] },
-      safetyNet: { escalations: {} },
       dedupSize: 0,
       webhookDedupSize: 0,
       dispatchFailureCount: 0,
@@ -207,18 +200,6 @@ export function recordReconciliationRun(accountId: string, result: { replayed: n
   m.reconciliation.replayed = result.replayed;
   m.reconciliation.unseen = result.unseen;
   m.reconciliation.promotedTypes = result.promotedTypes;
-}
-
-export function recordSafetyNetEscalation(accountId: string, key: string, action: "escalate" | "deescalate"): void {
-  const m = getOrCreate(accountId);
-  if (!m.safetyNet.escalations[key]) {
-    m.safetyNet.escalations[key] = { escalatedAt: null, deescalatedAt: null };
-  }
-  if (action === "escalate") {
-    m.safetyNet.escalations[key].escalatedAt = Date.now();
-  } else {
-    m.safetyNet.escalations[key].deescalatedAt = Date.now();
-  }
 }
 
 export function recordUnknownKind(accountId: string, rawKind: string): void {
