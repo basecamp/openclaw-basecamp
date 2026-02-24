@@ -13,8 +13,18 @@ vi.mock("openclaw/plugin-sdk", () => ({
   },
 }));
 
-vi.mock("../src/bcq.js", () => ({
-  bcqApiPost: vi.fn(),
+const mockClient = {
+  boosts: { createForRecording: vi.fn() },
+};
+
+vi.mock("../src/basecamp-client.js", () => ({
+  getClient: vi.fn(() => mockClient),
+  numId: (_label: string, value: string | number) => Number(value),
+  rawOrThrow: vi.fn(async (r: any) => r?.data),
+  BasecampError: class BasecampError extends Error {
+    code: string;
+    constructor(msg: string, code: string) { super(msg); this.code = code; }
+  },
 }));
 
 vi.mock("../src/outbound/send.js", () => ({
@@ -42,7 +52,6 @@ import { basecampActionsAdapter } from "../src/adapters/actions.js";
 import { postCampfireLine, postComment } from "../src/outbound/send.js";
 import { markdownToBasecampHtml } from "../src/outbound/format.js";
 import { resolveBasecampAccount } from "../src/config.js";
-import { bcqApiPost } from "../src/bcq.js";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -153,14 +162,13 @@ describe("actions.handleAction — send campfire line", () => {
 
     expect(result).toEqual({
       ok: true,
-      result: { ok: true, target: "campfire", recordingId: "42", error: undefined },
+      result: { ok: true, target: "campfire", recordingId: "42" },
     });
     expect(postCampfireLine).toHaveBeenCalledWith({
       bucketId: "1",
       transcriptId: "2",
       content: "<p>Hello campfire</p>",
-      accountId: undefined,
-      profile: "test-profile",
+      account: expect.objectContaining({ accountId: "test-acct" }),
     });
     expect(markdownToBasecampHtml).toHaveBeenCalledWith("Hello campfire");
   });
@@ -179,7 +187,7 @@ describe("actions.handleAction — send campfire line", () => {
   });
 
   it("returns error from failed campfire post", async () => {
-    vi.mocked(postCampfireLine).mockResolvedValue({ ok: false, error: "bcq timeout" });
+    vi.mocked(postCampfireLine).mockResolvedValue({ ok: false, message: "timeout", error: new Error("timeout") });
 
     const result = await basecampActionsAdapter.handleAction!(
       actionCtx({
@@ -189,7 +197,7 @@ describe("actions.handleAction — send campfire line", () => {
 
     expect(result).toEqual({
       ok: true,
-      result: { ok: false, target: "campfire", recordingId: undefined, error: "bcq timeout" },
+      result: { ok: false, target: "campfire", error: "timeout" },
     });
   });
 });
@@ -210,19 +218,18 @@ describe("actions.handleAction — send comment", () => {
 
     expect(result).toEqual({
       ok: true,
-      result: { ok: true, target: "comment", commentId: "77", error: undefined },
+      result: { ok: true, target: "comment", commentId: "77" },
     });
     expect(postComment).toHaveBeenCalledWith({
       bucketId: "1",
       recordingId: "3",
       content: "<p>A comment</p>",
-      accountId: undefined,
-      profile: "test-profile",
+      account: expect.objectContaining({ accountId: "test-acct" }),
     });
   });
 
   it("returns error from failed comment post", async () => {
-    vi.mocked(postComment).mockResolvedValue({ ok: false, error: "403 Forbidden" });
+    vi.mocked(postComment).mockResolvedValue({ ok: false, message: "403 Forbidden", error: new Error("403 Forbidden") });
 
     const result = await basecampActionsAdapter.handleAction!(
       actionCtx({
@@ -232,7 +239,7 @@ describe("actions.handleAction — send comment", () => {
 
     expect(result).toEqual({
       ok: true,
-      result: { ok: false, target: "comment", commentId: undefined, error: "403 Forbidden" },
+      result: { ok: false, target: "comment", error: "403 Forbidden" },
     });
   });
 });
@@ -336,32 +343,36 @@ describe("actions.handleAction — unsupported action", () => {
 });
 
 // ---------------------------------------------------------------------------
-// handleAction — account resolution with bcqAccountId
+// handleAction — account resolution with scopedBucketId
 // ---------------------------------------------------------------------------
 
-describe("actions.handleAction — bcqAccountId override", () => {
-  it("uses bcqAccountId when set on account config", async () => {
+describe("actions.handleAction — bucket scoping", () => {
+  it("rejects send when bucket does not match scoped account", async () => {
     vi.mocked(resolveBasecampAccount).mockReturnValue({
-      accountId: "test-acct",
+      accountId: "scoped-acct",
       enabled: true,
       personId: "999",
       token: "tok-test",
       tokenSource: "config",
       bcqProfile: "test-profile",
-      config: { personId: "999", bcqAccountId: "override-id" },
+      scopedBucketId: 42,
+      config: { personId: "999", bcqAccountId: undefined },
     } as any);
 
-    vi.mocked(postCampfireLine).mockResolvedValue({ ok: true, recordingId: "88" });
-
-    await basecampActionsAdapter.handleAction!(
+    const result = await basecampActionsAdapter.handleAction!(
       actionCtx({
-        params: { bucketId: "1", transcriptId: "2", text: "Hello" },
+        params: { bucketId: "99", transcriptId: "2", text: "Hello" },
       }),
     );
 
-    expect(postCampfireLine).toHaveBeenCalledWith(
-      expect.objectContaining({ accountId: "override-id" }),
-    );
+    expect(result).toEqual({
+      ok: true,
+      result: {
+        ok: false,
+        error: expect.stringContaining("scoped to bucket 42"),
+      },
+    });
+    expect(postCampfireLine).not.toHaveBeenCalled();
   });
 });
 
@@ -384,7 +395,7 @@ describe("actions.handleAction — react", () => {
   });
 
   it("posts a boost with emoji", async () => {
-    vi.mocked(bcqApiPost).mockResolvedValue({ id: 55 });
+    mockClient.boosts.createForRecording.mockResolvedValue({ id: 55 });
 
     const result = await basecampActionsAdapter.handleAction!(
       actionCtx({
@@ -397,16 +408,15 @@ describe("actions.handleAction — react", () => {
       ok: true,
       result: { ok: true, target: "boost", boostId: 55 },
     });
-    expect(bcqApiPost).toHaveBeenCalledWith(
-      "/buckets/1/recordings/500/boosts.json",
-      JSON.stringify({ content: "🎉" }),
-      undefined,
-      "test-profile",
+    expect(mockClient.boosts.createForRecording).toHaveBeenCalledWith(
+      1,
+      500,
+      { content: "🎉" },
     );
   });
 
   it("defaults emoji to thumbs up", async () => {
-    vi.mocked(bcqApiPost).mockResolvedValue({ id: 56 });
+    mockClient.boosts.createForRecording.mockResolvedValue({ id: 56 });
 
     await basecampActionsAdapter.handleAction!(
       actionCtx({
@@ -415,16 +425,15 @@ describe("actions.handleAction — react", () => {
       }),
     );
 
-    expect(bcqApiPost).toHaveBeenCalledWith(
-      "/buckets/1/recordings/500/boosts.json",
-      JSON.stringify({ content: "👍" }),
-      undefined,
-      "test-profile",
+    expect(mockClient.boosts.createForRecording).toHaveBeenCalledWith(
+      1,
+      500,
+      { content: "👍" },
     );
   });
 
   it("returns error on API failure", async () => {
-    vi.mocked(bcqApiPost).mockRejectedValue(new Error("503 Unavailable"));
+    mockClient.boosts.createForRecording.mockRejectedValue(new Error("503 Unavailable"));
 
     const result = await basecampActionsAdapter.handleAction!(
       actionCtx({
@@ -493,7 +502,7 @@ describe("actions.handleAction — react bucket scoping", () => {
         error: expect.stringContaining("scoped to bucket 42"),
       },
     });
-    expect(bcqApiPost).not.toHaveBeenCalled();
+    expect(mockClient.boosts.createForRecording).not.toHaveBeenCalled();
   });
 });
 
@@ -534,6 +543,6 @@ describe("actions.handleAction — react dryRun", () => {
         emoji: "🎉",
       }),
     });
-    expect(bcqApiPost).not.toHaveBeenCalled();
+    expect(mockClient.boosts.createForRecording).not.toHaveBeenCalled();
   });
 });

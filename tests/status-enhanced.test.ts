@@ -22,10 +22,21 @@ vi.mock("openclaw/plugin-sdk", () => ({
   }),
 }));
 
-vi.mock("../src/bcq.js", () => ({
-  bcqAuthStatus: vi.fn(),
-  bcqMe: vi.fn(),
-  bcqApiGet: vi.fn(),
+// bcqAuthStatus no longer used by status adapter (uses SDK client for all sources)
+
+const mockClient = {
+  authorization: { getInfo: vi.fn() },
+  projects: { list: vi.fn() },
+};
+
+vi.mock("../src/basecamp-client.js", () => ({
+  getClient: vi.fn(() => mockClient),
+  numId: (_label: string, value: string | number) => Number(value),
+  rawOrThrow: vi.fn(async (r: any) => r?.data),
+  BasecampError: class BasecampError extends Error {
+    code: string;
+    constructor(msg: string, code: string) { super(msg); this.code = code; }
+  },
 }));
 
 vi.mock("../src/config.js", () => ({
@@ -34,7 +45,6 @@ vi.mock("../src/config.js", () => ({
 
 import { basecampStatusAdapter } from "../src/adapters/status.js";
 import type { BasecampProbe, BasecampAudit } from "../src/adapters/status.js";
-import { bcqAuthStatus, bcqMe, bcqApiGet } from "../src/bcq.js";
 import { resolveBasecampAccount } from "../src/config.js";
 import type { ResolvedBasecampAccount } from "../src/types.js";
 import {
@@ -77,14 +87,10 @@ beforeEach(() => {
 
 describe("probeAccount (enhanced)", () => {
   it("returns personName and accountCount when authenticated", async () => {
-    vi.mocked(bcqAuthStatus).mockResolvedValue({
-      data: { authenticated: true },
-      raw: "",
+    mockClient.authorization.getInfo.mockResolvedValue({
+      identity: { id: 42, firstName: "Jeremy", lastName: "", emailAddress: "j@example.com" },
+      accounts: [{}, {}],
     });
-    vi.mocked(bcqMe).mockResolvedValue({
-      data: { name: "Jeremy", accounts: [{}, {}] },
-      raw: "",
-    } as any);
 
     const probe = await basecampStatusAdapter.probeAccount!({
       account: mockAccount,
@@ -98,14 +104,26 @@ describe("probeAccount (enhanced)", () => {
     expect(probe.accountCount).toBe(2);
   });
 
-  it("returns ok=false when not authenticated", async () => {
-    vi.mocked(bcqAuthStatus).mockResolvedValue({
-      data: { authenticated: false },
-      raw: "",
-    });
+  it("returns ok=false when getInfo fails (config token)", async () => {
+    mockClient.authorization.getInfo.mockRejectedValue(new Error("401"));
 
     const probe = await basecampStatusAdapter.probeAccount!({
       account: mockAccount,
+      timeoutMs: 5000,
+      cfg: cfg({}),
+    });
+
+    expect(probe.ok).toBe(false);
+    expect(probe.personName).toBeUndefined();
+  });
+
+  it("returns ok=false when getInfo fails for bcq token (unified auth check)", async () => {
+    mockClient.authorization.getInfo.mockRejectedValue(new Error("token expired"));
+
+    const bcqAccount = { ...mockAccount, tokenSource: "bcq" as const };
+
+    const probe = await basecampStatusAdapter.probeAccount!({
+      account: bcqAccount,
       timeoutMs: 5000,
       cfg: cfg({}),
     });
@@ -115,7 +133,7 @@ describe("probeAccount (enhanced)", () => {
   });
 
   it("returns ok=false with error on exception", async () => {
-    vi.mocked(bcqAuthStatus).mockRejectedValue(new Error("network"));
+    mockClient.authorization.getInfo.mockRejectedValue(new Error("network"));
 
     const probe = await basecampStatusAdapter.probeAccount!({
       account: mockAccount,
@@ -124,25 +142,24 @@ describe("probeAccount (enhanced)", () => {
     });
 
     expect(probe.ok).toBe(false);
-    expect(probe.error).toContain("network");
+    // For config token, getInfo failure → ok=false
   });
 
-  it("handles bcqMe failure gracefully", async () => {
-    vi.mocked(bcqAuthStatus).mockResolvedValue({
-      data: { authenticated: true },
-      raw: "",
-    });
-    vi.mocked(bcqMe).mockRejectedValue(new Error("fail"));
+  it("handles getInfo failure gracefully when bcq auth succeeded", async () => {
+    mockClient.authorization.getInfo.mockRejectedValue(new Error("fail"));
+
+    const bcqAccount = { ...mockAccount, tokenSource: "bcq" as const };
 
     const probe = await basecampStatusAdapter.probeAccount!({
-      account: mockAccount,
+      account: bcqAccount,
       timeoutMs: 5000,
       cfg: cfg({}),
     });
 
-    expect(probe.ok).toBe(true);
-    expect(probe.personName).toBeUndefined();
-    expect(probe.accountCount).toBeUndefined();
+    // With unified SDK-based probing, any getInfo failure → not ok
+    expect(probe.ok).toBe(false);
+    expect(probe.authenticated).toBe(false);
+    expect(probe.error).toContain("fail");
   });
 });
 
@@ -152,7 +169,7 @@ describe("probeAccount (enhanced)", () => {
 
 describe("auditAccount", () => {
   it("counts accessible projects", async () => {
-    vi.mocked(bcqApiGet).mockResolvedValue([
+    mockClient.projects.list.mockResolvedValue([
       { id: 1, name: "P1" },
       { id: 2, name: "P2" },
     ]);
@@ -169,7 +186,7 @@ describe("auditAccount", () => {
   });
 
   it("validates persona mappings", async () => {
-    vi.mocked(bcqApiGet).mockResolvedValue([]);
+    mockClient.projects.list.mockResolvedValue([]);
     vi.mocked(resolveBasecampAccount).mockReturnValue({
       ...mockAccount,
       token: "tok",
@@ -195,7 +212,7 @@ describe("auditAccount", () => {
   });
 
   it("reports API failure as error", async () => {
-    vi.mocked(bcqApiGet).mockRejectedValue(new Error("forbidden"));
+    mockClient.projects.list.mockRejectedValue(new Error("forbidden"));
 
     const audit = await basecampStatusAdapter.auditAccount!({
       account: mockAccount,
@@ -382,14 +399,10 @@ describe("buildAccountSnapshot (enhanced)", () => {
 
 describe("probeAccount operational metrics", () => {
   it("attaches metrics snapshot to probe when available", async () => {
-    vi.mocked(bcqAuthStatus).mockResolvedValue({
-      data: { authenticated: true },
-      raw: "",
+    mockClient.authorization.getInfo.mockResolvedValue({
+      identity: { id: 42, firstName: "Jeremy", lastName: "", emailAddress: "j@example.com" },
+      accounts: [{}],
     });
-    vi.mocked(bcqMe).mockResolvedValue({
-      data: { name: "Jeremy", accounts: [{}] },
-      raw: "",
-    } as any);
 
     // Seed some metrics for the test account
     recordPollAttempt("test", "activity");
@@ -409,14 +422,10 @@ describe("probeAccount operational metrics", () => {
   });
 
   it("returns undefined metrics when no data recorded", async () => {
-    vi.mocked(bcqAuthStatus).mockResolvedValue({
-      data: { authenticated: true },
-      raw: "",
+    mockClient.authorization.getInfo.mockResolvedValue({
+      identity: { id: 42, firstName: "Jeremy", lastName: "", emailAddress: "j@example.com" },
+      accounts: [],
     });
-    vi.mocked(bcqMe).mockResolvedValue({
-      data: { name: "Jeremy" },
-      raw: "",
-    } as any);
 
     const probe = await basecampStatusAdapter.probeAccount!({
       account: mockAccount,
@@ -434,7 +443,7 @@ describe("probeAccount operational metrics", () => {
 
 describe("auditAccount operational metrics", () => {
   it("includes poller lag in audit", async () => {
-    vi.mocked(bcqApiGet).mockResolvedValue([]);
+    mockClient.projects.list.mockResolvedValue([]);
 
     // Simulate successful polls with known timestamps
     recordPollSuccess("test", "activity", 1);
@@ -457,7 +466,7 @@ describe("auditAccount operational metrics", () => {
   });
 
   it("includes webhook stats in audit", async () => {
-    vi.mocked(bcqApiGet).mockResolvedValue([]);
+    mockClient.projects.list.mockResolvedValue([]);
 
     recordWebhookReceived("test");
     recordWebhookReceived("test");
@@ -480,7 +489,7 @@ describe("auditAccount operational metrics", () => {
   });
 
   it("includes dedup sizes in audit", async () => {
-    vi.mocked(bcqApiGet).mockResolvedValue([]);
+    mockClient.projects.list.mockResolvedValue([]);
 
     recordDedupSize("test", 100);
     recordWebhookDedupSize("test", 25);
@@ -496,7 +505,7 @@ describe("auditAccount operational metrics", () => {
   });
 
   it("includes circuit breaker state in audit", async () => {
-    vi.mocked(bcqApiGet).mockResolvedValue([]);
+    mockClient.projects.list.mockResolvedValue([]);
 
     recordCircuitBreakerState("test", "outbound", {
       state: "open",
@@ -518,7 +527,7 @@ describe("auditAccount operational metrics", () => {
   });
 
   it("omits circuit breakers when none recorded", async () => {
-    vi.mocked(bcqApiGet).mockResolvedValue([]);
+    mockClient.projects.list.mockResolvedValue([]);
 
     recordPollAttempt("test", "activity");
 

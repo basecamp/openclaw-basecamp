@@ -9,7 +9,7 @@
 import type { ChannelPairingAdapter, OpenClawConfig } from "openclaw/plugin-sdk";
 import { PAIRING_APPROVED_MESSAGE } from "openclaw/plugin-sdk";
 import { resolveBasecampAccount } from "../config.js";
-import { bcqApiPost } from "../bcq.js";
+import { getClient, rawOrThrow } from "../basecamp-client.js";
 
 export const basecampPairingAdapter: ChannelPairingAdapter = {
   idLabel: "basecampPersonId",
@@ -22,19 +22,16 @@ export const basecampPairingAdapter: ChannelPairingAdapter = {
   },
 
   notifyApproval: async ({ cfg, id }) => {
-    // Resolve the default account to get the bcq profile
     const account = resolveBasecampAccount(cfg);
-    const profile = account.bcqProfile;
 
-    // Send a Ping message to the person via bcq
-    // bcq campfire dm sends a DM (Ping) to a person by ID
+    // Send a Ping message to the person via the circles endpoint.
+    // This is NOT in the OpenAPI spec — use raw client.
     try {
-      await bcqApiPost(
-        `/circles/people/${id}/lines.json`,
-        JSON.stringify({ content: `<p>${PAIRING_APPROVED_MESSAGE}</p>` }),
-        account.config.bcqAccountId,
-        profile,
-      );
+      const client = getClient(account);
+      await rawOrThrow(await client.raw.POST(
+        `/circles/people/${id}/lines.json` as any,
+        { body: { content: `<p>${PAIRING_APPROVED_MESSAGE}</p>` } as any },
+      ));
     } catch {
       // Ping delivery is best-effort; the person can check their status
       // via `openclaw pairing status` if they don't receive the message.

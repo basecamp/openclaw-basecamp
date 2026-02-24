@@ -8,8 +8,11 @@ vi.mock("openclaw/plugin-sdk", () => ({
   },
 }));
 
-vi.mock("../src/bcq.js", () => ({
-  bcqAuthStatus: vi.fn(),
+const mockGetInfo = vi.fn();
+vi.mock("../src/basecamp-client.js", () => ({
+  getClient: vi.fn(() => ({
+    authorization: { getInfo: mockGetInfo },
+  })),
 }));
 
 vi.mock("../src/config.js", () => ({
@@ -17,7 +20,6 @@ vi.mock("../src/config.js", () => ({
 }));
 
 import { basecampHeartbeatAdapter } from "../src/adapters/heartbeat.js";
-import { bcqAuthStatus } from "../src/bcq.js";
 import { resolveBasecampAccount } from "../src/config.js";
 
 function cfg(basecamp?: Record<string, unknown>) {
@@ -45,10 +47,10 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("heartbeat.checkReady", () => {
-  it("returns ok when authenticated", async () => {
-    vi.mocked(bcqAuthStatus).mockResolvedValue({
-      data: { authenticated: true },
-      raw: "",
+  it("returns ok when SDK auth check succeeds", async () => {
+    mockGetInfo.mockResolvedValue({
+      identity: { id: 42, firstName: "Jeremy", lastName: "" },
+      accounts: [{}],
     });
 
     const result = await basecampHeartbeatAdapter.checkReady!({
@@ -59,11 +61,8 @@ describe("heartbeat.checkReady", () => {
     expect(result.ok).toBe(true);
   });
 
-  it("returns not ok when not authenticated", async () => {
-    vi.mocked(bcqAuthStatus).mockResolvedValue({
-      data: { authenticated: false },
-      raw: "",
-    });
+  it("returns not ok when SDK auth check fails", async () => {
+    mockGetInfo.mockRejectedValue(new Error("401 Unauthorized"));
 
     const result = await basecampHeartbeatAdapter.checkReady!({
       cfg: cfg({}),
@@ -71,13 +70,14 @@ describe("heartbeat.checkReady", () => {
     });
 
     expect(result.ok).toBe(false);
-    expect(result.reason).toContain("not authenticated");
+    expect(result.reason).toContain("Auth check failed");
   });
 
-  it("returns not ok when no token or profile", async () => {
+  it("returns not ok when no auth configured", async () => {
     vi.mocked(resolveBasecampAccount).mockReturnValue({
       ...mockAccount,
       token: "",
+      tokenSource: "none" as const,
       bcqProfile: undefined,
     } as any);
 
@@ -87,11 +87,33 @@ describe("heartbeat.checkReady", () => {
     });
 
     expect(result.ok).toBe(false);
-    expect(result.reason).toContain("No bcq profile or token");
+    expect(result.reason).toContain("No authentication configured");
   });
 
-  it("returns not ok on auth check failure", async () => {
-    vi.mocked(bcqAuthStatus).mockRejectedValue(new Error("timeout"));
+  it("returns ok for OAuth account when token is valid", async () => {
+    vi.mocked(resolveBasecampAccount).mockReturnValue({
+      ...mockAccount,
+      token: "",
+      tokenSource: "oauth" as const,
+      bcqProfile: undefined,
+      oauthClientId: "client123",
+      config: { personId: "42", oauthTokenFile: "/tmp/token.json" },
+    } as any);
+    mockGetInfo.mockResolvedValue({
+      identity: { id: 42, firstName: "Bot", lastName: "" },
+      accounts: [],
+    });
+
+    const result = await basecampHeartbeatAdapter.checkReady!({
+      cfg: cfg({}),
+      accountId: "test",
+    });
+
+    expect(result.ok).toBe(true);
+  });
+
+  it("returns not ok on network error", async () => {
+    mockGetInfo.mockRejectedValue(new Error("timeout"));
 
     const result = await basecampHeartbeatAdapter.checkReady!({
       cfg: cfg({}),
@@ -99,7 +121,7 @@ describe("heartbeat.checkReady", () => {
     });
 
     expect(result.ok).toBe(false);
-    expect(result.reason).toContain("auth check failed");
+    expect(result.reason).toContain("Auth check failed");
   });
 });
 
@@ -123,8 +145,6 @@ describe("heartbeat.resolveRecipients", () => {
       cfg: cfg({ allowFrom: ["100", "200"] }),
     });
 
-    // allowFrom contains person IDs, but ping peers require circle bucket IDs.
-    // Without an API call we can't map them, so recipients is empty.
     expect(result.recipients).toEqual([]);
     expect(result.source).toBe("none");
   });

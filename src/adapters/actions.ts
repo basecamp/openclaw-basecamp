@@ -18,7 +18,7 @@ import { jsonResult, readStringParam } from "openclaw/plugin-sdk";
 import { postCampfireLine, postComment } from "../outbound/send.js";
 import { markdownToBasecampHtml } from "../outbound/format.js";
 import { resolveBasecampAccount } from "../config.js";
-import { bcqApiPost } from "../bcq.js";
+import { getClient, numId } from "../basecamp-client.js";
 
 // ---------------------------------------------------------------------------
 // Supported action set
@@ -63,17 +63,6 @@ export const basecampActionsAdapter: ChannelMessageActionAdapter = {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/**
- * Resolve the bcq numeric account ID for API calls.
- * Prefers explicit bcqAccountId config, falls back to accountId only if numeric.
- */
-function resolveBcqAccountId(account: ReturnType<typeof resolveBasecampAccount>): string | undefined {
-  return (
-    account.config.bcqAccountId ??
-    (/^\d+$/.test(account.accountId) ? account.accountId : undefined)
-  );
-}
-
 // ---------------------------------------------------------------------------
 // send — post a campfire line or comment
 // ---------------------------------------------------------------------------
@@ -109,7 +98,6 @@ async function handleSend(ctx: ChannelMessageActionContext) {
 
   const content = markdownToBasecampHtml(text);
   const account = resolveBasecampAccount(cfg, accountId);
-  const bcqAccountId = resolveBcqAccountId(account);
 
   // Enforce virtual-account bucket scoping: if the account is scoped to a
   // specific bucket, reject sends targeting a different bucket.
@@ -138,15 +126,12 @@ async function handleSend(ctx: ChannelMessageActionContext) {
       bucketId,
       transcriptId,
       content,
-      accountId: bcqAccountId,
-      profile: account.bcqProfile,
+      account,
     });
-    return jsonResult({
-      ok: result.ok,
-      target: "campfire",
-      recordingId: result.recordingId,
-      error: result.error,
-    });
+    if (!result.ok) {
+      return jsonResult({ ok: false, target: "campfire", error: result.message });
+    }
+    return jsonResult({ ok: true, target: "campfire", recordingId: result.recordingId });
   }
 
   // Comment
@@ -154,15 +139,12 @@ async function handleSend(ctx: ChannelMessageActionContext) {
     bucketId,
     recordingId: recordingId!,
     content,
-    accountId: bcqAccountId,
-    profile: account.bcqProfile,
+    account,
   });
-  return jsonResult({
-    ok: result.ok,
-    target: "comment",
-    commentId: result.commentId,
-    error: result.error,
-  });
+  if (!result.ok) {
+    return jsonResult({ ok: false, target: "comment", error: result.message });
+  }
+  return jsonResult({ ok: true, target: "comment", commentId: result.commentId });
 }
 
 // ---------------------------------------------------------------------------
@@ -177,7 +159,6 @@ async function handleReact(ctx: ChannelMessageActionContext) {
   const emoji = readStringParam(params, "emoji") || "👍";
 
   const account = resolveBasecampAccount(cfg, accountId);
-  const bcqAccountId = resolveBcqAccountId(account);
 
   // Enforce virtual-account bucket scoping
   if (account.scopedBucketId && bucketId !== String(account.scopedBucketId)) {
@@ -191,11 +172,14 @@ async function handleReact(ctx: ChannelMessageActionContext) {
     return jsonResult({ ok: true, dryRun: true, target: "boost", bucketId, recordingId, emoji });
   }
 
-  const path = `/buckets/${bucketId}/recordings/${recordingId}/boosts.json`;
-  const body = JSON.stringify({ content: emoji });
   try {
-    const result = await bcqApiPost<{ id?: number }>(path, body, bcqAccountId, account.bcqProfile);
-    return jsonResult({ ok: true, target: "boost", boostId: result?.id });
+    const client = getClient(account);
+    const result = await client.boosts.createForRecording(
+      numId("project", bucketId),
+      numId("recording", recordingId),
+      { content: emoji },
+    );
+    return jsonResult({ ok: true, target: "boost", boostId: (result as any)?.id });
   } catch (err) {
     console.error(`[basecamp:${accountId}] react error: bucket=${bucketId} recording=${recordingId}`, err);
     return jsonResult({ ok: false, error: String(err) });

@@ -8,9 +8,20 @@ vi.mock("openclaw/plugin-sdk", () => ({
   },
 }));
 
-vi.mock("../src/bcq.js", () => ({
-  bcqMe: vi.fn(),
-  bcqApiGet: vi.fn(),
+const mockClient = {
+  authorization: { getInfo: vi.fn() },
+  people: { list: vi.fn(), listForProject: vi.fn() },
+  projects: { list: vi.fn() },
+};
+
+vi.mock("../src/basecamp-client.js", () => ({
+  getClient: vi.fn(() => mockClient),
+  numId: (_label: string, value: string | number) => Number(value),
+  rawOrThrow: vi.fn(async (r: any) => r?.data),
+  BasecampError: class BasecampError extends Error {
+    code: string;
+    constructor(msg: string, code: string) { super(msg); this.code = code; }
+  },
 }));
 
 vi.mock("../src/config.js", () => ({
@@ -18,7 +29,6 @@ vi.mock("../src/config.js", () => ({
 }));
 
 import { basecampDirectoryAdapter } from "../src/adapters/directory.js";
-import { bcqMe, bcqApiGet } from "../src/bcq.js";
 import { resolveBasecampAccount } from "../src/config.js";
 
 function cfg(basecamp?: Record<string, unknown>) {
@@ -46,10 +56,10 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("directory.self", () => {
-  it("returns entry from bcqMe", async () => {
-    vi.mocked(bcqMe).mockResolvedValue({
-      data: { id: 42, name: "Jeremy", email_address: "j@example.com" },
-      raw: "",
+  it("returns entry from authorization.getInfo", async () => {
+    mockClient.authorization.getInfo.mockResolvedValue({
+      identity: { id: 42, firstName: "Jeremy", lastName: "", emailAddress: "j@example.com" },
+      accounts: [],
     });
 
     const result = await basecampDirectoryAdapter.self!({
@@ -66,8 +76,8 @@ describe("directory.self", () => {
     });
   });
 
-  it("returns null when bcqMe fails", async () => {
-    vi.mocked(bcqMe).mockRejectedValue(new Error("fail"));
+  it("returns null when getInfo fails", async () => {
+    mockClient.authorization.getInfo.mockRejectedValue(new Error("fail"));
 
     const result = await basecampDirectoryAdapter.self!({
       cfg: cfg({ accounts: { test: { personId: "1" } } }),
@@ -134,7 +144,7 @@ describe("directory.listPeers", () => {
 
 describe("directory.listPeersLive", () => {
   it("returns people from API", async () => {
-    vi.mocked(bcqApiGet).mockResolvedValue([
+    mockClient.people.list.mockResolvedValue([
       { id: 1, name: "Alice", email_address: "alice@example.com", avatar_url: "https://a.png" },
       { id: 2, name: "Bob", email_address: "bob@example.com" },
     ]);
@@ -152,7 +162,7 @@ describe("directory.listPeersLive", () => {
   });
 
   it("filters by query", async () => {
-    vi.mocked(bcqApiGet).mockResolvedValue([
+    mockClient.people.list.mockResolvedValue([
       { id: 1, name: "Alice", email_address: "alice@example.com" },
       { id: 2, name: "Bob", email_address: "bob@example.com" },
     ]);
@@ -169,7 +179,7 @@ describe("directory.listPeersLive", () => {
   });
 
   it("returns empty on API failure", async () => {
-    vi.mocked(bcqApiGet).mockRejectedValue(new Error("fail"));
+    mockClient.people.list.mockRejectedValue(new Error("fail"));
 
     const result = await basecampDirectoryAdapter.listPeersLive!({
       cfg: cfg({ accounts: { test: {} } }),
@@ -187,7 +197,7 @@ describe("directory.listPeersLive", () => {
 
 describe("directory.listGroupsLive", () => {
   it("returns projects from API with bucket: prefix", async () => {
-    vi.mocked(bcqApiGet).mockResolvedValue([
+    mockClient.projects.list.mockResolvedValue([
       { id: 100, name: "Design Project" },
       { id: 200, name: "Engineering" },
     ]);
@@ -211,7 +221,7 @@ describe("directory.listGroupsLive", () => {
 
 describe("directory.listGroupMembers", () => {
   it("fetches members for bucket:<id> group", async () => {
-    vi.mocked(bcqApiGet).mockResolvedValue([
+    mockClient.people.listForProject.mockResolvedValue([
       { id: 5, name: "Carol", email_address: "carol@example.com" },
     ]);
 
@@ -222,7 +232,7 @@ describe("directory.listGroupMembers", () => {
       runtime: {} as any,
     });
 
-    expect(bcqApiGet).toHaveBeenCalledWith("/buckets/123/people.json", "99", "default");
+    expect(mockClient.people.listForProject).toHaveBeenCalledWith(123);
     expect(result).toEqual([
       { kind: "user", id: "5", name: "Carol", handle: "carol@example.com", avatarUrl: undefined },
     ]);
@@ -237,6 +247,6 @@ describe("directory.listGroupMembers", () => {
     });
 
     expect(result).toEqual([]);
-    expect(bcqApiGet).not.toHaveBeenCalled();
+    expect(mockClient.people.listForProject).not.toHaveBeenCalled();
   });
 });

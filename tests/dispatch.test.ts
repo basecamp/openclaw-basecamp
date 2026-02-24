@@ -187,8 +187,10 @@ describe("dispatchBasecampEvent", () => {
 
     expect(postReplyToEvent).toHaveBeenCalledWith(
       expect.objectContaining({
-        accountId: "67890",
-        profile: "persona-profile",
+        account: expect.objectContaining({
+          accountId: "persona-acct",
+          bcqProfile: "persona-profile",
+        }),
       }),
     );
   });
@@ -226,7 +228,9 @@ describe("dispatchBasecampEvent", () => {
     await deliver({ text: "Reply" }, {});
 
     expect(postReplyToEvent).toHaveBeenCalledWith(
-      expect.objectContaining({ accountId: "2914079" }),
+      expect.objectContaining({
+        account: expect.objectContaining({ accountId: "2914079" }),
+      }),
     );
   });
 
@@ -247,10 +251,10 @@ describe("dispatchBasecampEvent", () => {
       recordableType: "Chat::Transcript",
       peerId: "recording:123",
       content: "<p>Agent reply</p>",
-      accountId: "12345",
-      profile: undefined,
+      account: mockAccount,
       retries: 2,
       circuitBreaker: expect.objectContaining({ key: "outbound" }),
+      correlationId: undefined,
     });
   });
 
