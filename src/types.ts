@@ -438,6 +438,14 @@ export type BasecampAccountConfig = {
    * from the bcq-level account identifier.
    */
   bcqAccountId?: string;
+  /** Numeric Basecamp account ID for SDK client creation. */
+  basecampAccountId?: string;
+  /** Path to file where OAuth tokens are stored. Presence implies tokenSource "oauth". */
+  oauthTokenFile?: string;
+  /** Per-account OAuth client ID override. */
+  oauthClientId?: string;
+  /** Per-account OAuth client secret override. */
+  oauthClientSecret?: string;
 };
 
 /**
@@ -492,6 +500,11 @@ export type BasecampChannelConfig = {
     /** Deactivate webhooks on gateway shutdown. Default: false. */
     deactivateOnStop?: boolean;
   };
+  /** Channel-level OAuth client credentials (shared across accounts). */
+  oauth?: {
+    clientId: string;
+    clientSecret?: string;
+  };
   /** Polling cadence overrides (milliseconds). */
   polling?: {
     activityIntervalMs?: number;
@@ -523,7 +536,11 @@ export type ResolvedBasecampAccount = {
   personId: string;
   attachableSgid?: string;
   token: string;
-  tokenSource: "tokenFile" | "config" | "bcq" | "none";
+  tokenSource: "tokenFile" | "config" | "bcq" | "oauth" | "none";
+  /** OAuth client ID (from per-account or channel-level config). */
+  oauthClientId?: string;
+  /** OAuth client secret (from per-account or channel-level config). */
+  oauthClientSecret?: string;
   /** bcq profile name (for --profile flag). */
   bcqProfile?: string;
   /** When this account was resolved via a project-scope entry, the scoped bucket ID. */
