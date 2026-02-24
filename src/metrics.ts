@@ -32,14 +32,29 @@ export interface CircuitBreakerMetrics {
   trippedAt: number | null;
 }
 
+export interface ReconciliationMetrics {
+  lastRunAt: number | null;
+  replayed: number;
+  unseen: number;
+  promotedTypes: string[];
+}
+
+export interface SafetyNetEscalation {
+  escalatedAt: number | null;
+  deescalatedAt: number | null;
+}
+
 export interface AccountMetrics {
   poller: {
     activity: PollerSourceMetrics;
     readings: PollerSourceMetrics;
     assignments: PollerSourceMetrics;
+    safetyNet: PollerSourceMetrics;
   };
-  webhook: WebhookMetrics;
+  webhook: WebhookMetrics & { authMethods: Record<string, number> };
   circuitBreaker: Record<string, CircuitBreakerMetrics>;
+  reconciliation: ReconciliationMetrics;
+  safetyNet: { escalations: Record<string, SafetyNetEscalation> };
   dedupSize: number;
   webhookDedupSize: number;
   dispatchFailureCount: number;
@@ -83,9 +98,12 @@ function getOrCreate(accountId: string): AccountMetrics {
         activity: emptySourceMetrics(),
         readings: emptySourceMetrics(),
         assignments: emptySourceMetrics(),
+        safetyNet: emptySourceMetrics(),
       },
-      webhook: emptyWebhookMetrics(),
+      webhook: { ...emptyWebhookMetrics(), authMethods: {} },
       circuitBreaker: {},
+      reconciliation: { lastRunAt: null, replayed: 0, unseen: 0, promotedTypes: [] },
+      safetyNet: { escalations: {} },
       dedupSize: 0,
       webhookDedupSize: 0,
       dispatchFailureCount: 0,
@@ -102,7 +120,7 @@ function getOrCreate(accountId: string): AccountMetrics {
 // Writers — called by operational components
 // ---------------------------------------------------------------------------
 
-export type PollerSource = "activity" | "readings" | "assignments";
+export type PollerSource = "activity" | "readings" | "assignments" | "safetyNet";
 
 export function recordPollAttempt(accountId: string, source: PollerSource): void {
   const m = getOrCreate(accountId);
@@ -176,6 +194,31 @@ export function recordDispatchFailure(accountId: string): void {
 export function recordQueueFullDrop(accountId: string): void {
   const m = getOrCreate(accountId);
   m.queueFullDropCount++;
+}
+
+export function recordWebhookAuthMethod(accountId: string, method: "token" | "hmac"): void {
+  const m = getOrCreate(accountId);
+  m.webhook.authMethods[method] = (m.webhook.authMethods[method] ?? 0) + 1;
+}
+
+export function recordReconciliationRun(accountId: string, result: { replayed: number; unseen: number; promotedTypes: string[] }): void {
+  const m = getOrCreate(accountId);
+  m.reconciliation.lastRunAt = Date.now();
+  m.reconciliation.replayed = result.replayed;
+  m.reconciliation.unseen = result.unseen;
+  m.reconciliation.promotedTypes = result.promotedTypes;
+}
+
+export function recordSafetyNetEscalation(accountId: string, key: string, action: "escalate" | "deescalate"): void {
+  const m = getOrCreate(accountId);
+  if (!m.safetyNet.escalations[key]) {
+    m.safetyNet.escalations[key] = { escalatedAt: null, deescalatedAt: null };
+  }
+  if (action === "escalate") {
+    m.safetyNet.escalations[key].escalatedAt = Date.now();
+  } else {
+    m.safetyNet.escalations[key].deescalatedAt = Date.now();
+  }
 }
 
 export function recordUnknownKind(accountId: string, rawKind: string): void {

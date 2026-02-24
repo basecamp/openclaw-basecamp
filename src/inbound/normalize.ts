@@ -95,6 +95,16 @@ const KIND_TO_RECORDABLE_TYPE: Record<string, BasecampRecordableType> = {
   kanban_step_assignment_changed: "Kanban::Card",
 };
 
+/** Check if a raw event kind is normalizable (has an entry in KIND_TO_RECORDABLE_TYPE). */
+export function isNormalizableKind(kind: string): boolean {
+  return kind in KIND_TO_RECORDABLE_TYPE;
+}
+
+/** Get the recordable type for a raw event kind, or undefined. */
+export function recordableTypeForKind(kind: string): BasecampRecordableType | undefined {
+  return KIND_TO_RECORDABLE_TYPE[kind];
+}
+
 /** Map event.kind to a normalized eventKind for our domain model. */
 function resolveEventKind(kind: string): string {
   if (kind.endsWith("_created")) return "created";

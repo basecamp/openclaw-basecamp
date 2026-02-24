@@ -78,6 +78,8 @@ export type BasecampEventKind =
   | "checkin_resumed"
   // Messages / Documents
   | "edited"
+  // Direct poll
+  | "disappeared"
   // Global
   | "subscription_changed"
   | "visibility_changed"
@@ -167,6 +169,8 @@ export type BasecampInboundMeta = {
   matchedPatterns?: string[];
   /** Source(s) that delivered this event. */
   sources: BasecampEventSource[];
+  /** True for events synthesized by direct-poll diff (safety net). */
+  delta?: boolean;
 };
 
 /**
@@ -522,6 +526,27 @@ export type BasecampChannelConfig = {
   circuitBreaker?: {
     threshold?: number;
     cooldownMs?: number;
+  };
+  /** Safety net direct-polling config. */
+  safetyNet?: {
+    projects?: string[];
+    intervalMs?: number;
+    tier2?: {
+      enabled?: boolean;
+      lagThresholdMs?: number;
+      rapidIntervalMs?: number;
+      businessHours?: {
+        start?: number;
+        end?: number;
+        timezone?: string;
+      };
+    };
+  };
+  /** Reconciliation pass config. */
+  reconciliation?: {
+    enabled?: boolean;
+    intervalMs?: number;
+    gapThreshold?: number;
   };
 };
 

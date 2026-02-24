@@ -188,6 +188,25 @@ export class EventDedup {
     }
   }
 
+  /**
+   * Check if an event has been seen without recording it.
+   * Returns true if found in the window via primary or secondary key.
+   * Used by reconciliation to probe for gaps.
+   */
+  hasSeen(primaryKey: string, secondaryKey?: string): boolean {
+    const now = Date.now();
+    const entry = this.primary.get(primaryKey);
+    if (entry && now - entry.seenAt < this.ttlMs) return true;
+    if (secondaryKey) {
+      const mapped = this.secondary.get(secondaryKey);
+      if (mapped) {
+        const mappedEntry = this.primary.get(mapped);
+        if (mappedEntry && now - mappedEntry.seenAt < this.ttlMs) return true;
+      }
+    }
+    return false;
+  }
+
   /** Number of entries currently tracked. */
   get size(): number {
     return this.primary.size;

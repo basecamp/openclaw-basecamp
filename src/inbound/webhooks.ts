@@ -23,7 +23,7 @@ import { dispatchBasecampEvent } from "../dispatch.js";
 import { getBasecampRuntime } from "../runtime.js";
 import { resolveBasecampAccount, resolveDefaultBasecampAccountId, resolveWebhookSecret, resolveAccountForBucket, listBasecampAccountIds } from "../config.js";
 import { createConsoleStructuredLog } from "../logging.js";
-import { recordWebhookReceived, recordWebhookDispatched, recordWebhookDropped, recordWebhookError, recordWebhookDedupSize, recordQueueFullDrop } from "../metrics.js";
+import { recordWebhookReceived, recordWebhookDispatched, recordWebhookDropped, recordWebhookError, recordWebhookDedupSize, recordQueueFullDrop, recordWebhookAuthMethod } from "../metrics.js";
 
 // ---------------------------------------------------------------------------
 // Concurrency limiter
@@ -239,71 +239,63 @@ export async function handleBasecampWebhook(
   }
 
   // ----- Authentication -----
-  // Try HMAC signature verification first (X-Basecamp-Signature header),
-  // then fall back to query-string token (?token=<secret>).
-  // At least one method must be configured and pass.
-  const hmacSignature = req.headers["x-basecamp-signature"] as string | undefined;
-  const hmacTimestamp = req.headers["x-basecamp-timestamp"] as string | undefined;
+  // Try query-string token first (?token=<secret>), then fall back to HMAC
+  // signature verification (X-Basecamp-Signature header). Token is primary
+  // because BC3 never returns HMAC secrets on webhook creation.
   const webhookSecret = resolveWebhookSecret(cfg);
 
   let authenticated = false;
+  let authMethod: "token" | "hmac" | undefined;
 
-  if (hmacSignature && hmacTimestamp) {
-    // HMAC path: scope verification to the specific bucket/account when possible.
-    // Parse the payload first to extract bucketId, then use only the secrets
-    // for the account that owns that bucket. Falls back to all secrets if
-    // bucket resolution fails.
-    //
-    // Uses getWebhookSecretRegistry() (not secretRegistries.get()) so that
-    // persisted secrets are eagerly loaded from disk even if the registry
-    // wasn't previously instantiated in this process.
-    let candidateSecrets: string[] = [];
-    let bucketResolved = false;
-    try {
-      const parsed = JSON.parse(rawBody) as { recording?: { bucket?: { id?: number } } };
-      const bucketId = parsed?.recording?.bucket?.id;
-      if (bucketId != null) {
-        // resolveAccountForBucket returns the concrete account ID (not the
-        // virtual alias), matching the key used in getWebhookSecretRegistry.
-        const bucketAccountId = resolveAccountForBucket(cfg, String(bucketId));
-        if (bucketAccountId) {
-          bucketResolved = true;
-          const registry = getWebhookSecretRegistry(bucketAccountId);
-          candidateSecrets = registry.getAllSecrets().filter(s => s.length > 0);
-        }
-      }
-    } catch {
-      // JSON parse failed — fall through to all secrets
-    }
-
-    // Only fall back to all known secrets when bucket resolution itself failed
-    // (no virtualAccounts mapping, no bucketId in payload, or parse error).
-    // If resolution succeeded but the scoped registry is empty, fail closed —
-    // don't let another account's secret authenticate this bucket's request.
-    if (!bucketResolved && candidateSecrets.length === 0) {
-      for (const accountId of listBasecampAccountIds(cfg)) {
-        const registry = getWebhookSecretRegistry(accountId);
-        candidateSecrets.push(...registry.getAllSecrets().filter(s => s.length > 0));
-      }
-    }
-
-    if (candidateSecrets.length > 0) {
-      authenticated = verifyWebhookSignature({
-        signature: hmacSignature,
-        timestamp: hmacTimestamp,
-        rawBody,
-        secrets: candidateSecrets,
-      });
+  // Token path (primary): check query-string ?token=<webhookSecret>
+  if (webhookSecret) {
+    const urlObj = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
+    const providedToken = urlObj.searchParams.get("token");
+    if (providedToken && providedToken === webhookSecret) {
+      authenticated = true;
+      authMethod = "token";
     }
   }
 
+  // HMAC path (secondary): X-Basecamp-Signature + X-Basecamp-Timestamp
   if (!authenticated) {
-    // Query-string token fallback
-    if (webhookSecret) {
-      const urlObj = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
-      const providedToken = urlObj.searchParams.get("token");
-      if (providedToken && providedToken === webhookSecret) {
-        authenticated = true;
+    const hmacSignature = req.headers["x-basecamp-signature"] as string | undefined;
+    const hmacTimestamp = req.headers["x-basecamp-timestamp"] as string | undefined;
+
+    if (hmacSignature && hmacTimestamp) {
+      // HMAC path: scope verification to the specific bucket/account when possible.
+      let candidateSecrets: string[] = [];
+      let bucketResolved = false;
+      try {
+        const parsed = JSON.parse(rawBody) as { recording?: { bucket?: { id?: number } } };
+        const bucketId = parsed?.recording?.bucket?.id;
+        if (bucketId != null) {
+          const bucketAccountId = resolveAccountForBucket(cfg, String(bucketId));
+          if (bucketAccountId) {
+            bucketResolved = true;
+            const registry = getWebhookSecretRegistry(bucketAccountId);
+            candidateSecrets = registry.getAllSecrets().filter(s => s.length > 0);
+          }
+        }
+      } catch {
+        // JSON parse failed — fall through to all secrets
+      }
+
+      if (!bucketResolved && candidateSecrets.length === 0) {
+        for (const accountId of listBasecampAccountIds(cfg)) {
+          const registry = getWebhookSecretRegistry(accountId);
+          candidateSecrets.push(...registry.getAllSecrets().filter(s => s.length > 0));
+        }
+      }
+
+      if (candidateSecrets.length > 0) {
+        authenticated = verifyWebhookSignature({
+          signature: hmacSignature,
+          timestamp: hmacTimestamp,
+          rawBody,
+          secrets: candidateSecrets,
+        });
+        if (authenticated) authMethod = "hmac";
       }
     }
   }
@@ -382,6 +374,7 @@ export async function handleBasecampWebhook(
 
   const slog = createConsoleStructuredLog({ accountId: account.accountId, source: "webhook" });
   recordWebhookReceived(account.accountId);
+  if (authMethod) recordWebhookAuthMethod(account.accountId, authMethod);
 
   // Normalize
   let msg;

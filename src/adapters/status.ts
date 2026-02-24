@@ -40,6 +40,7 @@ export type BasecampAudit = {
     activity: number | null;
     readings: number | null;
     assignments: number | null;
+    safetyNet: number | null;
   };
   /** Circuit breaker states for outbound delivery. */
   circuitBreakers?: Record<string, { state: string; failures: number }>;
@@ -61,6 +62,15 @@ export type BasecampAudit = {
   unknownKindCount?: number;
   /** Most recent unknown kind string (for diagnostics). */
   lastUnknownKind?: string | null;
+  /** Reconciliation pass stats. */
+  reconciliation?: {
+    lastRunAt: number | null;
+    replayed: number;
+    unseen: number;
+    promotedTypes: string[];
+  };
+  /** Webhook auth method distribution. */
+  webhookAuthMethods?: Record<string, number>;
 };
 
 /** Seconds since last successful poll, or null if never succeeded. */
@@ -144,6 +154,7 @@ export const basecampStatusAdapter: ChannelStatusAdapter<ResolvedBasecampAccount
         activity: pollerLagSeconds(metrics.poller.activity),
         readings: pollerLagSeconds(metrics.poller.readings),
         assignments: pollerLagSeconds(metrics.poller.assignments),
+        safetyNet: pollerLagSeconds(metrics.poller.safetyNet),
       };
 
       if (Object.keys(metrics.circuitBreaker).length > 0) {
@@ -172,6 +183,15 @@ export const basecampStatusAdapter: ChannelStatusAdapter<ResolvedBasecampAccount
       if (metrics.unknownKindCount > 0) {
         result.unknownKindCount = metrics.unknownKindCount;
         result.lastUnknownKind = metrics.lastUnknownKind;
+      }
+
+      if (metrics.reconciliation.lastRunAt) {
+        result.reconciliation = metrics.reconciliation;
+      }
+
+      const authMethods = metrics.webhook.authMethods;
+      if (Object.keys(authMethods).length > 0) {
+        result.webhookAuthMethods = authMethods;
       }
     }
 
