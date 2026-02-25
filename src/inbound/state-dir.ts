@@ -3,12 +3,12 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { getBasecampRuntime } from "../runtime.js";
 
-const FALLBACK_STATE_DIR = "/tmp/openclaw-basecamp-state";
+const FALLBACK_STATE_DIR = "/tmp/basecamp-state";
 let fallbackWarned = false;
 
 /**
  * Resolve the plugin-specific state directory from the OpenClaw runtime.
- * Falls back to /tmp/openclaw-basecamp-state if runtime is unavailable
+ * Falls back to /tmp/basecamp-state if runtime is unavailable
  * (e.g. webhooks arriving before channel start on first boot).
  */
 export function resolvePluginStateDir(): string {

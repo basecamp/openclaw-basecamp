@@ -108,7 +108,7 @@ export async function startCompositePoller(
   const readingsIntervalMs = intervals.readingsIntervalMs;
   const assignmentsIntervalMs = intervals.assignmentsIntervalMs;
 
-  const stateDir = opts.stateDir ?? "/tmp/openclaw-basecamp-state";
+  const stateDir = opts.stateDir ?? "/tmp/basecamp-state";
 
   // Validate state directory
   const { mkdir, access } = await import("node:fs/promises");

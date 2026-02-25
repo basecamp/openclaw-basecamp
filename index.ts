@@ -12,7 +12,7 @@ const plugin: {
   configSchema: ReturnType<typeof emptyPluginConfigSchema>;
   register: (api: OpenClawPluginApi) => void;
 } = {
-  id: "openclaw-basecamp",
+  id: "basecamp",
   name: "Basecamp",
   description: "Basecamp channel — Campfire, cards, todos, check-ins, pings",
   configSchema: emptyPluginConfigSchema(),
