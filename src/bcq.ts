@@ -89,7 +89,7 @@ function spawnCliWithFallback(
     }
     errorCb(err);
   });
-  proc.on("close", closeCb);
+  proc.on("close", (code) => closeCb(code));
 
   return {
     onError(cb) { errorCb = cb; },
