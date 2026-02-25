@@ -99,20 +99,8 @@ export const BasecampConfigSchema = z.object({
     .object({
       projects: z.array(z.string()).optional(),
       intervalMs: z.number().positive().optional(),
-      tier2: z
-        .object({
-          enabled: z.boolean().optional(),
-          lagThresholdMs: z.number().optional(),
-          rapidIntervalMs: z.number().optional(),
-          businessHours: z
-            .object({
-              start: z.number().optional(),
-              end: z.number().optional(),
-              timezone: z.string().optional(),
-            })
-            .optional(),
-        })
-        .optional(),
+      /** @deprecated tier2 is accepted but ignored. Frequency escalation deferred. */
+      tier2: z.any().optional(),
     })
     .optional(),
   reconciliation: z
@@ -433,34 +421,22 @@ export function resolveAccountForBucket(
   return undefined;
 }
 
+let _tier2Warned = false;
+
 /** Resolve safety net config with defaults. */
 export function resolveSafetyNetConfig(cfg: OpenClawConfig): {
   projects: string[];
   intervalMs: number;
-  tier2: {
-    enabled: boolean;
-    lagThresholdMs: number;
-    rapidIntervalMs: number;
-    businessHours: { start: number; end: number; timezone: string };
-  };
 } {
   const section = getBasecampSection(cfg);
-  const sn = section?.safetyNet as { projects?: string[]; intervalMs?: number; tier2?: any } | undefined;
-  const t2 = sn?.tier2 ?? {};
-  const bh = t2?.businessHours ?? {};
+  const sn = section?.safetyNet as { projects?: string[]; intervalMs?: number; tier2?: unknown } | undefined;
+  if (sn?.tier2 != null && !_tier2Warned) {
+    _tier2Warned = true;
+    console.warn("[basecamp] safetyNet.tier2 is deprecated and ignored — frequency escalation is deferred");
+  }
   return {
     projects: sn?.projects ?? [],
     intervalMs: sn?.intervalMs ?? 600_000,
-    tier2: {
-      enabled: t2?.enabled ?? false,
-      lagThresholdMs: t2?.lagThresholdMs ?? 600_000,
-      rapidIntervalMs: t2?.rapidIntervalMs ?? 120_000,
-      businessHours: {
-        start: bh?.start ?? 9,
-        end: bh?.end ?? 18,
-        timezone: bh?.timezone ?? "America/Chicago",
-      },
-    },
   };
 }
 
