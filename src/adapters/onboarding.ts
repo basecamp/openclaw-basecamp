@@ -3,7 +3,7 @@
  *
  * Supports two authentication paths:
  * - Browser-based OAuth (recommended) — uses @37signals/basecamp interactive login
- * - Legacy Basecamp CLI profile — uses bcq auth for token management
+ * - Legacy Basecamp CLI profile — uses CLI auth for token management
  *
  * Both paths converge on discoverIdentity() for account/person resolution.
  */
@@ -17,8 +17,8 @@ import {
   resolveDefaultBasecampAccountId,
   resolveBasecampAccount,
 } from "../config.js";
-import { bcqAuthStatus, bcqProfileList } from "../bcq.js";
-import type { BcqOptions } from "../bcq.js";
+import { cliAuthStatus, cliProfileList } from "../basecamp-cli.js";
+import type { CliOptions } from "../basecamp-cli.js";
 
 const channel = "basecamp" as const;
 
@@ -123,7 +123,7 @@ export const basecampOnboardingAdapter: ChannelOnboardingAdapter = {
     // Probe for CLI availability
     let cliProfileNames: string[] = [];
     try {
-      const profileResult = await bcqProfileList();
+      const profileResult = await cliProfileList();
       cliProfileNames = profileResult.data;
     } catch {
       // CLI not installed or profiles unavailable
@@ -211,10 +211,10 @@ export const basecampOnboardingAdapter: ChannelOnboardingAdapter = {
         selectedProfile = cliProfileNames[0];
       }
 
-      const bcqOpts: BcqOptions = selectedProfile ? { profile: selectedProfile } : {};
+      const cliOpts: CliOptions = selectedProfile ? { profile: selectedProfile } : {};
       let authenticated = false;
       try {
-        const authResult = await bcqAuthStatus(bcqOpts);
+        const authResult = await cliAuthStatus(cliOpts);
         authenticated = authResult.data.authenticated;
       } catch {
         // Auth check failed
@@ -236,8 +236,8 @@ export const basecampOnboardingAdapter: ChannelOnboardingAdapter = {
       // Get token for identity discovery
       if (authenticated) {
         try {
-          const { bcqTokenProvider } = await import("../basecamp-client.js");
-          const provider = bcqTokenProvider(selectedProfile);
+          const { cliTokenProvider } = await import("../basecamp-client.js");
+          const provider = cliTokenProvider(selectedProfile);
           accessToken = await provider();
         } catch {
           // Token extraction failed — will fall back to manual entry
@@ -313,10 +313,10 @@ export const basecampOnboardingAdapter: ChannelOnboardingAdapter = {
     if (authMethod === "oauth") {
       accountPatch.oauthTokenFile = oauthTokenFile;
       // Clear CLI-path keys
-      delete accountPatch.bcqProfile;
+      delete accountPatch.cliProfile;
     } else {
-      if (selectedProfile) accountPatch.bcqProfile = selectedProfile;
-      if (basecampAccountId) accountPatch.bcqAccountId = basecampAccountId;
+      if (selectedProfile) accountPatch.cliProfile = selectedProfile;
+      if (basecampAccountId) accountPatch.basecampAccountId = basecampAccountId;
       // Clear OAuth-path keys
       delete accountPatch.oauthTokenFile;
       delete accountPatch.oauthClientId;

@@ -9,9 +9,9 @@ vi.mock("openclaw/plugin-sdk", () => ({
   buildChannelConfigSchema: (schema: unknown) => schema,
 }));
 
-vi.mock("../src/bcq.js", () => ({
-  bcqAuthStatus: vi.fn(),
-  execBcqAuthLogin: vi.fn(),
+vi.mock("../src/basecamp-cli.js", () => ({
+  cliAuthStatus: vi.fn(),
+  execCliAuthLogin: vi.fn(),
 }));
 
 vi.mock("../src/oauth-credentials.js", () => ({
@@ -79,18 +79,18 @@ vi.mock("../src/adapters/agent-prompt.js", () => ({
 }));
 
 import { basecampChannel } from "../src/channel.js";
-import { execBcqAuthLogin } from "../src/bcq.js";
+import { execCliAuthLogin } from "../src/basecamp-cli.js";
 import { interactiveLogin } from "../src/oauth-credentials.js";
 import { resolveBasecampAccount } from "../src/config.js";
 
-const bcqAccount = {
+const cliAccount = {
   accountId: "test",
   enabled: true,
   personId: "42",
   token: "tok",
-  tokenSource: "bcq" as const,
-  bcqProfile: "myprofile",
-  config: { personId: "42", bcqProfile: "myprofile" },
+  tokenSource: "cli" as const,
+  cliProfile: "myprofile",
+  config: { personId: "42", cliProfile: "myprofile" },
 };
 
 const oauthAccount = {
@@ -139,9 +139,9 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("auth.login", () => {
-  it("routes to execBcqAuthLogin for bcq accounts", async () => {
-    vi.mocked(resolveBasecampAccount).mockReturnValue(bcqAccount as any);
-    vi.mocked(execBcqAuthLogin).mockResolvedValue(undefined);
+  it("routes to execCliAuthLogin for CLI accounts", async () => {
+    vi.mocked(resolveBasecampAccount).mockReturnValue(cliAccount as any);
+    vi.mocked(execCliAuthLogin).mockResolvedValue(undefined);
 
     await basecampChannel.auth!.login!({
       cfg: {} as any,
@@ -149,7 +149,7 @@ describe("auth.login", () => {
       runtime: {} as any,
     });
 
-    expect(execBcqAuthLogin).toHaveBeenCalledWith({ profile: "myprofile" });
+    expect(execCliAuthLogin).toHaveBeenCalledWith({ profile: "myprofile" });
   });
 
   it("routes to interactiveLogin for OAuth accounts", async () => {
@@ -201,12 +201,12 @@ describe("auth.login", () => {
     ).rejects.toThrow("No authentication configured");
   });
 
-  it("calls execBcqAuthLogin with undefined profile when account has no bcqProfile", async () => {
+  it("calls execCliAuthLogin with undefined profile when account has no cliProfile", async () => {
     vi.mocked(resolveBasecampAccount).mockReturnValue({
-      ...bcqAccount,
-      bcqProfile: undefined,
+      ...cliAccount,
+      cliProfile: undefined,
     } as any);
-    vi.mocked(execBcqAuthLogin).mockResolvedValue(undefined);
+    vi.mocked(execCliAuthLogin).mockResolvedValue(undefined);
 
     await basecampChannel.auth!.login!({
       cfg: {} as any,
@@ -214,12 +214,12 @@ describe("auth.login", () => {
       runtime: {} as any,
     });
 
-    expect(execBcqAuthLogin).toHaveBeenCalledWith({ profile: undefined });
+    expect(execCliAuthLogin).toHaveBeenCalledWith({ profile: undefined });
   });
 
-  it("propagates errors from execBcqAuthLogin", async () => {
-    vi.mocked(resolveBasecampAccount).mockReturnValue(bcqAccount as any);
-    vi.mocked(execBcqAuthLogin).mockRejectedValue(new Error("Basecamp CLI auth login exited with code 1"));
+  it("propagates errors from execCliAuthLogin", async () => {
+    vi.mocked(resolveBasecampAccount).mockReturnValue(cliAccount as any);
+    vi.mocked(execCliAuthLogin).mockRejectedValue(new Error("Basecamp CLI auth login exited with code 1"));
 
     await expect(
       basecampChannel.auth!.login!({
@@ -244,8 +244,8 @@ describe("auth.login", () => {
   });
 
   it("uses default account when accountId is not provided", async () => {
-    vi.mocked(resolveBasecampAccount).mockReturnValue(bcqAccount as any);
-    vi.mocked(execBcqAuthLogin).mockResolvedValue(undefined);
+    vi.mocked(resolveBasecampAccount).mockReturnValue(cliAccount as any);
+    vi.mocked(execCliAuthLogin).mockResolvedValue(undefined);
 
     await basecampChannel.auth!.login!({
       cfg: {} as any,
@@ -253,7 +253,7 @@ describe("auth.login", () => {
     });
 
     expect(resolveBasecampAccount).toHaveBeenCalledWith({}, undefined);
-    expect(execBcqAuthLogin).toHaveBeenCalled();
+    expect(execCliAuthLogin).toHaveBeenCalled();
   });
 });
 

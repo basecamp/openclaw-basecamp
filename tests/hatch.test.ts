@@ -9,15 +9,15 @@ vi.mock("openclaw/plugin-sdk", () => ({
 }));
 
 // ---------------------------------------------------------------------------
-// Mock bcq module
+// Mock Basecamp CLI module
 // ---------------------------------------------------------------------------
 
-const mockBcqMe = vi.fn();
-const mockBcqProfileList = vi.fn();
+const mockCliMe = vi.fn();
+const mockCliProfileList = vi.fn();
 
-vi.mock("../src/bcq.js", () => ({
-  bcqMe: (...args: any[]) => mockBcqMe(...args),
-  bcqProfileList: (...args: any[]) => mockBcqProfileList(...args),
+vi.mock("../src/basecamp-cli.js", () => ({
+  cliMe: (...args: any[]) => mockCliMe(...args),
+  cliProfileList: (...args: any[]) => mockCliProfileList(...args),
 }));
 
 // ---------------------------------------------------------------------------
@@ -121,9 +121,9 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("hatchIdentity — CLI path", () => {
-  it("resolves personId from bcqMe and adds account", async () => {
-    mockBcqProfileList.mockResolvedValue({ data: ["default"], raw: "" });
-    mockBcqMe.mockResolvedValue({
+  it("resolves personId from cliMe and adds account", async () => {
+    mockCliProfileList.mockResolvedValue({ data: ["default"], raw: "" });
+    mockCliMe.mockResolvedValue({
       data: {
         identity: { id: 42, name: "Jeremy", email_address: "j@example.com", attachable_sgid: "sgid://x" },
         accounts: [{ id: 99, name: "Acme" }],
@@ -146,14 +146,14 @@ describe("hatchIdentity — CLI path", () => {
     expect(accounts.security.personId).toBe("42");
     expect(accounts.security.displayName).toBe("Jeremy");
     expect(accounts.security.attachableSgid).toBe("sgid://x");
-    expect(accounts.security.bcqProfile).toBe("default");
+    expect(accounts.security.cliProfile).toBe("default");
     // OAuth keys should be absent
     expect(accounts.security.oauthTokenFile).toBeUndefined();
   });
 
   it("adds persona mapping when agent ID provided", async () => {
-    mockBcqProfileList.mockResolvedValue({ data: ["default"], raw: "" });
-    mockBcqMe.mockResolvedValue({
+    mockCliProfileList.mockResolvedValue({ data: ["default"], raw: "" });
+    mockCliMe.mockResolvedValue({
       data: {
         identity: { id: 10, name: "Bot", email_address: "bot@example.com" },
         accounts: [{ id: 1, name: "Co" }],
@@ -179,8 +179,8 @@ describe("hatchIdentity — CLI path", () => {
   });
 
   it("validates unique account ID", async () => {
-    mockBcqProfileList.mockResolvedValue({ data: ["default"], raw: "" });
-    mockBcqMe.mockResolvedValue({
+    mockCliProfileList.mockResolvedValue({ data: ["default"], raw: "" });
+    mockCliMe.mockResolvedValue({
       data: { identity: { id: 1, name: "X", email_address: "x@x.com" }, accounts: [] } as any,
       raw: "",
     });
@@ -212,7 +212,7 @@ describe("hatchIdentity — CLI path", () => {
 
 describe("hatchIdentity — Browser/OAuth path", () => {
   it("runs browser auth when no CLI available", async () => {
-    mockBcqProfileList.mockRejectedValue(new Error("not installed"));
+    mockCliProfileList.mockRejectedValue(new Error("not installed"));
     mockInteractiveLogin.mockResolvedValue({
       accessToken: "tok",
       refreshToken: "ref",
@@ -243,11 +243,11 @@ describe("hatchIdentity — Browser/OAuth path", () => {
     // discoverIdentity called with the access token string directly
     expect(mockDiscoverIdentity).toHaveBeenCalledWith("tok");
     // CLI keys should be absent
-    expect(accounts["oauth-acct"].bcqProfile).toBeUndefined();
+    expect(accounts["oauth-acct"].cliProfile).toBeUndefined();
   });
 
   it("prompts for clientId and clientSecret when not configured", async () => {
-    mockBcqProfileList.mockRejectedValue(new Error("not installed"));
+    mockCliProfileList.mockRejectedValue(new Error("not installed"));
     mockInteractiveLogin.mockResolvedValue({
       accessToken: "tok",
       refreshToken: "ref",
@@ -286,7 +286,7 @@ describe("hatchIdentity — Browser/OAuth path", () => {
   });
 
   it("uses per-account token file path — no cross-identity reuse", async () => {
-    mockBcqProfileList.mockRejectedValue(new Error("not installed"));
+    mockCliProfileList.mockRejectedValue(new Error("not installed"));
     mockInteractiveLogin.mockResolvedValue({
       accessToken: "tok1",
       refreshToken: "ref",
@@ -333,7 +333,7 @@ describe("hatchIdentity — Browser/OAuth path", () => {
 
 describe("hatchIdentity — browser auth failure", () => {
   it("throws when interactiveLogin fails — no silent broken account", async () => {
-    mockBcqProfileList.mockRejectedValue(new Error("not installed"));
+    mockCliProfileList.mockRejectedValue(new Error("not installed"));
     mockInteractiveLogin.mockRejectedValue(new Error("login failed"));
 
     const { prompter } = createMockPrompter({
@@ -346,7 +346,7 @@ describe("hatchIdentity — browser auth failure", () => {
   });
 
   it("throws when discoverIdentity fails — no silent broken account", async () => {
-    mockBcqProfileList.mockRejectedValue(new Error("not installed"));
+    mockCliProfileList.mockRejectedValue(new Error("not installed"));
     mockInteractiveLogin.mockResolvedValue({
       accessToken: "tok",
       refreshToken: "ref",
@@ -370,7 +370,7 @@ describe("hatchIdentity — browser auth failure", () => {
 
 describe("hatchIdentity — token file relocation", () => {
   it("keeps temp path when rename and copy both fail", async () => {
-    mockBcqProfileList.mockRejectedValue(new Error("not installed"));
+    mockCliProfileList.mockRejectedValue(new Error("not installed"));
     mockInteractiveLogin.mockResolvedValue({
       accessToken: "tok",
       refreshToken: "ref",
@@ -400,7 +400,7 @@ describe("hatchIdentity — token file relocation", () => {
   });
 
   it("falls back to copy+unlink when rename fails", async () => {
-    mockBcqProfileList.mockRejectedValue(new Error("not installed"));
+    mockCliProfileList.mockRejectedValue(new Error("not installed"));
     mockInteractiveLogin.mockResolvedValue({
       accessToken: "tok",
       refreshToken: "ref",

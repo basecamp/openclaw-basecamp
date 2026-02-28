@@ -17,7 +17,7 @@ import { normalizeAccountId } from "openclaw/plugin-sdk";
 import type { AuthorizationInfo } from "@37signals/basecamp";
 import type { BasecampChannelConfig } from "../types.js";
 import type { ResolvedBasecampAccount } from "../types.js";
-import { bcqMe, bcqProfileList } from "../bcq.js";
+import { cliMe, cliProfileList } from "../basecamp-cli.js";
 import { listBasecampAccountIds } from "../config.js";
 import {
   interactiveLogin,
@@ -142,7 +142,7 @@ type CliDiscoveryResult = {
   profile: string | undefined;
   identity: { id: number; name: string; email_address: string; attachable_sgid?: string };
   accounts: Array<{ id: number; name: string }>;
-  bcqAccountId?: string;
+  basecampAccountId?: string;
 };
 
 async function discoverViaCli(
@@ -153,7 +153,7 @@ async function discoverViaCli(
   let selectedProfile: string | undefined;
   if (profileNames.length > 1) {
     const choice = await prompter.select({
-      message: "Select bcq profile for the new identity",
+      message: "Select CLI profile for the new identity",
       options: [
         ...profileNames.map((name) => ({ value: name, label: name })),
         { value: "__none__", label: "Use default (no profile)" },
@@ -165,7 +165,7 @@ async function discoverViaCli(
   }
 
   try {
-    const meResult = await bcqMe(selectedProfile ? { profile: selectedProfile } : {});
+    const meResult = await cliMe(selectedProfile ? { profile: selectedProfile } : {});
     const data = meResult.data as unknown as {
       identity?: { id: number; name: string; email_address: string; attachable_sgid?: string };
       accounts?: Array<{ id: number; name: string }>;
@@ -233,7 +233,7 @@ export async function hatchIdentity(
   // Probe CLI availability
   let profileNames: string[] = [];
   try {
-    const result = await bcqProfileList();
+    const result = await cliProfileList();
     profileNames = result.data;
   } catch {
     // CLI not available
@@ -256,8 +256,7 @@ export async function hatchIdentity(
   let promptedClientId = false;
   let promptedClientSecret = false;
   let oauthResult: OAuthDiscoveryResult | undefined;
-  let bcqProfile: string | undefined;
-  let bcqAccountId: string | undefined;
+  let cliProfile: string | undefined;
 
   if (authMethod === "browser") {
     // Browser auth is all-or-nothing: if login or identity discovery fails,
@@ -290,14 +289,13 @@ export async function hatchIdentity(
       personId = String(cliResult.identity.id);
       displayName = cliResult.identity.name;
       attachableSgid = cliResult.identity.attachable_sgid;
-      bcqProfile = cliResult.profile;
+      cliProfile = cliResult.profile;
 
       // Select Basecamp account from CLI-discovered accounts
       basecampAccountId = await selectBasecampAccount(
         cliResult.accounts as Array<{ id: number; name: string; product?: string }>,
         prompter,
       );
-      bcqAccountId = basecampAccountId;
     }
   }
 
@@ -395,8 +393,8 @@ export async function hatchIdentity(
     if (oauthTokenFile) accountEntry.oauthTokenFile = oauthTokenFile;
     // Auth-method conflict cleanup: strip CLI fields
   } else {
-    if (bcqProfile) accountEntry.bcqProfile = bcqProfile;
-    if (bcqAccountId) accountEntry.bcqAccountId = bcqAccountId;
+    if (cliProfile) accountEntry.cliProfile = cliProfile;
+    if (basecampAccountId) accountEntry.basecampAccountId = basecampAccountId;
     // Auth-method conflict cleanup: strip OAuth fields
   }
 

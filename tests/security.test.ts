@@ -80,7 +80,7 @@ describe("security.collectWarnings", () => {
         dmPolicy: "pairing",
         allowFrom: [42],
         accounts: {
-          main: { personId: "42", bcqProfile: "default" },
+          main: { personId: "42", cliProfile: "default" },
         },
       }),
       account: stubAccount,
@@ -109,7 +109,7 @@ describe("security.collectWarnings", () => {
   it("warns on persona referencing non-existent account", async () => {
     const warnings = await basecampSecurityAdapter.collectWarnings({
       cfg: cfg({
-        accounts: { main: { personId: "42", bcqProfile: "default" } },
+        accounts: { main: { personId: "42", cliProfile: "default" } },
         personas: { "agent-1": "missing" },
       }),
       account: stubAccount,
@@ -125,7 +125,7 @@ describe("security.collectWarnings", () => {
   it("does not warn on persona referencing existing account", async () => {
     const warnings = await basecampSecurityAdapter.collectWarnings({
       cfg: cfg({
-        accounts: { main: { personId: "42", bcqProfile: "default" } },
+        accounts: { main: { personId: "42", cliProfile: "default" } },
         personas: { "agent-1": "main" },
       }),
       account: stubAccount,
@@ -137,7 +137,7 @@ describe("security.collectWarnings", () => {
   it("warns on virtual account referencing non-existent backing account", async () => {
     const warnings = await basecampSecurityAdapter.collectWarnings({
       cfg: cfg({
-        accounts: { main: { personId: "42", bcqProfile: "default" } },
+        accounts: { main: { personId: "42", cliProfile: "default" } },
         virtualAccounts: { "project-x": { accountId: "ghost", bucketId: "123" } },
       }),
       account: stubAccount,
@@ -154,7 +154,7 @@ describe("security.collectWarnings", () => {
     const warnings = await basecampSecurityAdapter.collectWarnings({
       cfg: cfg({
         accounts: {
-          alpha: { personId: "42", bcqProfile: "default" },
+          alpha: { personId: "42", cliProfile: "default" },
           beta: { personId: "42", token: "tok" },
         },
       }),
@@ -188,11 +188,11 @@ describe("security.collectWarnings", () => {
     );
   });
 
-  it("does not warn on account with bcqProfile", async () => {
+  it("does not warn on account with cliProfile", async () => {
     const warnings = await basecampSecurityAdapter.collectWarnings({
       cfg: cfg({
         accounts: {
-          good: { personId: "42", bcqProfile: "default" },
+          good: { personId: "42", cliProfile: "default" },
         },
       }),
       account: stubAccount,

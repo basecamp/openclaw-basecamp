@@ -20,7 +20,7 @@ vi.mock("../src/outbound/send.js", () => ({
   resolveCircleInfoCached: vi.fn(() => undefined),
 }));
 
-import { bcqMe } from "../src/bcq.js";
+import { cliMe } from "../src/basecamp-cli.js";
 import { getClient, rawOrThrow } from "../src/basecamp-client.js";
 import { pollActivityFeed } from "../src/inbound/activity.js";
 import { pollReadings } from "../src/inbound/readings.js";
@@ -35,16 +35,16 @@ const INTEGRATION_ENABLED = process.env.OPENCLAW_INTEGRATION === "1";
 const describeIntegration = INTEGRATION_ENABLED ? describe : describe.skip;
 
 // ---------------------------------------------------------------------------
-// Shared test account (uses bcq's default authenticated account)
+// Shared test account (uses the Basecamp CLI's default authenticated account)
 // ---------------------------------------------------------------------------
 
 const testAccount: ResolvedBasecampAccount = {
   accountId: "2914079",
   enabled: true,
-  personId: "3", // Jeremy's person ID from bcq me
-  token: "", // bcq handles auth
-  tokenSource: "bcq",
-  config: { personId: "3", bcqAccountId: "2914079" },
+  personId: "3", // Jeremy's person ID from cliMe
+  token: "", // CLI handles auth
+  tokenSource: "cli",
+  config: { personId: "3", basecampAccountId: "2914079" },
 };
 
 const log = {
@@ -59,12 +59,12 @@ const log = {
 // ---------------------------------------------------------------------------
 
 describeIntegration("smoke: SDK client", () => {
-  it("bcqMe returns authenticated user", async () => {
-    const result = await bcqMe();
+  it("cliMe returns authenticated user", async () => {
+    const result = await cliMe();
     expect(result.data).toBeDefined();
     const me = result.data as any;
     expect(me.identity?.id ?? me.id).toBeTruthy();
-    console.log("bcqMe:", JSON.stringify(result.data).slice(0, 200));
+    console.log("cliMe:", JSON.stringify(result.data).slice(0, 200));
   });
 
   it("client.reports.progress() returns activity events", async () => {

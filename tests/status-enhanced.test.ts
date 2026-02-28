@@ -22,7 +22,7 @@ vi.mock("openclaw/plugin-sdk", () => ({
   }),
 }));
 
-// bcqAuthStatus no longer used by status adapter (uses SDK client for all sources)
+// cliAuthStatus no longer used by status adapter (uses SDK client for all sources)
 
 const mockClient = {
   authorization: { getInfo: vi.fn() },
@@ -71,8 +71,8 @@ const mockAccount: ResolvedBasecampAccount = {
   personId: "42",
   token: "tok",
   tokenSource: "config",
-  bcqProfile: "default",
-  config: { personId: "42", bcqProfile: "default", bcqAccountId: "99" },
+  cliProfile: "default",
+  config: { personId: "42", cliProfile: "default", basecampAccountId: "99" },
 };
 
 beforeEach(() => {
@@ -117,13 +117,13 @@ describe("probeAccount (enhanced)", () => {
     expect(probe.personName).toBeUndefined();
   });
 
-  it("returns ok=false when getInfo fails for bcq token (unified auth check)", async () => {
+  it("returns ok=false when getInfo fails for CLI token (unified auth check)", async () => {
     mockClient.authorization.getInfo.mockRejectedValue(new Error("token expired"));
 
-    const bcqAccount = { ...mockAccount, tokenSource: "bcq" as const };
+    const cliAccount = { ...mockAccount, tokenSource: "cli" as const };
 
     const probe = await basecampStatusAdapter.probeAccount!({
-      account: bcqAccount,
+      account: cliAccount,
       timeoutMs: 5000,
       cfg: cfg({}),
     });
@@ -145,13 +145,13 @@ describe("probeAccount (enhanced)", () => {
     // For config token, getInfo failure → ok=false
   });
 
-  it("handles getInfo failure gracefully when bcq auth succeeded", async () => {
+  it("handles getInfo failure gracefully when CLI auth succeeded", async () => {
     mockClient.authorization.getInfo.mockRejectedValue(new Error("fail"));
 
-    const bcqAccount = { ...mockAccount, tokenSource: "bcq" as const };
+    const cliAccount = { ...mockAccount, tokenSource: "cli" as const };
 
     const probe = await basecampStatusAdapter.probeAccount!({
-      account: bcqAccount,
+      account: cliAccount,
       timeoutMs: 5000,
       cfg: cfg({}),
     });

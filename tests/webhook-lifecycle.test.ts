@@ -32,8 +32,8 @@ const TEST_ACCOUNT = {
   accountId: "test-account",
   token: "test-token",
   tokenSource: "config" as const,
-  bcqProfile: undefined,
-  config: { bcqAccountId: "12345" },
+  cliProfile: undefined,
+  config: { basecampAccountId: "12345" },
   scopedBucketId: undefined,
 };
 

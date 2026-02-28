@@ -2,7 +2,7 @@
  * Basecamp directory adapter — people & project discovery.
  *
  * Implements ChannelDirectoryAdapter for `openclaw channels resolve`,
- * agent targeting, and people/project lookup via bcq.
+ * agent targeting, and people/project lookup via the Basecamp API.
  */
 
 import type { ChannelDirectoryAdapter, ChannelDirectoryEntry, OpenClawConfig } from "openclaw/plugin-sdk";
@@ -17,7 +17,7 @@ function getBasecampSection(cfg: OpenClawConfig): BasecampChannelConfig | undefi
 export const basecampDirectoryAdapter: ChannelDirectoryAdapter = {
   self: async ({ cfg, accountId }) => {
     const account = resolveBasecampAccount(cfg, accountId);
-    if (!account.bcqProfile && !account.token && !account.config.tokenFile && !account.config.oauthTokenFile) return null;
+    if (!account.cliProfile && !account.token && !account.config.tokenFile && !account.config.oauthTokenFile) return null;
 
     try {
       const client = getClient(account);

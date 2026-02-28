@@ -36,8 +36,8 @@ const mockAccount = {
   personId: "1",
   token: "tok",
   tokenSource: "config" as const,
-  bcqProfile: "default",
-  config: { personId: "1", bcqProfile: "default", bcqAccountId: "99" },
+  cliProfile: "default",
+  config: { personId: "1", cliProfile: "default", basecampAccountId: "99" },
 };
 
 beforeEach(() => {

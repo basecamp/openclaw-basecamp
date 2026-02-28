@@ -57,7 +57,7 @@ const account: ResolvedBasecampAccount = {
   personId: "999",
   token: "tok",
   tokenSource: "config",
-  config: { personId: "999", bcqAccountId: "12345" },
+  config: { personId: "999", basecampAccountId: "12345" },
 };
 
 function baseMeta() {
@@ -119,7 +119,7 @@ describe("dogfooding — DM policy & engagement gate", () => {
     mockLoadConfig.mockReturnValue({
       channels: {
         basecamp: {
-          accounts: { "test-acct": { personId: "999", bcqAccountId: "12345" } },
+          accounts: { "test-acct": { personId: "999", basecampAccountId: "12345" } },
         },
       },
     });
@@ -173,7 +173,7 @@ describe("dogfooding — DM policy & engagement gate", () => {
     mockLoadConfig.mockReturnValue({
       channels: {
         basecamp: {
-          accounts: { "test-acct": { personId: "999", bcqAccountId: "12345" } },
+          accounts: { "test-acct": { personId: "999", basecampAccountId: "12345" } },
           engage: ["mention"],
         },
       },
@@ -191,7 +191,7 @@ describe("dogfooding — DM policy & engagement gate", () => {
     mockLoadConfig.mockReturnValue({
       channels: {
         basecamp: {
-          accounts: { "test-acct": { personId: "999", bcqAccountId: "12345" } },
+          accounts: { "test-acct": { personId: "999", basecampAccountId: "12345" } },
           engage: ["dm", "mention", "conversation"],
           buckets: {
             "456": { engage: ["mention"] },

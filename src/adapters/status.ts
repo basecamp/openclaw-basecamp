@@ -200,7 +200,7 @@ export const basecampStatusAdapter: ChannelStatusAdapter<ResolvedBasecampAccount
 
   buildAccountSnapshot: ({ account, runtime, probe, audit }) => {
     const configured = Boolean(
-      account.token?.trim() || account.config.tokenFile || account.config.oauthTokenFile || account.bcqProfile,
+      account.token?.trim() || account.config.tokenFile || account.config.oauthTokenFile || account.cliProfile,
     );
     return {
       accountId: account.accountId,
@@ -256,8 +256,8 @@ export const basecampStatusAdapter: ChannelStatusAdapter<ResolvedBasecampAccount
       if (probe && !probe.authenticated) {
         let fix: string;
         switch (s.tokenSource) {
-          case "bcq":
-            fix = `Run \`basecamp auth login${(s as any).bcqProfile ? ` --profile ${(s as any).bcqProfile}` : ""}\``;
+          case "cli":
+            fix = `Run \`basecamp auth login${(s as any).cliProfile ? ` --profile ${(s as any).cliProfile}` : ""}\``;
             break;
           case "oauth":
             fix = `Run \`openclaw channels login --channel basecamp --account ${s.accountId}\``;

@@ -4,7 +4,7 @@
  * Validates the CB lifecycle through dispatch: trip on threshold,
  * half-open probe, recovery, re-trip, and failure attribution to outbound account.
  *
- * The CB records failures inside execBcq (below postReplyToEvent), so these
+ * The CB records failures inside execCli (below postReplyToEvent), so these
  * tests exercise two layers:
  *   - Direct CB state machine + metrics sync (DF-018, DF-019, DF-020)
  *   - Full dispatch pipeline with failure attribution (DF-021)
@@ -62,7 +62,7 @@ const inboundAccount: ResolvedBasecampAccount = {
   personId: "999",
   token: "tok-a",
   tokenSource: "config",
-  config: { personId: "999", bcqAccountId: "11111" },
+  config: { personId: "999", basecampAccountId: "11111" },
 };
 
 const personaAccount: ResolvedBasecampAccount = {
@@ -71,7 +71,7 @@ const personaAccount: ResolvedBasecampAccount = {
   personId: "888",
   token: "tok-b",
   tokenSource: "config",
-  config: { personId: "888", bcqAccountId: "22222" },
+  config: { personId: "888", basecampAccountId: "22222" },
 };
 
 function makeMsg(seq: number): BasecampInboundMessage {
@@ -231,7 +231,7 @@ describe("dogfooding — outbound failure attribution", () => {
     mockLoadConfig.mockReturnValue({
       channels: {
         basecamp: {
-          accounts: { "acct-a": { personId: "999", bcqAccountId: "11111" } },
+          accounts: { "acct-a": { personId: "999", basecampAccountId: "11111" } },
           circuitBreaker: { threshold: 2, cooldownMs: 50 },
         },
       },
@@ -258,8 +258,8 @@ describe("dogfooding — outbound failure attribution", () => {
       channels: {
         basecamp: {
           accounts: {
-            "acct-a": { personId: "999", bcqAccountId: "11111" },
-            "acct-b": { personId: "888", bcqAccountId: "22222" },
+            "acct-a": { personId: "999", basecampAccountId: "11111" },
+            "acct-b": { personId: "888", basecampAccountId: "22222" },
           },
           personas: { "agent-1": "acct-b" },
           circuitBreaker: { threshold: 2, cooldownMs: 50 },

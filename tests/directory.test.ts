@@ -42,8 +42,8 @@ const mockAccount = {
   personId: "1",
   token: "tok",
   tokenSource: "config" as const,
-  bcqProfile: "default",
-  config: { personId: "1", bcqProfile: "default", bcqAccountId: "99" },
+  cliProfile: "default",
+  config: { personId: "1", cliProfile: "default", basecampAccountId: "99" },
 };
 
 beforeEach(() => {
@@ -92,7 +92,7 @@ describe("directory.self", () => {
     vi.mocked(resolveBasecampAccount).mockReturnValue({
       ...mockAccount,
       token: "",
-      bcqProfile: undefined,
+      cliProfile: undefined,
       tokenSource: "oauth" as const,
       config: { personId: "1", oauthTokenFile: "/tmp/tokens/work.json" },
     } as any);
@@ -115,7 +115,7 @@ describe("directory.self", () => {
     vi.mocked(resolveBasecampAccount).mockReturnValue({
       ...mockAccount,
       token: "",
-      bcqProfile: undefined,
+      cliProfile: undefined,
     } as any);
 
     const result = await basecampDirectoryAdapter.self!({

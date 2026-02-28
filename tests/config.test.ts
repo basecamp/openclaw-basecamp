@@ -200,95 +200,95 @@ describe("resolveBasecampAccount", () => {
     expect(result.tokenSource).toBe("config");
   });
 
-  it("threads through bcqProfile field", () => {
+  it("threads through cliProfile field", () => {
     const result = resolveBasecampAccount(
       cfgWithAccounts({
         dev: {
           personId: "1",
-          bcqProfile: "my-dev-profile",
+          cliProfile: "my-dev-profile",
         },
       }),
       "dev",
     );
-    expect(result.bcqProfile).toBe("my-dev-profile");
-    expect(result.tokenSource).toBe("bcq");
+    expect(result.cliProfile).toBe("my-dev-profile");
+    expect(result.tokenSource).toBe("cli");
   });
 
-  it("bcqProfile account has empty token (bcq handles auth)", () => {
+  it("cliProfile account has empty token (CLI handles auth)", () => {
     const result = resolveBasecampAccount(
       cfgWithAccounts({
         dev: {
           personId: "1",
-          bcqProfile: "my-dev-profile",
+          cliProfile: "my-dev-profile",
         },
       }),
       "dev",
     );
     expect(result.token).toBe("");
-    expect(result.tokenSource).toBe("bcq");
+    expect(result.tokenSource).toBe("cli");
   });
 
-  it("explicit token takes precedence over bcqProfile", () => {
+  it("explicit token takes precedence over cliProfile", () => {
     const result = resolveBasecampAccount(
       cfgWithAccounts({
         dev: {
           personId: "1",
           token: "t",
-          bcqProfile: "my-dev-profile",
+          cliProfile: "my-dev-profile",
         },
       }),
       "dev",
     );
     expect(result.token).toBe("t");
     expect(result.tokenSource).toBe("config");
-    expect(result.bcqProfile).toBe("my-dev-profile");
+    expect(result.cliProfile).toBe("my-dev-profile");
   });
 
-  it("returns undefined bcqProfile when not configured", () => {
+  it("returns undefined cliProfile when not configured", () => {
     const result = resolveBasecampAccount(
       cfgWithAccounts({
         default: { personId: "1", token: "t" },
       }),
     );
-    expect(result.bcqProfile).toBeUndefined();
+    expect(result.cliProfile).toBeUndefined();
   });
 
-  it("tokenFile takes precedence over bcqProfile for tokenSource", () => {
+  it("tokenFile takes precedence over cliProfile for tokenSource", () => {
     const result = resolveBasecampAccount(
       cfgWithAccounts({
         prod: {
           personId: "1",
           tokenFile: "~/.secrets/token",
-          bcqProfile: "prod-profile",
+          cliProfile: "prod-profile",
         },
       }),
       "prod",
     );
     expect(result.tokenSource).toBe("tokenFile");
-    expect(result.bcqProfile).toBe("prod-profile");
+    expect(result.cliProfile).toBe("prod-profile");
   });
 
-  it("threads through bcqAccountId in config", () => {
+  it("threads through basecampAccountId in config", () => {
     const result = resolveBasecampAccount(
       cfgWithAccounts({
         dev: {
           personId: "1",
           token: "t",
-          bcqAccountId: "12345",
+          basecampAccountId: "12345",
         },
       }),
       "dev",
     );
-    expect(result.config.bcqAccountId).toBe("12345");
+    expect(result.config.basecampAccountId).toBe("12345");
   });
 
-  it("returns undefined bcqAccountId when not configured", () => {
+  it("returns undefined basecampAccountId when not configured", () => {
     const result = resolveBasecampAccount(
       cfgWithAccounts({
         default: { personId: "1", token: "t" },
       }),
     );
-    expect(result.config.bcqAccountId).toBeUndefined();
+    expect(result.config.basecampAccountId).toBeUndefined();
   });
 
   it("resolves displayName from config", () => {

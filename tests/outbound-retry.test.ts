@@ -44,7 +44,7 @@ const TEST_ACCOUNT: ResolvedBasecampAccount = {
   personId: "99",
   token: "test-token",
   tokenSource: "config" as const,
-  config: { personId: "99", bcqAccountId: "12345" },
+  config: { personId: "99", basecampAccountId: "12345" },
 };
 
 beforeEach(() => {

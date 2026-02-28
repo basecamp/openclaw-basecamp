@@ -15,7 +15,7 @@ vi.mock("openclaw/plugin-sdk", () => ({
 }));
 vi.mock("../src/runtime.js", () => ({ getBasecampRuntime: vi.fn(() => ({})) }));
 vi.mock("../src/dispatch.js", () => ({ dispatchBasecampEvent: vi.fn() }));
-vi.mock("../src/bcq.js", () => ({ bcqAuthStatus: vi.fn() }));
+vi.mock("../src/basecamp-cli.js", () => ({ cliAuthStatus: vi.fn() }));
 vi.mock("../src/basecamp-client.js", () => ({
   getClient: vi.fn(() => ({})),
   numId: (_label: string, value: string | number) => Number(value),

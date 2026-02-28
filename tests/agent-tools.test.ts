@@ -34,7 +34,7 @@ vi.mock("../src/config.js", () => ({
     personId: "999",
     token: "tok-test",
     tokenSource: "config",
-    config: { personId: "999", bcqAccountId: "99" },
+    config: { personId: "999", basecampAccountId: "99" },
   })),
 }));
 

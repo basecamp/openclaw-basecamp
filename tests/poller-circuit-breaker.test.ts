@@ -126,9 +126,9 @@ describe("startCompositePoller -- circuit breaker integration", () => {
       enabled: true,
       token: "tok",
       tokenSource: "inline" as const,
-      bcqProfile: undefined,
+      cliProfile: undefined,
       displayName: "Test",
-      config: { personId: "99", bcqAccountId: "12345" },
+      config: { personId: "99", basecampAccountId: "12345" },
     } as any;
 
     // Run poller for ~300ms -- enough for at least 1 poll cycle.
@@ -220,7 +220,7 @@ describe("startCompositePoller -- circuit breaker integration", () => {
       enabled: true,
       token: "tok",
       tokenSource: "inline" as const,
-      config: { personId: "99", bcqAccountId: "12345" },
+      config: { personId: "99", basecampAccountId: "12345" },
     } as any;
 
     const pollerPromise = startCompositePoller({

@@ -40,9 +40,9 @@ vi.mock("../src/dispatch.js", () => ({
   dispatchBasecampEvent: vi.fn(),
 }));
 
-// Mock bcq (auth functions still used by channel.ts)
-vi.mock("../src/bcq.js", () => ({
-  bcqAuthStatus: vi.fn(),
+// Mock Basecamp CLI (auth functions still used by channel.ts)
+vi.mock("../src/basecamp-cli.js", () => ({
+  cliAuthStatus: vi.fn(),
 }));
 
 // Mock basecamp-client (transitive dep via outbound/send.js)
@@ -84,8 +84,8 @@ const mockAccount: ResolvedBasecampAccount = {
   personId: "42",
   token: "tok",
   tokenSource: "config",
-  bcqProfile: "default",
-  config: { personId: "42", bcqProfile: "default" },
+  cliProfile: "default",
+  config: { personId: "42", cliProfile: "default" },
 };
 
 const disabledAccount: ResolvedBasecampAccount = {
@@ -121,7 +121,7 @@ describe("config.disabledReason", () => {
 describe("config.unconfiguredReason", () => {
   it("returns reason string", () => {
     const reason = basecampChannel.config.unconfiguredReason!(mockAccount, cfg({}));
-    expect(reason).toContain("bcq profile");
+    expect(reason).toContain("CLI profile");
     expect(reason).toContain("token");
   });
 });
@@ -133,7 +133,7 @@ describe("config.unconfiguredReason", () => {
 describe("config.setAccountEnabled", () => {
   it("disables an account", () => {
     const original = cfg({
-      accounts: { work: { personId: "42", bcqProfile: "default" } },
+      accounts: { work: { personId: "42", cliProfile: "default" } },
     });
     const updated = basecampChannel.config.setAccountEnabled!({
       cfg: original,
@@ -166,7 +166,7 @@ describe("config.deleteAccount", () => {
   it("removes account entry", () => {
     const original = cfg({
       accounts: {
-        work: { personId: "42", bcqProfile: "default" },
+        work: { personId: "42", cliProfile: "default" },
         personal: { personId: "43", token: "tok2" },
       },
     });
@@ -182,7 +182,7 @@ describe("config.deleteAccount", () => {
   it("cleans up persona references to deleted account", () => {
     const original = cfg({
       accounts: {
-        work: { personId: "42", bcqProfile: "default" },
+        work: { personId: "42", cliProfile: "default" },
         other: { personId: "43", token: "tok2" },
       },
       personas: { "agent-1": "work", "agent-2": "other" },
@@ -304,14 +304,14 @@ describe("resolveBasecampAccount — OAuth", () => {
     expect(result.tokenSource).toBe("oauth");
   });
 
-  it("oauthTokenFile takes priority over bcqProfile", () => {
+  it("oauthTokenFile takes priority over cliProfile", () => {
     const result = resolveBasecampAccount(
       cfg({
         accounts: {
           work: {
             personId: "42",
             oauthTokenFile: "/tmp/tokens/work.json",
-            bcqProfile: "default",
+            cliProfile: "default",
           },
         },
       }),
@@ -345,7 +345,7 @@ describe("resolveBasecampAccount — OAuth", () => {
             token: "inline-tok",
             tokenFile: "/tmp/bearer.txt",
             oauthTokenFile: "/tmp/tokens/work.json",
-            bcqProfile: "default",
+            cliProfile: "default",
           },
         },
       }),
@@ -411,7 +411,7 @@ describe("resolveBasecampAccount — OAuth", () => {
         accounts: {
           work: {
             personId: "42",
-            bcqProfile: "default",
+            cliProfile: "default",
             basecampAccountId: "99999",
           },
         },

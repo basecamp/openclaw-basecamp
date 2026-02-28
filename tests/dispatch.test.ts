@@ -79,7 +79,7 @@ const mockAccount: ResolvedBasecampAccount = {
   personId: "999",
   token: "tok-abc",
   tokenSource: "config",
-  config: { personId: "999", bcqAccountId: "12345" },
+  config: { personId: "999", basecampAccountId: "12345" },
 };
 
 // ---------------------------------------------------------------------------
@@ -172,8 +172,8 @@ describe("dispatchBasecampEvent", () => {
       personId: "888",
       token: "tok-persona",
       tokenSource: "config",
-      bcqProfile: "persona-profile",
-      config: { personId: "888", bcqProfile: "persona-profile", bcqAccountId: "67890" },
+      cliProfile: "persona-profile",
+      config: { personId: "888", cliProfile: "persona-profile", basecampAccountId: "67890" },
     } as any);
 
     await dispatchBasecampEvent(mockMsg, { account: mockAccount });
@@ -189,20 +189,20 @@ describe("dispatchBasecampEvent", () => {
       expect.objectContaining({
         account: expect.objectContaining({
           accountId: "persona-acct",
-          bcqProfile: "persona-profile",
+          cliProfile: "persona-profile",
         }),
       }),
     );
   });
 
-  it("returns false and logs error when bcqAccountId is undefined", async () => {
-    const accountNoBcq: ResolvedBasecampAccount = {
+  it("returns false and logs error when basecampAccountId is undefined", async () => {
+    const accountNoId: ResolvedBasecampAccount = {
       ...mockAccount,
       config: { personId: "999" },
     };
     const log = { info: vi.fn(), warn: vi.fn(), debug: vi.fn(), error: vi.fn() };
 
-    const result = await dispatchBasecampEvent(mockMsg, { account: accountNoBcq, log });
+    const result = await dispatchBasecampEvent(mockMsg, { account: accountNoId, log });
 
     expect(result).toBe(false);
     expect(log.error).toHaveBeenCalledTimes(1);
@@ -224,7 +224,7 @@ describe("dispatchBasecampEvent", () => {
     expect(result).toBe(true);
   });
 
-  it("falls back to numeric accountId when bcqAccountId is unset", async () => {
+  it("falls back to numeric accountId when basecampAccountId is unset", async () => {
     const accountNumericId: ResolvedBasecampAccount = {
       ...mockAccount,
       accountId: "2914079",

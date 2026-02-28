@@ -1,11 +1,10 @@
 /**
- * Error scenario tests for bcq failure paths.
+ * Error scenario tests for Basecamp CLI failure paths.
  *
- * Mocks node:child_process to simulate various bcq failure modes
+ * Mocks node:child_process to simulate various CLI failure modes
  * (timeout, invalid JSON, auth failure, empty output, network errors).
  *
- * Only auth-related functions remain in bcq.ts — API access functions
- * (bcqGet, bcqTimeline, etc.) have been migrated to @37signals/basecamp.
+ * Only auth-related functions remain in basecamp-cli.ts.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
@@ -14,7 +13,7 @@ vi.mock("node:child_process", () => ({
   spawn: vi.fn(),
 }));
 
-import { bcqMe, bcqAuthStatus, bcqWhich, bcqProfileList, execBcqAuthLogin, BcqError } from "../src/bcq.js";
+import { cliMe, cliAuthStatus, bcqWhich, bcqProfileList, execBcqAuthLogin, CliError } from "../src/basecamp-cli.js";
 import { execFile, spawn } from "node:child_process";
 
 beforeEach(() => {
@@ -22,13 +21,13 @@ beforeEach(() => {
 });
 
 // ---------------------------------------------------------------------------
-// BcqError class
+// CliError class
 // ---------------------------------------------------------------------------
 
-describe("BcqError", () => {
+describe("CliError", () => {
   it("has correct name, message, exitCode, stderr, command", () => {
-    const err = new BcqError("test error", 42, "stderr output", ["bcq", "me"]);
-    expect(err.name).toBe("BcqError");
+    const err = new CliError("test error", 42, "stderr output", ["bcq", "me"]);
+    expect(err.name).toBe("CliError");
     expect(err.message).toBe("test error");
     expect(err.exitCode).toBe(42);
     expect(err.stderr).toBe("stderr output");
@@ -37,17 +36,17 @@ describe("BcqError", () => {
   });
 
   it("accepts null exitCode for non-process errors", () => {
-    const err = new BcqError("parse error", null, "", []);
+    const err = new CliError("parse error", null, "", []);
     expect(err.exitCode).toBeNull();
   });
 });
 
 // ---------------------------------------------------------------------------
-// bcqAuthStatus failure paths
+// cliAuthStatus failure paths
 // ---------------------------------------------------------------------------
 
-describe("bcqAuthStatus error scenarios", () => {
-  it("returns authenticated=false on BcqError", async () => {
+describe("cliAuthStatus error scenarios", () => {
+  it("returns authenticated=false on CliError", async () => {
     vi.mocked(execFile).mockImplementation((_cmd: any, _args: any, _opts: any, cb: any) => {
       const err = new Error("not authenticated") as any;
       err.code = 1;
@@ -55,7 +54,7 @@ describe("bcqAuthStatus error scenarios", () => {
       return {} as any;
     });
 
-    const result = await bcqAuthStatus();
+    const result = await cliAuthStatus();
     expect(result.data.authenticated).toBe(false);
   });
 
@@ -65,7 +64,7 @@ describe("bcqAuthStatus error scenarios", () => {
       return {} as any;
     });
 
-    const result = await bcqAuthStatus();
+    const result = await cliAuthStatus();
     expect(result.data.authenticated).toBe(false);
   });
 
@@ -75,17 +74,17 @@ describe("bcqAuthStatus error scenarios", () => {
       return {} as any;
     });
 
-    const result = await bcqAuthStatus();
+    const result = await cliAuthStatus();
     expect(result.data.authenticated).toBe(true);
   });
 });
 
 // ---------------------------------------------------------------------------
-// bcqMe failure paths
+// cliMe failure paths
 // ---------------------------------------------------------------------------
 
-describe("bcqMe error scenarios", () => {
-  it("throws BcqError on network error", async () => {
+describe("cliMe error scenarios", () => {
+  it("throws CliError on network error", async () => {
     vi.mocked(execFile).mockImplementation((_cmd: any, _args: any, _opts: any, cb: any) => {
       const err = new Error("ECONNREFUSED") as any;
       err.code = null;
@@ -93,25 +92,25 @@ describe("bcqMe error scenarios", () => {
       return {} as any;
     });
 
-    await expect(bcqMe()).rejects.toThrow(BcqError);
+    await expect(cliMe()).rejects.toThrow(CliError);
   });
 
-  it("throws BcqError with stderr on process failure", async () => {
+  it("throws CliError with stderr on process failure", async () => {
     vi.mocked(execFile).mockImplementation((_cmd: any, _args: any, _opts: any, cb: any) => {
       const err = new Error("process failed") as any;
       err.code = 2;
-      cb(err, "", "bcq: command not found");
+      cb(err, "", "basecamp: command not found");
       return {} as any;
     });
 
     try {
-      await bcqMe();
+      await cliMe();
       expect.unreachable("should have thrown");
     } catch (err) {
-      expect(err).toBeInstanceOf(BcqError);
-      const bcqErr = err as BcqError;
-      expect(bcqErr.exitCode).toBe(2);
-      expect(bcqErr.stderr).toContain("command not found");
+      expect(err).toBeInstanceOf(CliError);
+      const cliErr = err as CliError;
+      expect(cliErr.exitCode).toBe(2);
+      expect(cliErr.stderr).toContain("command not found");
     }
   });
 });

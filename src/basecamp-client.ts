@@ -2,12 +2,12 @@
  * Basecamp SDK client factory.
  *
  * Creates and caches BasecampClient instances per account.
- * Handles token resolution from multiple sources (config, tokenFile, bcq).
+ * Handles token resolution from multiple sources (config, tokenFile, cli).
  */
 
 import { createBasecampClient, type BasecampClient, BasecampError, errorFromResponse } from "@37signals/basecamp";
 import type { ResolvedBasecampAccount } from "./types.js";
-import { resolveCliBinaryPath } from "./bcq.js";
+import { resolveCliBinaryPath } from "./basecamp-cli.js";
 import { execFile } from "node:child_process";
 import { homedir } from "node:os";
 import { resolve as pathResolve } from "node:path";
@@ -55,7 +55,6 @@ export function clearClients(): void {
 
 function resolveNumericAccountId(account: ResolvedBasecampAccount): string {
   const id = account.config.basecampAccountId
-    ?? account.config.bcqAccountId
     ?? (/^\d+$/.test(account.accountId) ? account.accountId : undefined);
   if (!id) {
     throw new Error(
@@ -88,8 +87,8 @@ function resolveTokenProvider(
         return readTokenFile(account.config.tokenFile);
       };
 
-    case "bcq":
-      return bcqTokenProvider(account.bcqProfile);
+    case "cli":
+      return cliTokenProvider(account.cliProfile);
 
     case "oauth": {
       // Lazy import + lazy init: the dynamic import and TokenManager creation
@@ -109,7 +108,7 @@ function resolveTokenProvider(
     case "none":
       throw new Error(
         `No authentication configured for account "${account.accountId}". ` +
-        `Set token, tokenFile, oauthTokenFile, or bcqProfile.`,
+        `Set token, tokenFile, oauthTokenFile, or cliProfile.`,
       );
   }
 }
@@ -130,32 +129,32 @@ async function readTokenFile(filePath: string): Promise<string> {
 }
 
 // ---------------------------------------------------------------------------
-// Basecamp CLI token extraction (for tokenSource === "bcq")
+// Basecamp CLI token extraction (for tokenSource === "cli")
 // ---------------------------------------------------------------------------
 
-const BCQ_TOKEN_CACHE_MS = 30_000;
+const CLI_TOKEN_CACHE_MS = 30_000;
 
-let cachedBcqToken: { token: string; profile: string | undefined; expiresAt: number } | null = null;
+let cachedCliToken: { token: string; profile: string | undefined; expiresAt: number } | null = null;
 
 /**
  * Create a token provider that extracts tokens from the Basecamp CLI.
  * Exported for use by onboarding/hatch wizards that need a token provider
  * for identity discovery via the CLI path.
  */
-export function bcqTokenProvider(profile: string | undefined): () => Promise<string> {
+export function cliTokenProvider(profile: string | undefined): () => Promise<string> {
   return async () => {
     const now = Date.now();
-    if (cachedBcqToken && cachedBcqToken.profile === profile && now < cachedBcqToken.expiresAt) {
-      return cachedBcqToken.token;
+    if (cachedCliToken && cachedCliToken.profile === profile && now < cachedCliToken.expiresAt) {
+      return cachedCliToken.token;
     }
 
-    const token = await bcqExtractToken(profile);
-    cachedBcqToken = { token, profile, expiresAt: now + BCQ_TOKEN_CACHE_MS };
+    const token = await cliExtractToken(profile);
+    cachedCliToken = { token, profile, expiresAt: now + CLI_TOKEN_CACHE_MS };
     return token;
   };
 }
 
-function bcqExtractToken(profile: string | undefined): Promise<string> {
+function cliExtractToken(profile: string | undefined): Promise<string> {
   const binaryPath = resolveCliBinaryPath();
   const args = ["auth", "token", "-q"];
   if (profile) args.push("-P", profile);

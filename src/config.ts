@@ -19,8 +19,7 @@ const BasecampAccountConfigSchema = z.object({
   displayName: z.string().optional(),
   attachableSgid: z.string().optional(),
   enabled: z.boolean().optional(),
-  bcqProfile: z.string().optional(),
-  bcqAccountId: z.string().optional(),
+  cliProfile: z.string().optional(),
   basecampAccountId: z.string().optional(),
   oauthTokenFile: z.string().optional(),
   oauthClientId: z.string().optional(),
@@ -265,9 +264,9 @@ export function resolveBasecampAccount(
   if (!token && !accountCfg.tokenFile && accountCfg.oauthTokenFile) {
     tokenSource = "oauth";
   }
-  // If no token and no tokenFile/oauthTokenFile, but a bcqProfile is configured, bcq manages auth
-  if (!token && !accountCfg.tokenFile && !accountCfg.oauthTokenFile && accountCfg.bcqProfile) {
-    tokenSource = "bcq";
+  // If no token and no tokenFile/oauthTokenFile, but a cliProfile is configured, CLI manages auth
+  if (!token && !accountCfg.tokenFile && !accountCfg.oauthTokenFile && accountCfg.cliProfile) {
+    tokenSource = "cli";
   }
 
   return {
@@ -278,7 +277,7 @@ export function resolveBasecampAccount(
     attachableSgid: accountCfg.attachableSgid,
     token,
     tokenSource,
-    bcqProfile: accountCfg.bcqProfile,
+    cliProfile: accountCfg.cliProfile,
     oauthClientId: accountCfg.oauthClientId ?? section?.oauth?.clientId,
     oauthClientSecret: accountCfg.oauthClientSecret ?? section?.oauth?.clientSecret,
     config: accountCfg,

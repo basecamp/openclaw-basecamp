@@ -97,13 +97,13 @@ function spawnCliWithFallback(
   };
 }
 
-/** Default timeout for bcq commands (30 seconds). */
+/** Default timeout for CLI commands (30 seconds). */
 const DEFAULT_TIMEOUT_MS = 30_000;
 
-export interface BcqOptions {
+export interface CliOptions {
   /** Basecamp account ID for --account flag. */
   accountId?: string;
-  /** bcq profile name for --profile flag (selects credential/config profile). */
+  /** CLI profile name for --profile flag (selects credential/config profile). */
   profile?: string;
   /** Request timeout in milliseconds. */
   timeoutMs?: number;
@@ -111,12 +111,12 @@ export interface BcqOptions {
   extraFlags?: string[];
 }
 
-export interface BcqResult<T = unknown> {
+export interface CliResult<T = unknown> {
   data: T;
   raw: string;
 }
 
-export class BcqError extends Error {
+export class CliError extends Error {
   constructor(
     message: string,
     public readonly exitCode: number | null,
@@ -124,19 +124,19 @@ export class BcqError extends Error {
     public readonly command: string[],
   ) {
     super(message);
-    this.name = "BcqError";
+    this.name = "CliError";
   }
 }
 
 // ---------------------------------------------------------------------------
-// Core bcq execution
+// Core CLI execution
 // ---------------------------------------------------------------------------
 
 /**
  * Execute a CLI command and return parsed JSON output.
  * Uses centralized fallback (basecamp → bcq).
  */
-function execBcq<T = unknown>(args: string[], opts: BcqOptions = {}): Promise<BcqResult<T>> {
+function execCli<T = unknown>(args: string[], opts: CliOptions = {}): Promise<CliResult<T>> {
   const fullArgs = ["--agent", ...args];
 
   if (opts.accountId) {
@@ -153,7 +153,7 @@ function execBcq<T = unknown>(args: string[], opts: BcqOptions = {}): Promise<Bc
 
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
-  return new Promise<BcqResult<T>>((resolve, reject) => {
+  return new Promise<CliResult<T>>((resolve, reject) => {
     execCliWithFallback(
       fullArgs,
       {
@@ -178,7 +178,7 @@ function execBcq<T = unknown>(args: string[], opts: BcqOptions = {}): Promise<Bc
             typeof (error as any).code === "number" ? (error as any).code :
             typeof (error as any).status === "number" ? (error as any).status :
             null;
-          const err = new BcqError(
+          const err = new CliError(
             `Basecamp CLI failed (${cmdStr}): ${detail}`,
             exitCode,
             stderrTrimmed || stdoutTrimmed,
@@ -198,7 +198,7 @@ function execBcq<T = unknown>(args: string[], opts: BcqOptions = {}): Promise<Bc
           const data = JSON.parse(raw) as T;
           resolve({ data, raw });
         } catch (parseErr) {
-          const err = new BcqError(
+          const err = new CliError(
             `Basecamp CLI output is not valid JSON: ${String(parseErr)}`,
             null,
             raw,
@@ -219,24 +219,24 @@ function execBcq<T = unknown>(args: string[], opts: BcqOptions = {}): Promise<Bc
  * Fetch the current user profile for a given account.
  * Useful for resolving the service account's personId at startup.
  */
-export async function bcqMe(
-  opts: BcqOptions = {},
+export async function cliMe(
+  opts: CliOptions = {},
 ): Promise<
-  BcqResult<{ id: number; name: string; email_address: string; attachable_sgid?: string }>
+  CliResult<{ id: number; name: string; email_address: string; attachable_sgid?: string }>
 > {
-  return execBcq<{ id: number; name: string; email_address: string; attachable_sgid?: string }>(["me"], opts);
+  return execCli<{ id: number; name: string; email_address: string; attachable_sgid?: string }>(["me"], opts);
 }
 
 /**
  * Check that the Basecamp CLI binary exists and return its path.
  * Tries `basecamp --version`, falls back to `bcq --version`.
  */
-export async function bcqWhich(): Promise<BcqResult<{ path: string }>> {
+export async function cliWhich(): Promise<CliResult<{ path: string }>> {
   return new Promise((resolve, reject) => {
     execCliWithFallback(["--version"], { timeout: 5_000 }, (error, stdout, stderr, binaryUsed) => {
       if (error) {
         reject(
-          new BcqError(
+          new CliError(
             `Basecamp CLI not found: ${error.message}`,
             (error as any).code != null ? Number((error as any).code) : null,
             stderr,
@@ -251,21 +251,21 @@ export async function bcqWhich(): Promise<BcqResult<{ path: string }>> {
 }
 
 /**
- * Check the authentication status of a bcq profile.
- * Runs `bcq auth status` to verify the profile's credentials are valid.
+ * Check the authentication status of a CLI profile.
+ * Runs `basecamp auth status` to verify the profile's credentials are valid.
  */
-export async function bcqAuthStatus(
-  opts: BcqOptions = {},
-): Promise<BcqResult<{ authenticated: boolean }>> {
+export async function cliAuthStatus(
+  opts: CliOptions = {},
+): Promise<CliResult<{ authenticated: boolean }>> {
   try {
-    const result = await execBcq<{ authenticated?: boolean }>(["auth", "status"], opts);
+    const result = await execCli<{ authenticated?: boolean }>(["auth", "status"], opts);
     const authenticated =
       typeof result.data === "object" &&
       result.data !== null &&
       result.data.authenticated === true;
     return { data: { authenticated }, raw: result.raw };
   } catch (err) {
-    if (err instanceof BcqError) {
+    if (err instanceof CliError) {
       return { data: { authenticated: false }, raw: err.stderr };
     }
     throw err;
@@ -273,16 +273,16 @@ export async function bcqAuthStatus(
 }
 
 /**
- * List available bcq profiles.
- * Runs `bcq profile list` to enumerate configured profiles.
+ * List available CLI profiles.
+ * Runs `basecamp profile list` to enumerate configured profiles.
  */
-export async function bcqProfileList(opts: BcqOptions = {}): Promise<BcqResult<string[]>> {
+export async function cliProfileList(opts: CliOptions = {}): Promise<CliResult<string[]>> {
   try {
-    const result = await execBcq<string[]>(["profile", "list"], opts);
+    const result = await execCli<string[]>(["profile", "list"], opts);
     const profiles = Array.isArray(result.data) ? result.data : [];
     return { data: profiles, raw: result.raw };
   } catch (err) {
-    if (err instanceof BcqError) {
+    if (err instanceof CliError) {
       return { data: [], raw: err.stderr };
     }
     throw err;
@@ -294,7 +294,7 @@ export async function bcqProfileList(opts: BcqOptions = {}): Promise<BcqResult<s
  * This opens the browser for Basecamp OAuth and waits for completion.
  * Falls back to `bcq auth login` if `basecamp` binary is not found.
  */
-export async function execBcqAuthLogin(
+export async function execCliAuthLogin(
   opts: { profile?: string } = {},
 ): Promise<void> {
   const args = ["auth", "login"];
@@ -310,7 +310,7 @@ export async function execBcqAuthLogin(
 
     handle.onError((err: Error) => {
       reject(
-        new BcqError(
+        new CliError(
           `Basecamp CLI auth login failed to start: ${err.message}`,
           null,
           "",
@@ -324,7 +324,7 @@ export async function execBcqAuthLogin(
         resolve();
       } else {
         reject(
-          new BcqError(
+          new CliError(
             `Basecamp CLI auth login exited with code ${code}`,
             code,
             "",

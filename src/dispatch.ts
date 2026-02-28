@@ -163,11 +163,10 @@ export async function dispatchBasecampEvent(
     ? resolveBasecampAccount(cfg, personaAccountId)
     : account;
   // Resolve the numeric account ID for circuit breaker keying and logging.
-  const outboundBcqAccountId =
+  const outboundBasecampAccountId =
     outboundAccount.config.basecampAccountId ??
-    outboundAccount.config.bcqAccountId ??
     (/^\d+$/.test(outboundAccount.accountId) ? outboundAccount.accountId : undefined);
-  if (!outboundBcqAccountId) {
+  if (!outboundBasecampAccountId) {
     slog.error("outbound_account_id_missing", {
       outboundAccount: outboundAccount.accountId,
       hint: "Set config.basecampAccountId to a valid Basecamp account id",
@@ -208,9 +207,9 @@ export async function dispatchBasecampEvent(
   let dispatchHadError = false;
 
   // Outbound circuit breaker: fail fast when Basecamp API is persistently down.
-  // Key by effective bcq account ID so virtual accounts sharing the same real
+  // Key by effective Basecamp account ID so virtual accounts sharing the same real
   // Basecamp account share a single breaker instance.
-  const outboundCb = getOutboundCircuitBreaker(cfg, outboundBcqAccountId);
+  const outboundCb = getOutboundCircuitBreaker(cfg, outboundBasecampAccountId);
   const outboundCbKey = "outbound";
 
   await runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
@@ -273,13 +272,13 @@ export async function dispatchBasecampEvent(
           error: String(err),
           timestamp: Date.now(),
         });
-        syncOutboundCircuitBreakerMetrics(outboundCb, outboundCbKey, outboundBcqAccountId, cfg);
+        syncOutboundCircuitBreakerMetrics(outboundCb, outboundCbKey, outboundBasecampAccountId, cfg);
       },
     },
   });
 
   if (!dispatchHadError) {
-    syncOutboundCircuitBreakerMetrics(outboundCb, outboundCbKey, outboundBcqAccountId, cfg);
+    syncOutboundCircuitBreakerMetrics(outboundCb, outboundCbKey, outboundBasecampAccountId, cfg);
     slog.info("delivered", {
       correlationId,
       agent: route.agentId,

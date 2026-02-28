@@ -96,7 +96,7 @@ describe("basecampSetupAdapter", () => {
         channels: {
           basecamp: {
             accounts: {
-              default: { personId: "42", bcqProfile: "main" },
+              default: { personId: "42", cliProfile: "main" },
             },
           },
         },
@@ -110,7 +110,7 @@ describe("basecampSetupAdapter", () => {
 
       const acct = result.channels.basecamp.accounts.default;
       expect(acct.personId).toBe("42");
-      expect(acct.bcqProfile).toBe("main");
+      expect(acct.cliProfile).toBe("main");
       expect(acct.tokenFile).toBe("/tok");
     });
 
