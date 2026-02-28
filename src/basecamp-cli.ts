@@ -1,10 +1,6 @@
 /**
  * Wrapper around the Basecamp CLI for auth operations.
  *
- * The CLI was renamed from `bcq` to `basecamp`. This module centralizes
- * binary resolution with automatic fallback: tries `basecamp` first,
- * then falls back to `bcq` for legacy installs.
- *
  * Only auth-related functions remain here — all API access has been migrated
  * to @37signals/basecamp via src/basecamp-client.ts.
  */
@@ -15,86 +11,15 @@ import { execFile, spawn } from "node:child_process";
 export { CircuitBreaker, type CircuitBreakerOptions } from "./circuit-breaker.js";
 
 // ---------------------------------------------------------------------------
-// Centralized CLI binary resolution with fallback
+// CLI binary resolution
 // ---------------------------------------------------------------------------
 
 /**
- * Resolve the primary CLI binary name.
+ * Resolve the CLI binary name.
  * Env override: BASECAMP_BIN takes priority. Otherwise "basecamp".
  */
 export function resolveCliBinaryPath(): string {
   return process.env.BASECAMP_BIN ?? "basecamp";
-}
-
-/**
- * Resolve the fallback CLI binary name for legacy installs.
- * Env override: BCQ_BIN takes priority. Otherwise "bcq".
- */
-function resolveFallbackBinaryPath(): string {
-  return process.env.BCQ_BIN ?? "bcq";
-}
-
-/**
- * Execute a CLI command with automatic fallback.
- *
- * Tries the primary binary (`basecamp` or BASECAMP_BIN) first.
- * If it fails with ENOENT (not found), retries with the fallback
- * binary (`bcq` or BCQ_BIN). All other errors propagate immediately.
- *
- * This is the single centralized implementation — no call-site
- * duplication of fallback logic.
- */
-function execCliWithFallback(
-  args: string[],
-  options: { timeout?: number; maxBuffer?: number; env?: NodeJS.ProcessEnv; encoding?: BufferEncoding },
-  callback: (error: Error | null, stdout: string, stderr: string, binaryUsed: string) => void,
-): void {
-  const primary = resolveCliBinaryPath();
-  const opts = { ...options, encoding: (options.encoding ?? "utf-8") as BufferEncoding };
-  execFile(primary, args, opts, (error, stdout, stderr) => {
-    if (error && (error as NodeJS.ErrnoException).code === "ENOENT") {
-      const fallback = resolveFallbackBinaryPath();
-      execFile(fallback, args, opts, (error2, stdout2, stderr2) => {
-        callback(error2, stdout2 as string, stderr2 as string, fallback);
-      });
-      return;
-    }
-    callback(error, stdout as string, stderr as string, primary);
-  });
-}
-
-/**
- * Spawn a CLI command with automatic fallback.
- *
- * Same ENOENT-based fallback as execCliWithFallback, but for
- * interactive (stdio: "inherit") subprocesses.
- */
-function spawnCliWithFallback(
-  args: string[],
-  options: Parameters<typeof spawn>[2] & {},
-): { onError: (cb: (err: Error) => void) => void; onClose: (cb: (code: number | null) => void) => void } {
-  const primary = resolveCliBinaryPath();
-  let errorCb: (err: Error) => void = () => {};
-  let closeCb: (code: number | null) => void = () => {};
-
-  const proc = spawn(primary, args, options);
-
-  proc.on("error", (err: Error) => {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-      const fallback = resolveFallbackBinaryPath();
-      const proc2 = spawn(fallback, args, options);
-      proc2.on("error", errorCb);
-      proc2.on("close", closeCb);
-      return;
-    }
-    errorCb(err);
-  });
-  proc.on("close", (code) => closeCb(code));
-
-  return {
-    onError(cb) { errorCb = cb; },
-    onClose(cb) { closeCb = cb; },
-  };
 }
 
 /** Default timeout for CLI commands (30 seconds). */
@@ -134,9 +59,9 @@ export class CliError extends Error {
 
 /**
  * Execute a CLI command and return parsed JSON output.
- * Uses centralized fallback (basecamp → bcq).
  */
 function execCli<T = unknown>(args: string[], opts: CliOptions = {}): Promise<CliResult<T>> {
+  const binary = resolveCliBinaryPath();
   const fullArgs = ["--agent", ...args];
 
   if (opts.accountId) {
@@ -154,18 +79,20 @@ function execCli<T = unknown>(args: string[], opts: CliOptions = {}): Promise<Cl
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
   return new Promise<CliResult<T>>((resolve, reject) => {
-    execCliWithFallback(
+    execFile(
+      binary,
       fullArgs,
       {
         timeout: timeoutMs,
         maxBuffer: 10 * 1024 * 1024, // 10MB
         env: { ...process.env },
+        encoding: "utf-8",
       },
-      (error, stdout, stderr, binaryUsed) => {
+      (error, stdout, stderr) => {
         if (error) {
-          const stderrTrimmed = stderr.trim();
-          const stdoutTrimmed = stdout.trim();
-          const cmdStr = [binaryUsed, ...fullArgs].join(" ");
+          const stderrTrimmed = (stderr as string).trim();
+          const stdoutTrimmed = (stdout as string).trim();
+          const cmdStr = [binary, ...fullArgs].join(" ");
           const meaningfulMsg = error.message.replace(/^Command failed:.*$/, "").trim();
           const detail =
             stderrTrimmed ||
@@ -178,17 +105,16 @@ function execCli<T = unknown>(args: string[], opts: CliOptions = {}): Promise<Cl
             typeof (error as any).code === "number" ? (error as any).code :
             typeof (error as any).status === "number" ? (error as any).status :
             null;
-          const err = new CliError(
+          reject(new CliError(
             `Basecamp CLI failed (${cmdStr}): ${detail}`,
             exitCode,
             stderrTrimmed || stdoutTrimmed,
-            [binaryUsed, ...fullArgs],
-          );
-          reject(err);
+            [binary, ...fullArgs],
+          ));
           return;
         }
 
-        const raw = stdout.trim();
+        const raw = (stdout as string).trim();
         if (!raw) {
           resolve({ data: [] as unknown as T, raw });
           return;
@@ -198,13 +124,12 @@ function execCli<T = unknown>(args: string[], opts: CliOptions = {}): Promise<Cl
           const data = JSON.parse(raw) as T;
           resolve({ data, raw });
         } catch (parseErr) {
-          const err = new CliError(
+          reject(new CliError(
             `Basecamp CLI output is not valid JSON: ${String(parseErr)}`,
             null,
             raw,
-            [binaryUsed, ...fullArgs],
-          );
-          reject(err);
+            [binary, ...fullArgs],
+          ));
         }
       },
     );
@@ -229,23 +154,23 @@ export async function cliMe(
 
 /**
  * Check that the Basecamp CLI binary exists and return its path.
- * Tries `basecamp --version`, falls back to `bcq --version`.
  */
 export async function cliWhich(): Promise<CliResult<{ path: string }>> {
+  const binary = resolveCliBinaryPath();
   return new Promise((resolve, reject) => {
-    execCliWithFallback(["--version"], { timeout: 5_000 }, (error, stdout, stderr, binaryUsed) => {
+    execFile(binary, ["--version"], { timeout: 5_000, encoding: "utf-8" }, (error, stdout, stderr) => {
       if (error) {
         reject(
           new CliError(
             `Basecamp CLI not found: ${error.message}`,
             (error as any).code != null ? Number((error as any).code) : null,
-            stderr,
-            [binaryUsed, "--version"],
+            stderr as string,
+            [binary, "--version"],
           ),
         );
         return;
       }
-      resolve({ data: { path: binaryUsed }, raw: stdout.trim() });
+      resolve({ data: { path: binary }, raw: (stdout as string).trim() });
     });
   });
 }
@@ -292,34 +217,34 @@ export async function cliProfileList(opts: CliOptions = {}): Promise<CliResult<s
 /**
  * Launch `basecamp auth login` as an interactive subprocess.
  * This opens the browser for Basecamp OAuth and waits for completion.
- * Falls back to `bcq auth login` if `basecamp` binary is not found.
  */
 export async function execCliAuthLogin(
   opts: { profile?: string } = {},
 ): Promise<void> {
+  const binary = resolveCliBinaryPath();
   const args = ["auth", "login"];
   if (opts.profile) {
     args.push("--profile", opts.profile);
   }
 
   return new Promise((resolve, reject) => {
-    const handle = spawnCliWithFallback(args, {
+    const proc = spawn(binary, args, {
       stdio: "inherit",
       env: { ...process.env },
     });
 
-    handle.onError((err: Error) => {
+    proc.on("error", (err: Error) => {
       reject(
         new CliError(
           `Basecamp CLI auth login failed to start: ${err.message}`,
           null,
           "",
-          [resolveCliBinaryPath(), ...args],
+          [binary, ...args],
         ),
       );
     });
 
-    handle.onClose((code: number | null) => {
+    proc.on("close", (code: number | null) => {
       if (code === 0) {
         resolve();
       } else {
@@ -328,7 +253,7 @@ export async function execCliAuthLogin(
             `Basecamp CLI auth login exited with code ${code}`,
             code,
             "",
-            [resolveCliBinaryPath(), ...args],
+            [binary, ...args],
           ),
         );
       }

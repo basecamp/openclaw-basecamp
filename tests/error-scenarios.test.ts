@@ -26,12 +26,12 @@ beforeEach(() => {
 
 describe("CliError", () => {
   it("has correct name, message, exitCode, stderr, command", () => {
-    const err = new CliError("test error", 42, "stderr output", ["bcq", "me"]);
+    const err = new CliError("test error", 42, "stderr output", ["basecamp", "me"]);
     expect(err.name).toBe("CliError");
     expect(err.message).toBe("test error");
     expect(err.exitCode).toBe(42);
     expect(err.stderr).toBe("stderr output");
-    expect(err.command).toEqual(["bcq", "me"]);
+    expect(err.command).toEqual(["basecamp", "me"]);
     expect(err).toBeInstanceOf(Error);
   });
 

@@ -162,23 +162,6 @@ function cliExtractToken(profile: string | undefined): Promise<string> {
   return new Promise((resolve, reject) => {
     execFile(binaryPath, args, { timeout: 10_000 }, (error, stdout, stderr) => {
       if (error) {
-        // If primary binary not found, try fallback
-        if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-          const fallback = process.env.BCQ_BIN ?? "bcq";
-          execFile(fallback, args, { timeout: 10_000 }, (error2, stdout2, stderr2) => {
-            if (error2) {
-              reject(new Error(`Basecamp CLI auth token failed: ${stderr2.trim() || error2.message}`));
-              return;
-            }
-            const token = stdout2.trim();
-            if (!token) {
-              reject(new Error("Basecamp CLI auth token returned empty output"));
-              return;
-            }
-            resolve(token);
-          });
-          return;
-        }
         reject(new Error(`Basecamp CLI auth token failed: ${stderr.trim() || error.message}`));
         return;
       }
