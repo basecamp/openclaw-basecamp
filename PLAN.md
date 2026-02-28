@@ -54,7 +54,7 @@ basecamp-openclaw-plugin/
 │   │   ├── normalize.ts          # Basecamp event → OpenClaw inbound message
 │   │   └── dedup.ts              # Composite dedup (event_id, recording+action+ts)
 │   ├── outbound/
-│   │   ├── send.ts               # sendText → bcq (Phase 1), native API later
+│   │   ├── send.ts               # sendText → basecamp CLI (Phase 1), native API later
 │   │   └── format.ts             # Markdown → Basecamp HTML, @mention → bc-attachment
 │   ├── mentions/
 │   │   └── parse.ts              # bc-attachment SGID parsing + person cache
@@ -244,7 +244,7 @@ No single Basecamp API provides complete signal coverage. The channel ingests fr
 │  └──────┬───────┘  └──────┬───────┘  └──────┬───────────────┘   │
 │         │                 │                  │                    │
 │  ┌──────┴─────┐  ┌───────┴──────┐  ┌────────┴──────────┐       │
-│  │ Webhooks   │  │ Direct Polls │  │ bcq event sync   │       │
+│  │ Webhooks   │  │ Direct Polls │  │ basecamp event    │       │
 │  │ (selective │  │ (per-project │  │ (h1, Help Scout,  │       │
 │  │  where     │  │  for gaps;   │  │  Sentry — via     │       │
 │  │  available)│  │  slower      │  │  webhook channel) │       │
@@ -566,19 +566,19 @@ A single OpenClaw deployment supports multiple Basecamp service accounts (person
     "basecamp": {
       "accounts": {
         "bc-security": {
-          "tokenFile": "~/.config/bcq/security-bot.token",
+          "tokenFile": "~/.config/basecamp/security-bot.token",
           "personId": "12345",                    // Basecamp person ID
           "displayName": "Security Bot",
           "attachableSgid": "sgid://bc/Person/12345"
         },
         "bc-bugs": {
-          "tokenFile": "~/.config/bcq/bugs-bot.token",
+          "tokenFile": "~/.config/basecamp/bugs-bot.token",
           "personId": "67890",
           "displayName": "Bugs Bot",
           "attachableSgid": "sgid://bc/Person/67890"
         },
         "bc-standup": {
-          "tokenFile": "~/.config/bcq/standup-bot.token",
+          "tokenFile": "~/.config/basecamp/standup-bot.token",
           "personId": "11111",
           "displayName": "Standup Bot",
           "attachableSgid": "sgid://bc/Person/11111"
@@ -702,9 +702,9 @@ SKILL.md files inject identically as system prompt content in both environments.
 
 Test harness: 10 canonical scenarios per domain. Run through both Claude Code and OpenClaw. Compare triage decisions, state markers, and chronicle output.
 
-### Q4: bcq vs. Native API → **bcq in Phase 1, native for polling in Phase 2, full native in Phase 3**
+### Q4: Basecamp CLI vs. Native API → **CLI in Phase 1, native for polling in Phase 2, full native in Phase 3**
 
-Phase 1: All reads/writes via bcq. Phase 2: Native API for polling (avoids process spawn overhead at 60s intervals), bcq for writes. Phase 3: Full native API in channel adapter; bcq remains as agent tool for ad-hoc queries.
+Phase 1: All reads/writes via the basecamp CLI. Phase 2: Native API for polling (avoids process spawn overhead at 60s intervals), CLI for writes. Phase 3: Full native API in channel adapter; basecamp CLI remains as agent tool for ad-hoc queries.
 
 ### Q5: Approval Timeout → **Tiered escalation, never auto-approve writes**
 
@@ -786,7 +786,7 @@ The channel config schema lives in the plugin's runtime code (`ChannelPlugin.con
 
 ### Q12: Event Fabric Completeness → **Activity + Readings primary, reconciliation backstop, agent-friendly feed long-term**
 
-Primary real-time fabric: Activity Feed + Hey! Readings. Add a low-cadence reconciliation pass (every 6h, covering last 24h window) to validate no events were silently dropped. If reconciliation detects gaps for a recordable type, auto-promote it to the direct poll list. Long-term: push for a Basecamp agent-friendly event feed that replaces both polling sources. During Phase 1, run `bcq` against a live account to document exact coverage per recordable type.
+Primary real-time fabric: Activity Feed + Hey! Readings. Add a low-cadence reconciliation pass (every 6h, covering last 24h window) to validate no events were silently dropped. If reconciliation detects gaps for a recordable type, auto-promote it to the direct poll list. Long-term: push for a Basecamp agent-friendly event feed that replaces both polling sources. During Phase 1, run `basecamp` against a live account to document exact coverage per recordable type.
 
 ### Q13: Boosts/Reactions → **Informational signal in Phase 1; approval semantic in Phase 3**
 
@@ -1035,7 +1035,7 @@ coworker (this repo)
 ├── openclaw-plugin/              ← Coworker-specific orchestration
 │   ├── openclaw.json             Agent definitions, bindings, tool wrappers
 │   ├── agents/                   Per-agent AGENTS.md / SOUL.md
-│   ├── tools/                    h1, bcq, sentry-mcp tool configs
+│   ├── tools/                    h1, basecamp, sentry-mcp tool configs
 │   └── tests/                    Behavioral parity tests
 ├── skills/                       ← Unchanged: SKILL.md files
 └── bin/                          ← Unchanged: h1 CLI, etc.
@@ -1075,7 +1075,7 @@ openclaw-plugin/
 │       └── AGENTS.md
 ├── tools/
 │   ├── h1.yaml                  # HackerOne CLI tool wrapper
-│   ├── bcq.yaml                 # Basecamp CLI tool wrapper
+│   ├── basecamp.yaml             # Basecamp CLI tool wrapper
 │   ├── sentry-mcp.yaml         # Sentry MCP server config
 │   ├── helpscout-mcp.yaml      # Help Scout MCP server config
 │   └── grafana-mcp.yaml        # Grafana MCP server config
@@ -1121,7 +1121,7 @@ openclaw-plugin/
 ### Phase 3: All Domains + All Places + Action Cable + Hatch
 
 - Remaining agents: bugs, support, exceptions, performance, router, standup
-- Remaining tool wrappers: bcq, sentry-mcp, helpscout-mcp, grafana-mcp
+- Remaining tool wrappers: basecamp, sentry-mcp, helpscout-mcp, grafana-mcp
 - **Action Cable** for real-time Campfire + thread updates (ChatChannel, ThreadsChannel)
 - Activity feed + Hey! Readings polling continues as baseline
 - Direct recordable polls for gap-filling (slower cadence)
@@ -1160,7 +1160,7 @@ openclaw-plugin/
 | `src/inbound/poller.ts` | basecamp-openclaw-plugin | New | Composite event fabric orchestrator |
 | `src/inbound/normalize.ts` | basecamp-openclaw-plugin | New | Basecamp event → inbound message |
 | `src/inbound/dedup.ts` | basecamp-openclaw-plugin | New | Event deduplication |
-| `src/outbound/send.ts` | basecamp-openclaw-plugin | New | sendText via bcq / native API |
+| `src/outbound/send.ts` | basecamp-openclaw-plugin | New | sendText via basecamp CLI / native API |
 | `src/outbound/format.ts` | basecamp-openclaw-plugin | New | Markdown → Basecamp HTML |
 | `src/mentions/parse.ts` | basecamp-openclaw-plugin | New | bc-attachment SGID parsing |
 | `openclaw-plugin/openclaw.json` | coworker | New | Agent definitions, bindings, tools |

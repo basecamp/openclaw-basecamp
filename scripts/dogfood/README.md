@@ -10,7 +10,7 @@ requires inspecting OpenClaw logs or status adapter output.
 ## Prerequisites
 
 - OpenClaw running locally with the Basecamp channel plugin
-- `bcq` CLI configured with a valid Basecamp profile
+- `basecamp` CLI configured with a valid Basecamp profile
 - Webhook endpoint reachable (localhost or tunnel)
 
 ## Usage
@@ -32,7 +32,7 @@ npx tsx scripts/dogfood/queue-pressure-burst.ts \
 # Webhook auth round-trip (DF-011)
 # Token auth tested via payload URL; operator verifies dispatch in logs
 npx tsx scripts/dogfood/webhook-auth-roundtrip.ts \
-  --profile <bcq-profile> \
+  --profile <basecamp-profile> \
   --bucket <bucket-id> \
   --project <project-id> \
   --payload-url http://localhost:3000/webhooks/basecamp \
@@ -42,7 +42,7 @@ npx tsx scripts/dogfood/webhook-auth-roundtrip.ts \
 # Outbound CB lifecycle (DF-022)
 # Manual verification: check status adapter for CB state transitions
 npx tsx scripts/dogfood/outbound-cb-lifecycle.ts \
-  --profile <bcq-profile> \
+  --profile <basecamp-profile> \
   --bucket <bucket-id> \
   --recording <recording-id>
 ```

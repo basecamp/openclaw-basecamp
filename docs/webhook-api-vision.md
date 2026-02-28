@@ -965,9 +965,9 @@ The event stream API would dramatically simplify the OpenClaw Basecamp plugin. H
 | Current component | Purpose | Why it's no longer needed |
 |---|---|---|
 | `src/inbound/poller.ts` | Composite poller orchestrating 3 poll loops | Replaced by single webhook subscription |
-| `src/inbound/activity.ts` | Activity feed polling via `bcq timeline` | Events pushed via subscription |
-| `src/inbound/readings.ts` | Hey! Readings polling via `bcq readings` | `recording.read` events pushed |
-| `src/inbound/assignments.ts` | Assignment set-diff polling via `bcq assignments` | `todo.assigned`/`todo.unassigned` events pushed |
+| `src/inbound/activity.ts` | Activity feed polling via `basecamp timeline` | Events pushed via subscription |
+| `src/inbound/readings.ts` | Hey! Readings polling via `basecamp readings` | `recording.read` events pushed |
+| `src/inbound/assignments.ts` | Assignment set-diff polling via `basecamp assignments` | `todo.assigned`/`todo.unassigned` events pushed |
 | `src/inbound/dedup.ts` | Rolling-window dedup with primary + secondary keys | Replaced by `event_id` dedup (trivial set lookup) |
 | `src/inbound/dedup-store.ts` | JSON file persistence for dedup state | Replaced by sequence number high-water mark (single integer) |
 | `src/inbound/cursors.ts` | Per-source timestamp cursor persistence | Replaced by single sequence number |

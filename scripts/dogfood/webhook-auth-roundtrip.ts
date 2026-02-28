@@ -2,9 +2,9 @@
 /**
  * DF-011: Live webhook auth round-trip test.
  *
- * Registers a webhook with Basecamp via bcq (with token auth baked into
- * the payload URL), triggers a real event, and verifies the webhook is
- * delivered and authenticated via the token path.
+ * Registers a webhook with Basecamp via the basecamp CLI (with token auth
+ * baked into the payload URL), triggers a real event, and verifies the
+ * webhook is delivered and authenticated via the token path.
  *
  * BC3 does not return HMAC secrets, so token auth (?token=<secret>) is
  * the primary mechanism. If BC3 ever returns a secret, the script logs
@@ -12,7 +12,7 @@
  *
  * Usage:
  *   npx tsx scripts/dogfood/webhook-auth-roundtrip.ts \
- *     --profile <bcq-profile> \
+ *     --profile <basecamp-profile> \
  *     --bucket <bucket-id> \
  *     --project <project-id> \
  *     --payload-url http://localhost:3000/webhooks/basecamp \
@@ -51,8 +51,8 @@ const PAYLOAD_URL = values["payload-url"];
 const TOKEN = values.token;
 const STATUS_URL = values["status-url"];
 
-function bcq(args: string[]): string {
-  return execFileSync("bcq", ["--profile", PROFILE, ...args], { encoding: "utf8", timeout: 30000 }).trim();
+function basecamp(args: string[]): string {
+  return execFileSync("basecamp", ["--profile", PROFILE, ...args], { encoding: "utf8", timeout: 30000 }).trim();
 }
 
 async function main() {
@@ -63,7 +63,7 @@ async function main() {
   const tokenizedUrl = `${PAYLOAD_URL}${sep}token=${encodeURIComponent(TOKEN)}`;
 
   // Create webhook
-  const createResult = bcq([
+  const createResult = basecamp([
     "api", "post",
     `/buckets/${BUCKET}/webhooks.json`,
     "--data", JSON.stringify({
@@ -93,7 +93,7 @@ async function main() {
   // Trigger an event by posting a comment
   console.log("[DF-011] Posting test comment to trigger webhook...");
   try {
-    bcq([
+    basecamp([
       "api", "post",
       `/buckets/${BUCKET}/recordings/${PROJECT}/comments.json`,
       "--data", JSON.stringify({ content: "<p>DF-011 dogfood test — safe to ignore</p>" }),
@@ -141,7 +141,7 @@ async function main() {
   // Clean up — delete the webhook
   console.log("[DF-011] Cleaning up webhook...");
   try {
-    bcq(["api", "delete", `/buckets/${BUCKET}/webhooks/${webhook.id}.json`]);
+    basecamp(["api", "delete", `/buckets/${BUCKET}/webhooks/${webhook.id}.json`]);
     console.log("[DF-011] Webhook deleted");
   } catch {
     console.warn("[DF-011] Failed to delete webhook (may need manual cleanup)");

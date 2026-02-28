@@ -11,7 +11,7 @@
  *
  * Usage:
  *   npx tsx scripts/dogfood/outbound-cb-lifecycle.ts \
- *     --profile <bcq-profile> \
+ *     --profile <basecamp-profile> \
  *     --bucket <bucket-id> \
  *     --recording <campfire-recording-id> \
  *     [--threshold 3] [--cooldown 30]
@@ -42,8 +42,8 @@ const RECORDING = values.recording;
 const THRESHOLD = parseInt(values.threshold!, 10);
 const COOLDOWN_S = parseInt(values.cooldown!, 10);
 
-function bcq(args: string[]): string {
-  return execFileSync("bcq", ["--profile", PROFILE, ...args], { encoding: "utf8", timeout: 30000 }).trim();
+function basecamp(args: string[]): string {
+  return execFileSync("basecamp", ["--profile", PROFILE, ...args], { encoding: "utf8", timeout: 30000 }).trim();
 }
 
 function sleep(ms: number): Promise<void> {
@@ -58,14 +58,14 @@ async function main() {
 
   // Phase 1: Send messages to trigger failures (outbound API should be blocked)
   console.log(`[DF-022] Phase 1: Sending ${THRESHOLD + 2} messages to trigger CB trip`);
-  console.log("[DF-022] PREREQUISITE: Outbound API should be blocked (e.g. invalid bcq profile)");
+  console.log("[DF-022] PREREQUISITE: Outbound API should be blocked (e.g. invalid basecamp profile)");
   console.log();
 
   let sendSuccessCount = 0;
   for (let i = 0; i < THRESHOLD + 2; i++) {
     console.log(`[DF-022]   Sending message ${i + 1}/${THRESHOLD + 2}...`);
     try {
-      bcq([
+      basecamp([
         "api", "post",
         `/buckets/${BUCKET}/chats/${RECORDING}/lines.json`,
         "--data", JSON.stringify({
@@ -98,13 +98,13 @@ async function main() {
   console.log(`[DF-022] Phase 2: Waiting ${COOLDOWN_S}s for cooldown...`);
   await sleep(COOLDOWN_S * 1000 + 1000);
 
-  console.log("[DF-022] PREREQUISITE: Restore outbound API access now (fix bcq profile)");
+  console.log("[DF-022] PREREQUISITE: Restore outbound API access now (fix basecamp profile)");
   console.log("[DF-022] Waiting 10s for operator to restore API before probe...");
   await sleep(10000);
 
   console.log("[DF-022] Sending probe message...");
   try {
-    bcq([
+    basecamp([
       "api", "post",
       `/buckets/${BUCKET}/chats/${RECORDING}/lines.json`,
       "--data", JSON.stringify({

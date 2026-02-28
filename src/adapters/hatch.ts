@@ -3,7 +3,7 @@
  *
  * Supports two auth paths:
  *   1. Browser/OAuth — interactive login via @37signals/basecamp OAuth flow
- *   2. Basecamp CLI — legacy bcq profile-based authentication
+ *   2. Basecamp CLI — legacy CLI profile-based authentication
  *
  * Steps: auth method choice → identity discovery → account selection →
  * personId resolution → account ID key → optional persona mapping → config write.

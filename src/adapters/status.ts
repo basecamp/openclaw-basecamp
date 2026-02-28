@@ -4,7 +4,7 @@
  * Uses the SDK client to verify authentication and connectivity for all
  * token sources. The client's TokenProvider handles auth per source
  * (static token for "config", file read for "tokenFile", auto-refresh
- * for "oauth", Basecamp CLI extraction for "bcq").
+ * for "oauth", Basecamp CLI extraction for "cli").
  *
  * Enhanced with identity resolution, project audit, persona validation,
  * and status issue collection.
