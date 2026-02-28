@@ -43,20 +43,20 @@ vi.mock("../src/oauth-credentials.js", () => ({
 }));
 
 // ---------------------------------------------------------------------------
-// Mock @basecamp/sdk/oauth (discoverIdentity)
+// Mock @37signals/basecamp/oauth (discoverIdentity)
 // ---------------------------------------------------------------------------
 
 const mockDiscoverIdentity = vi.fn();
 
-vi.mock("@basecamp/sdk/oauth", () => ({
+vi.mock("@37signals/basecamp/oauth", () => ({
   discoverIdentity: (...args: any[]) => mockDiscoverIdentity(...args),
 }));
 
 // ---------------------------------------------------------------------------
-// Mock @basecamp/sdk (AuthorizationInfo type — only needed at type level)
+// Mock @37signals/basecamp (AuthorizationInfo type — only needed at type level)
 // ---------------------------------------------------------------------------
 
-vi.mock("@basecamp/sdk", () => ({}));
+vi.mock("@37signals/basecamp", () => ({}));
 
 // ---------------------------------------------------------------------------
 // Mock node:fs/promises (for token file relocation)

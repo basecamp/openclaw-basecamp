@@ -5,7 +5,7 @@
  * (timeout, invalid JSON, auth failure, empty output, network errors).
  *
  * Only auth-related functions remain in bcq.ts — API access functions
- * (bcqGet, bcqTimeline, etc.) have been migrated to @basecamp/sdk.
+ * (bcqGet, bcqTimeline, etc.) have been migrated to @37signals/basecamp.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 

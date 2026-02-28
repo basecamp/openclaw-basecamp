@@ -2,7 +2,7 @@
  * Basecamp onboarding adapter — guides users through initial channel setup.
  *
  * Supports two authentication paths:
- * - Browser-based OAuth (recommended) — uses @basecamp/sdk interactive login
+ * - Browser-based OAuth (recommended) — uses @37signals/basecamp interactive login
  * - Legacy Basecamp CLI profile — uses bcq auth for token management
  *
  * Both paths converge on discoverIdentity() for account/person resolution.
@@ -253,7 +253,7 @@ export const basecampOnboardingAdapter: ChannelOnboardingAdapter = {
 
     if (accessToken) {
       try {
-        const { discoverIdentity } = await import("@basecamp/sdk/oauth");
+        const { discoverIdentity } = await import("@37signals/basecamp/oauth");
         const info = await discoverIdentity(accessToken);
         identityId = info.identity.id;
         identityName = [info.identity.firstName, info.identity.lastName].filter(Boolean).join(" ");

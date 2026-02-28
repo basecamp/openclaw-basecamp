@@ -2,8 +2,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { join } from "node:path";
 import { homedir } from "node:os";
 
-// Mock @basecamp/sdk OAuth exports (these are being built in parallel)
-vi.mock("@basecamp/sdk/oauth", () => {
+// Mock @37signals/basecamp OAuth exports (these are being built in parallel)
+vi.mock("@37signals/basecamp/oauth", () => {
   const mockGetToken = vi.fn().mockResolvedValue("access-token-123");
   const MockTokenManager = vi.fn().mockImplementation(() => ({
     getToken: mockGetToken,
@@ -38,7 +38,7 @@ import {
   clearTokenManagers,
   interactiveLogin,
 } from "../src/oauth-credentials.js";
-import { TokenManager, FileTokenStore, performInteractiveLogin, refreshToken } from "@basecamp/sdk/oauth";
+import { TokenManager, FileTokenStore, performInteractiveLogin, refreshToken } from "@37signals/basecamp/oauth";
 import type { ResolvedBasecampAccount } from "../src/types.js";
 
 function makeAccount(overrides?: Partial<ResolvedBasecampAccount>): ResolvedBasecampAccount {

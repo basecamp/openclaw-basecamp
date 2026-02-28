@@ -6,7 +6,7 @@
  * then falls back to `bcq` for legacy installs.
  *
  * Only auth-related functions remain here — all API access has been migrated
- * to @basecamp/sdk via src/basecamp-client.ts.
+ * to @37signals/basecamp via src/basecamp-client.ts.
  */
 
 import { execFile, spawn } from "node:child_process";

@@ -2,7 +2,7 @@
  * Circuit breaker — fail-fast on persistent downstream failures.
  *
  * Extracted from bcq.ts for use with both the bcq CLI path and the
- * @basecamp/sdk client path.
+ * @37signals/basecamp client path.
  */
 
 export interface CircuitBreakerOptions {

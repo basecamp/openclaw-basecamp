@@ -97,12 +97,12 @@ vi.mock("../src/basecamp-client.js", () => ({
 }));
 
 // ---------------------------------------------------------------------------
-// Mock @basecamp/sdk/oauth (for discoverIdentity)
+// Mock @37signals/basecamp/oauth (for discoverIdentity)
 // ---------------------------------------------------------------------------
 
 const mockDiscoverIdentity = vi.fn();
 
-vi.mock("@basecamp/sdk/oauth", () => ({
+vi.mock("@37signals/basecamp/oauth", () => ({
   discoverIdentity: (...args: any[]) => mockDiscoverIdentity(...args),
 }));
 

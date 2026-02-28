@@ -2,7 +2,7 @@
  * Basecamp hatch adapter — interactive wizard for provisioning new service identities.
  *
  * Supports two auth paths:
- *   1. Browser/OAuth — interactive login via @basecamp/sdk OAuth flow
+ *   1. Browser/OAuth — interactive login via @37signals/basecamp OAuth flow
  *   2. Basecamp CLI — legacy bcq profile-based authentication
  *
  * Steps: auth method choice → identity discovery → account selection →
@@ -14,7 +14,7 @@
 
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import { normalizeAccountId } from "openclaw/plugin-sdk";
-import type { AuthorizationInfo } from "@basecamp/sdk";
+import type { AuthorizationInfo } from "@37signals/basecamp";
 import type { BasecampChannelConfig } from "../types.js";
 import type { ResolvedBasecampAccount } from "../types.js";
 import { bcqMe, bcqProfileList } from "../bcq.js";
@@ -23,7 +23,7 @@ import {
   interactiveLogin,
   resolveTokenFilePath,
 } from "../oauth-credentials.js";
-import { discoverIdentity } from "@basecamp/sdk/oauth";
+import { discoverIdentity } from "@37signals/basecamp/oauth";
 
 type WizardPrompter = {
   select: (opts: { message: string; options: Array<{ value: string; label: string }>; initialValue?: string }) => Promise<string>;

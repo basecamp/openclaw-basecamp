@@ -3,7 +3,7 @@
  *
  * These tests call the real plugin functions (pollActivityFeed, SDK client, etc.)
  * and verify they handle real API responses correctly. This is NOT a unit test
- * with mocked responses -- it hits the live API via @basecamp/sdk.
+ * with mocked responses -- it hits the live API via @37signals/basecamp.
  *
  * Gated behind OPENCLAW_INTEGRATION=1. When the env var is unset, all tests
  * are skipped (shown as "skipped" in vitest output).

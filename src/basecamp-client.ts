@@ -5,7 +5,7 @@
  * Handles token resolution from multiple sources (config, tokenFile, bcq).
  */
 
-import { createBasecampClient, type BasecampClient, BasecampError, errorFromResponse } from "@basecamp/sdk";
+import { createBasecampClient, type BasecampClient, BasecampError, errorFromResponse } from "@37signals/basecamp";
 import type { ResolvedBasecampAccount } from "./types.js";
 import { resolveCliBinaryPath } from "./bcq.js";
 import { execFile } from "node:child_process";
