@@ -121,6 +121,21 @@ describe("bcqMe error scenarios", () => {
 // ---------------------------------------------------------------------------
 
 describe("execCliWithFallback ENOENT fallback", () => {
+  let savedBcqBin: string | undefined;
+  let savedBasecampBin: string | undefined;
+
+  beforeEach(() => {
+    savedBcqBin = process.env.BCQ_BIN;
+    savedBasecampBin = process.env.BASECAMP_BIN;
+  });
+
+  afterEach(() => {
+    if (savedBcqBin === undefined) delete process.env.BCQ_BIN;
+    else process.env.BCQ_BIN = savedBcqBin;
+    if (savedBasecampBin === undefined) delete process.env.BASECAMP_BIN;
+    else process.env.BASECAMP_BIN = savedBasecampBin;
+  });
+
   it("retries with bcq fallback when primary binary returns ENOENT", async () => {
     let callCount = 0;
     vi.mocked(execFile).mockImplementation((_cmd: any, _args: any, _opts: any, cb: any) => {
@@ -163,11 +178,6 @@ describe("execCliWithFallback ENOENT fallback", () => {
     expect(result.data.id).toBe(2);
     const secondCall = vi.mocked(execFile).mock.calls[1];
     expect(secondCall[0]).toBe("/custom/bcq-bin");
-  });
-
-  afterEach(() => {
-    delete process.env.BCQ_BIN;
-    delete process.env.BASECAMP_BIN;
   });
 
   it("propagates BcqError when both primary and fallback fail", async () => {
@@ -426,9 +436,19 @@ function mockSpawnHandle() {
 }
 
 describe("execBcqAuthLogin", () => {
+  let savedBcqBin: string | undefined;
+  let savedBasecampBin: string | undefined;
+
+  beforeEach(() => {
+    savedBcqBin = process.env.BCQ_BIN;
+    savedBasecampBin = process.env.BASECAMP_BIN;
+  });
+
   afterEach(() => {
-    delete process.env.BCQ_BIN;
-    delete process.env.BASECAMP_BIN;
+    if (savedBcqBin === undefined) delete process.env.BCQ_BIN;
+    else process.env.BCQ_BIN = savedBcqBin;
+    if (savedBasecampBin === undefined) delete process.env.BASECAMP_BIN;
+    else process.env.BASECAMP_BIN = savedBasecampBin;
   });
 
   it("resolves on exit code 0", async () => {
