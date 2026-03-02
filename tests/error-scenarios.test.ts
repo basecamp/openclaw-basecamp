@@ -13,7 +13,7 @@ vi.mock("node:child_process", () => ({
   spawn: vi.fn(),
 }));
 
-import { cliMe, cliAuthStatus, bcqWhich, bcqProfileList, execBcqAuthLogin, CliError } from "../src/basecamp-cli.js";
+import { cliMe, cliAuthStatus, bcqWhich, bcqProfileList, execBcqAuthLogin, cliWhich, CliError, resolveCliBinaryPath } from "../src/basecamp-cli.js";
 import { execFile, spawn } from "node:child_process";
 
 beforeEach(() => {
@@ -111,6 +111,63 @@ describe("cliMe error scenarios", () => {
       const cliErr = err as CliError;
       expect(cliErr.exitCode).toBe(2);
       expect(cliErr.stderr).toContain("command not found");
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Binary resolution contract — no bcq fallback
+// ---------------------------------------------------------------------------
+
+describe("CLI binary resolution", () => {
+  it("resolves to BASECAMP_BIN when set", () => {
+    const original = process.env.BASECAMP_BIN;
+    try {
+      process.env.BASECAMP_BIN = "/opt/bin/basecamp-custom";
+      expect(resolveCliBinaryPath()).toBe("/opt/bin/basecamp-custom");
+    } finally {
+      if (original === undefined) delete process.env.BASECAMP_BIN;
+      else process.env.BASECAMP_BIN = original;
+    }
+  });
+
+  it("resolves to 'basecamp' by default", () => {
+    const original = process.env.BASECAMP_BIN;
+    try {
+      delete process.env.BASECAMP_BIN;
+      expect(resolveCliBinaryPath()).toBe("basecamp");
+    } finally {
+      if (original !== undefined) process.env.BASECAMP_BIN = original;
+    }
+  });
+
+  it("propagates ENOENT directly — no fallback retry", async () => {
+    vi.mocked(execFile).mockImplementation((_cmd: any, _args: any, _opts: any, cb: any) => {
+      const err = new Error("spawn basecamp ENOENT") as NodeJS.ErrnoException;
+      err.code = "ENOENT";
+      cb(err, "", "");
+      return {} as any;
+    });
+
+    await expect(cliWhich()).rejects.toThrow(CliError);
+    // execFile called exactly once — no fallback attempt
+    expect(execFile).toHaveBeenCalledTimes(1);
+  });
+
+  it("cliWhich exitCode is null for non-numeric error codes like ENOENT", async () => {
+    vi.mocked(execFile).mockImplementation((_cmd: any, _args: any, _opts: any, cb: any) => {
+      const err = new Error("spawn basecamp ENOENT") as NodeJS.ErrnoException;
+      err.code = "ENOENT";
+      cb(err, "", "");
+      return {} as any;
+    });
+
+    try {
+      await cliWhich();
+      expect.unreachable("should have thrown");
+    } catch (err) {
+      expect(err).toBeInstanceOf(CliError);
+      expect((err as CliError).exitCode).toBeNull();
     }
   });
 });

@@ -163,7 +163,7 @@ export async function cliWhich(): Promise<CliResult<{ path: string }>> {
         reject(
           new CliError(
             `Basecamp CLI not found: ${error.message}`,
-            (error as any).code != null ? Number((error as any).code) : null,
+            typeof (error as any).code === "number" ? (error as any).code : null,
             stderr as string,
             [binary, "--version"],
           ),
