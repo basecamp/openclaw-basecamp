@@ -203,8 +203,12 @@ export async function cliAuthStatus(
  */
 export async function cliProfileList(opts: CliOptions = {}): Promise<CliResult<string[]>> {
   try {
-    const result = await execCli<string[]>(["profile", "list"], opts);
-    const profiles = Array.isArray(result.data) ? result.data : [];
+    const result = await execCli<unknown[]>(["profile", "list"], opts);
+    const raw = Array.isArray(result.data) ? result.data : [];
+    // CLI returns objects like { name, account_id, ... } — extract names
+    const profiles = raw.map((entry) =>
+      typeof entry === "string" ? entry : (entry as Record<string, unknown>)?.name as string,
+    ).filter((n): n is string => typeof n === "string" && n.length > 0);
     return { data: profiles, raw: result.raw };
   } catch (err) {
     if (err instanceof CliError) {
