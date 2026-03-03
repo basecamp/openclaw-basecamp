@@ -17,7 +17,13 @@ import {
   resolveDefaultBasecampAccountId,
   resolveBasecampAccount,
 } from "../config.js";
-import { cliProfileList, extractCliBootstrapToken } from "../basecamp-cli.js";
+import {
+  cliProfileList,
+  cliProfileListFull,
+  extractCliBootstrapToken,
+  exportCliCredentials,
+  type CliProfile,
+} from "../basecamp-cli.js";
 
 const channel = "basecamp" as const;
 
@@ -120,15 +126,15 @@ export const basecampOnboardingAdapter: ChannelOnboardingAdapter = {
 
     // Step 2: Auth method choice
     // Probe for CLI availability
-    let cliProfileNames: string[] = [];
+    let cliProfiles: CliProfile[] = [];
     try {
-      const profileResult = await cliProfileList();
-      cliProfileNames = profileResult.data;
+      const profileResult = await cliProfileListFull();
+      cliProfiles = profileResult.data;
     } catch {
       // CLI not installed or profiles unavailable
     }
 
-    const cliAvailable = cliProfileNames.length > 0;
+    const cliAvailable = cliProfiles.length > 0;
 
     type AuthMethod = "oauth" | "cli";
     let authMethod: AuthMethod;
@@ -161,7 +167,11 @@ export const basecampOnboardingAdapter: ChannelOnboardingAdapter = {
 
       if (!clientId) {
         await prompter.note(
-          "You'll need a Basecamp OAuth app. Register one at:\nhttps://launchpad.37signals.com/integrations",
+          "You'll need a Basecamp OAuth app. Register one at:\n" +
+          "https://launchpad.37signals.com/integrations\n\n" +
+          "When creating the app, set the redirect URI to:\n" +
+          "http://localhost:14923/callback\n\n" +
+          "You can leave the other fields as defaults.",
           "OAuth setup",
         );
         const enteredId = await prompter.text({
@@ -196,18 +206,22 @@ export const basecampOnboardingAdapter: ChannelOnboardingAdapter = {
 
       // Build a token provider for later use if needed
     } else {
-      // CLI path — discover identity via CLI, then chain into OAuth
-      if (cliProfileNames.length > 1) {
+      // CLI path — import credentials from existing CLI profile
+      let selectedCliProfile: CliProfile | undefined;
+
+      if (cliProfiles.length > 1) {
         const choice = await prompter.select({
           message: "Basecamp CLI profile",
           options: [
-            ...cliProfileNames.map((name) => ({ value: name, label: name })),
+            ...cliProfiles.map((p) => ({ value: p.name, label: p.name })),
             { value: "__none__", label: "Use default (no profile)" },
           ],
         });
-        selectedProfile = choice === "__none__" ? undefined : choice;
-      } else if (cliProfileNames.length === 1) {
-        selectedProfile = cliProfileNames[0];
+        selectedCliProfile = choice === "__none__" ? undefined : cliProfiles.find((p) => p.name === choice);
+        selectedProfile = selectedCliProfile?.name;
+      } else if (cliProfiles.length === 1) {
+        selectedCliProfile = cliProfiles[0];
+        selectedProfile = selectedCliProfile?.name;
       }
 
       // Extract token for identity discovery
@@ -215,6 +229,26 @@ export const basecampOnboardingAdapter: ChannelOnboardingAdapter = {
         accessToken = await extractCliBootstrapToken(selectedProfile);
       } catch {
         // Token extraction failed — will fall back to manual entry
+      }
+
+      // Import CLI's stored OAuth credentials for persistent use
+      if (selectedCliProfile) {
+        const cliCreds = exportCliCredentials(selectedCliProfile.base_url);
+        if (cliCreds) {
+          const { resolveTokenFilePath } = await import("../oauth-credentials.js");
+          const { FileTokenStore } = await import("@37signals/basecamp/oauth");
+          oauthTokenFile = resolveTokenFilePath(accountId);
+          const store = new FileTokenStore(oauthTokenFile);
+          await store.save({
+            accessToken: cliCreds.accessToken,
+            refreshToken: cliCreds.refreshToken,
+            tokenType: "Bearer",
+            expiresAt: cliCreds.expiresAt ? new Date(cliCreds.expiresAt * 1000) : undefined,
+          });
+          // Store the CLI's client credentials for token refresh
+          promptedClientId = cliCreds.clientId;
+          promptedClientSecret = cliCreds.clientSecret || undefined;
+        }
       }
     }
 
@@ -283,57 +317,13 @@ export const basecampOnboardingAdapter: ChannelOnboardingAdapter = {
       ...(basecampAccountId ? { basecampAccountId } : {}),
     };
 
-    // CLI path chains into OAuth for persistent token
+    // CLI path: if credential import failed above, fall back to noting the gap
     if (authMethod === "cli" && !oauthTokenFile) {
-      const resolved = resolveBasecampAccount(cfg, accountId);
-      let clientId = resolved.oauthClientId;
-      let clientSecret = resolved.oauthClientSecret;
-
-      if (!clientId) {
-        await prompter.note(
-          "You'll need a Basecamp OAuth app. Register one at:\nhttps://launchpad.37signals.com/integrations",
-          "OAuth setup",
-        );
-        const enteredId = await prompter.text({
-          message: "Enter your Basecamp OAuth app Client ID",
-          validate: (value) => (value?.trim() ? undefined : "Required"),
-        });
-        clientId = String(enteredId).trim();
-        promptedClientId = clientId;
-
-        const enteredSecret = await prompter.text({
-          message: "Client Secret (leave blank to skip)",
-        });
-        const secretVal = String(enteredSecret).trim();
-        if (secretVal) {
-          clientSecret = secretVal;
-          promptedClientSecret = secretVal;
-        }
-      }
-
-      const { interactiveLogin, resolveTokenFilePath } = await import("../oauth-credentials.js");
-      oauthTokenFile = resolveTokenFilePath(accountId);
-      const partialAccount = {
-        ...resolved,
-        accountId,
-        oauthClientId: clientId,
-        oauthClientSecret: clientSecret,
-        config: { ...resolved.config, oauthTokenFile },
-      };
-      const oauthToken = await interactiveLogin(partialAccount, { clientId, clientSecret });
-
-      // Verify OAuth identity matches CLI-discovered identity
-      try {
-        const { discoverIdentity } = await import("@37signals/basecamp/oauth");
-        const oauthInfo = await discoverIdentity(oauthToken.accessToken);
-        const oauthPersonId = String(oauthInfo.identity.id);
-        if (oauthPersonId !== personId) {
-          personId = oauthPersonId;
-          accountPatch.personId = personId;
-        }
-      } catch {
-        // Non-fatal: proceed with CLI-discovered identity
-      }
+      await prompter.note(
+        "Could not import credentials from the CLI.\n" +
+        "Token refresh will not work until you re-run onboarding with OAuth.",
+        "Warning",
+      );
     }
 
     accountPatch.oauthTokenFile = oauthTokenFile;

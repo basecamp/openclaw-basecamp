@@ -6,6 +6,9 @@
  */
 
 import { execFile, spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { homedir } from "node:os";
 
 // Re-export from extracted module for backwards compatibility
 export { CircuitBreaker, type CircuitBreakerOptions } from "./circuit-breaker.js";
@@ -263,6 +266,85 @@ export async function execCliAuthLogin(
       }
     });
   });
+}
+
+// ---------------------------------------------------------------------------
+// CLI credential export (for onboarding — imports CLI's token into plugin)
+// ---------------------------------------------------------------------------
+
+/** Shape returned by `basecamp --agent profile list`. */
+export interface CliProfile {
+  name: string;
+  base_url: string;
+  account_id?: string;
+  authenticated?: boolean;
+  active?: boolean;
+  default?: boolean;
+}
+
+/** Parsed result from CLI credential files. */
+export interface CliCredentials {
+  accessToken: string;
+  refreshToken: string;
+  expiresAt: number;
+  clientId: string;
+  clientSecret: string;
+  tokenEndpoint?: string;
+}
+
+const CLI_CONFIG_DIR = join(homedir(), ".config", "basecamp");
+
+/**
+ * List CLI profiles as full objects (name, base_url, account_id, etc.).
+ */
+export async function cliProfileListFull(opts: CliOptions = {}): Promise<CliResult<CliProfile[]>> {
+  try {
+    const result = await execCli<unknown[]>(["profile", "list"], opts);
+    const raw = Array.isArray(result.data) ? result.data : [];
+    const profiles = raw.filter(
+      (e): e is CliProfile =>
+        typeof e === "object" && e !== null &&
+        typeof (e as Record<string, unknown>).name === "string" &&
+        typeof (e as Record<string, unknown>).base_url === "string",
+    );
+    return { data: profiles, raw: result.raw };
+  } catch (err) {
+    if (err instanceof CliError) {
+      return { data: [], raw: err.stderr };
+    }
+    throw err;
+  }
+}
+
+/**
+ * Export the CLI's stored OAuth credentials for a given base URL.
+ *
+ * Reads `~/.config/basecamp/credentials.json` (tokens keyed by base_url)
+ * and `~/.config/basecamp/client.json` (CLI's OAuth client ID/secret).
+ * Returns null if credentials are missing or unparseable.
+ */
+export function exportCliCredentials(baseUrl: string): CliCredentials | null {
+  try {
+    const credsRaw = readFileSync(join(CLI_CONFIG_DIR, "credentials.json"), "utf-8");
+    const creds = JSON.parse(credsRaw) as Record<string, Record<string, unknown>>;
+    const entry = creds[baseUrl];
+    if (!entry?.access_token || !entry?.refresh_token) return null;
+
+    const clientRaw = readFileSync(join(CLI_CONFIG_DIR, "client.json"), "utf-8");
+    const client = JSON.parse(clientRaw) as Record<string, unknown>;
+    if (!client.client_id) return null;
+
+    return {
+      accessToken: String(entry.access_token),
+      refreshToken: String(entry.refresh_token),
+      expiresAt: typeof entry.expires_at === "number" ? entry.expires_at : 0,
+      clientId: String(client.client_id),
+      clientSecret: String(client.client_secret ?? ""),
+      tokenEndpoint: typeof entry.token_endpoint === "string" ? entry.token_endpoint : undefined,
+    };
+  } catch {
+    return null;
+  }
 }
 
 // ---------------------------------------------------------------------------
