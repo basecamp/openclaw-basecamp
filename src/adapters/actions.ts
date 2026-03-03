@@ -175,7 +175,6 @@ async function handleReact(ctx: ChannelMessageActionContext) {
   try {
     const client = getClient(account);
     const result = await client.boosts.createForRecording(
-      numId("project", bucketId),
       numId("recording", recordingId),
       { content: emoji },
     );

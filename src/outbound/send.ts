@@ -134,7 +134,6 @@ export async function postCampfireLine(params: {
   const doPost = async () => {
     const client = getClient(account);
     return client.campfires.createLine(
-      numId("project", bucketId),
       numId("campfire", transcriptId),
       { content },
     );
@@ -182,7 +181,6 @@ export async function postComment(params: {
   const doPost = async () => {
     const client = getClient(account);
     return client.comments.create(
-      numId("project", bucketId),
       numId("recording", recordingId),
       { content },
     );

@@ -187,7 +187,7 @@ describe("reconcileWebhooks", () => {
     );
 
     // Old webhook should be deleted, new one created
-    expect(mockClient.webhooks.delete).toHaveBeenCalledWith(100, 42);
+    expect(mockClient.webhooks.delete).toHaveBeenCalledWith(42);
     expect(mockClient.raw.POST).toHaveBeenCalledTimes(1);
     expect(result.created).toEqual(["100"]);
     expect(registry.get("100")!.secret).toBe("new-secret");
@@ -500,8 +500,8 @@ describe("deactivateWebhooks", () => {
     await deactivateWebhooks(makeConfig(), registry, log);
 
     expect(mockClient.webhooks.delete).toHaveBeenCalledTimes(2);
-    expect(mockClient.webhooks.delete).toHaveBeenCalledWith(100, 1);
-    expect(mockClient.webhooks.delete).toHaveBeenCalledWith(200, 2);
+    expect(mockClient.webhooks.delete).toHaveBeenCalledWith(1);
+    expect(mockClient.webhooks.delete).toHaveBeenCalledWith(2);
 
     // Registry entries should be removed after deletion
     expect(registry.get("100")).toBeUndefined();
@@ -523,7 +523,7 @@ describe("deactivateWebhooks", () => {
     await deactivateWebhooks(makeConfig(), registry);
 
     expect(mockClient.webhooks.delete).toHaveBeenCalledTimes(1);
-    expect(mockClient.webhooks.delete).toHaveBeenCalledWith(100, 1);
+    expect(mockClient.webhooks.delete).toHaveBeenCalledWith(1);
   });
 
   it("logs errors but does not throw when delete fails", async () => {

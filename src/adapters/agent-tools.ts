@@ -179,7 +179,6 @@ function buildTools(client: BasecampClient): ChannelAgentTool[] {
         const params = rawParams as CreateTodoInput;
         try {
           const result = await client.todos.create(
-            numId("project", params.bucketId),
             numId("todolist", params.todolistId),
             {
               content: params.content,
@@ -203,7 +202,7 @@ function buildTools(client: BasecampClient): ChannelAgentTool[] {
       execute: async (_toolCallId: string, rawParams: unknown) => {
         const { bucketId, todoId } = rawParams as CompleteTodoInput;
         try {
-          await client.todos.complete(numId("project", bucketId), numId("todo", todoId));
+          await client.todos.complete(numId("todo", todoId));
           return toolOk({ todoId });
         } catch (err) {
           return toolErr(String(err));
@@ -218,7 +217,7 @@ function buildTools(client: BasecampClient): ChannelAgentTool[] {
       execute: async (_toolCallId: string, rawParams: unknown) => {
         const { bucketId, todoId } = rawParams as ReopenTodoInput;
         try {
-          await client.todos.uncomplete(numId("project", bucketId), numId("todo", todoId));
+          await client.todos.uncomplete(numId("todo", todoId));
           return toolOk({ todoId });
         } catch (err) {
           return toolErr(String(err));
@@ -274,7 +273,6 @@ function buildTools(client: BasecampClient): ChannelAgentTool[] {
         const content = params.content || "👍";
         try {
           const result = await client.boosts.createForRecording(
-            numId("project", params.bucketId),
             numId("recording", params.recordingId),
             { content },
           );
@@ -294,7 +292,7 @@ function buildTools(client: BasecampClient): ChannelAgentTool[] {
       execute: async (_toolCallId: string, rawParams: unknown) => {
         const { bucketId, cardId, columnId } = rawParams as MoveCardInput;
         try {
-          await client.cards.move(numId("project", bucketId), numId("card", cardId), { columnId });
+          await client.cards.move(numId("card", cardId), { columnId });
           return toolOk({ cardId, columnId });
         } catch (err) {
           return toolErr(String(err));
@@ -313,7 +311,6 @@ function buildTools(client: BasecampClient): ChannelAgentTool[] {
         const { bucketId, messageBoardId, subject, content, categoryId } = rawParams as PostMessageInput;
         try {
           const result = await client.messages.create(
-            numId("project", bucketId),
             numId("board", messageBoardId),
             { subject, content, categoryId },
           );
@@ -334,7 +331,6 @@ function buildTools(client: BasecampClient): ChannelAgentTool[] {
         const { bucketId, questionId, content } = rawParams as AnswerCheckinInput;
         try {
           const result = await client.checkins.createAnswer(
-            numId("project", bucketId),
             numId("question", questionId),
             { content },
           );

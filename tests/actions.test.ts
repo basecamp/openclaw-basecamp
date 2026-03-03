@@ -409,7 +409,6 @@ describe("actions.handleAction — react", () => {
       result: { ok: true, target: "boost", boostId: 55 },
     });
     expect(mockClient.boosts.createForRecording).toHaveBeenCalledWith(
-      1,
       500,
       { content: "🎉" },
     );
@@ -426,7 +425,6 @@ describe("actions.handleAction — react", () => {
     );
 
     expect(mockClient.boosts.createForRecording).toHaveBeenCalledWith(
-      1,
       500,
       { content: "👍" },
     );
