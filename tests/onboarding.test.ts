@@ -448,10 +448,14 @@ describe("basecampOnboardingAdapter", () => {
       expect(account.personId).toBe("5");
       expect(account.basecampAccountId).toBe("100");
       expect(account.oauthTokenFile).toBe("/tmp/tokens/default.json");
+      // CLI-imported client creds go per-account, not channel-level
+      expect(account.oauthClientId).toBe("cli-client-id");
       // Should import CLI credentials, not run interactiveLogin
       expect(mockInteractiveLogin).not.toHaveBeenCalled();
       expect(mockFileTokenStoreSave).toHaveBeenCalled();
       expect(mockExportCliCredentials).toHaveBeenCalledWith("http://3.basecamp.localhost:3001");
+      // Channel-level OAuth should be preserved (not overwritten by CLI creds)
+      expect(result.cfg.channels.basecamp.oauth).toBeUndefined();
     });
 
     it("prompts for person ID when CLI token extraction fails", async () => {
@@ -561,6 +565,13 @@ describe("basecampOnboardingAdapter", () => {
       const account = result.cfg.channels.basecamp.accounts.default;
       expect(account.cliProfile).toBe("dev");
       expect(account.oauthTokenFile).toBe("/tmp/tokens/default.json");
+      // CLI-imported creds are per-account, not channel-level
+      expect(account.oauthClientId).toBe("cli-client-id");
+      // Existing channel-level OAuth must be preserved
+      expect(result.cfg.channels.basecamp.oauth).toEqual({
+        clientId: "existing-client",
+        clientSecret: "existing-secret",
+      });
       expect(mockInteractiveLogin).not.toHaveBeenCalled();
     });
   });

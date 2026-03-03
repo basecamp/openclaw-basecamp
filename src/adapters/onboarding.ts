@@ -3,7 +3,7 @@
  *
  * Supports two authentication paths:
  * - Browser-based OAuth (recommended) — uses @37signals/basecamp interactive login
- * - Basecamp CLI profile — discovers identity via CLI, then chains into OAuth for persistent token
+ * - Basecamp CLI profile — imports CLI's stored credentials for persistent token
  *
  * Both paths converge on discoverIdentity() for account/person resolution.
  */
@@ -18,7 +18,6 @@ import {
   resolveBasecampAccount,
 } from "../config.js";
 import {
-  cliProfileList,
   cliProfileListFull,
   extractCliBootstrapToken,
   exportCliCredentials,
@@ -158,6 +157,10 @@ export const basecampOnboardingAdapter: ChannelOnboardingAdapter = {
     let oauthTokenFile: string | undefined;
     let promptedClientId: string | undefined;
     let promptedClientSecret: string | undefined;
+    // CLI-imported client creds go per-account (not channel-level) to avoid
+    // overwriting existing channel OAuth config that other accounts rely on.
+    let cliImportedClientId: string | undefined;
+    let cliImportedClientSecret: string | undefined;
 
     if (authMethod === "oauth") {
       // Resolve clientId: check resolved account's oauthClientId (falls through to channel-level)
@@ -217,8 +220,13 @@ export const basecampOnboardingAdapter: ChannelOnboardingAdapter = {
             { value: "__none__", label: "Use default (no profile)" },
           ],
         });
-        selectedCliProfile = choice === "__none__" ? undefined : cliProfiles.find((p) => p.name === choice);
-        selectedProfile = selectedCliProfile?.name;
+        if (choice === "__none__") {
+          // No explicit profile flag, but resolve active/default profile for credential import
+          selectedCliProfile = cliProfiles.find((p) => p.active || p.default) ?? cliProfiles[0];
+        } else {
+          selectedCliProfile = cliProfiles.find((p) => p.name === choice);
+          selectedProfile = selectedCliProfile?.name;
+        }
       } else if (cliProfiles.length === 1) {
         selectedCliProfile = cliProfiles[0];
         selectedProfile = selectedCliProfile?.name;
@@ -245,9 +253,9 @@ export const basecampOnboardingAdapter: ChannelOnboardingAdapter = {
             tokenType: "Bearer",
             expiresAt: cliCreds.expiresAt ? new Date(cliCreds.expiresAt * 1000) : undefined,
           });
-          // Store the CLI's client credentials for token refresh
-          promptedClientId = cliCreds.clientId;
-          promptedClientSecret = cliCreds.clientSecret || undefined;
+          // Store per-account so we don't overwrite channel-level OAuth
+          cliImportedClientId = cliCreds.clientId;
+          cliImportedClientSecret = cliCreds.clientSecret || undefined;
         }
       }
     }
@@ -326,15 +334,20 @@ export const basecampOnboardingAdapter: ChannelOnboardingAdapter = {
       );
     }
 
-    accountPatch.oauthTokenFile = oauthTokenFile;
+    if (oauthTokenFile) accountPatch.oauthTokenFile = oauthTokenFile;
     if (selectedProfile) accountPatch.cliProfile = selectedProfile;
-    // When credentials were freshly prompted and written to channel-level oauth,
-    // remove per-account overrides so the account inherits from channel-level.
-    // Otherwise preserve per-account oauthClientId/oauthClientSecret — the
-    // TokenManager reads these for token refresh.
+    // When credentials were freshly prompted (OAuth path) and written to
+    // channel-level oauth, remove per-account overrides so the account
+    // inherits from channel-level.
     if (promptedClientId) {
       delete accountPatch.oauthClientId;
       delete accountPatch.oauthClientSecret;
+    }
+    // CLI-imported client creds go per-account to avoid overwriting
+    // channel-level OAuth that other accounts depend on.
+    if (cliImportedClientId) {
+      accountPatch.oauthClientId = cliImportedClientId;
+      accountPatch.oauthClientSecret = cliImportedClientSecret;
     }
 
     // Build channel-level OAuth config when credentials were prompted

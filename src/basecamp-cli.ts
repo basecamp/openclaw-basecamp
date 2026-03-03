@@ -289,7 +289,6 @@ export interface CliCredentials {
   expiresAt: number;
   clientId: string;
   clientSecret: string;
-  tokenEndpoint?: string;
 }
 
 const CLI_CONFIG_DIR = join(homedir(), ".config", "basecamp");
@@ -340,7 +339,6 @@ export function exportCliCredentials(baseUrl: string): CliCredentials | null {
       expiresAt: typeof entry.expires_at === "number" ? entry.expires_at : 0,
       clientId: String(client.client_id),
       clientSecret: String(client.client_secret ?? ""),
-      tokenEndpoint: typeof entry.token_endpoint === "string" ? entry.token_endpoint : undefined,
     };
   } catch {
     return null;
