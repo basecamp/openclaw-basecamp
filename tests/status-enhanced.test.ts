@@ -117,13 +117,13 @@ describe("probeAccount (enhanced)", () => {
     expect(probe.personName).toBeUndefined();
   });
 
-  it("returns ok=false when getInfo fails for CLI token (unified auth check)", async () => {
+  it("returns ok=false when getInfo fails for oauth token (unified auth check)", async () => {
     mockClient.authorization.getInfo.mockRejectedValue(new Error("token expired"));
 
-    const cliAccount = { ...mockAccount, tokenSource: "cli" as const };
+    const oauthAccount = { ...mockAccount, tokenSource: "oauth" as const, token: "" };
 
     const probe = await basecampStatusAdapter.probeAccount!({
-      account: cliAccount,
+      account: oauthAccount,
       timeoutMs: 5000,
       cfg: cfg({}),
     });
@@ -145,13 +145,11 @@ describe("probeAccount (enhanced)", () => {
     // For config token, getInfo failure → ok=false
   });
 
-  it("handles getInfo failure gracefully when CLI auth succeeded", async () => {
+  it("handles getInfo failure gracefully for any auth source", async () => {
     mockClient.authorization.getInfo.mockRejectedValue(new Error("fail"));
 
-    const cliAccount = { ...mockAccount, tokenSource: "cli" as const };
-
     const probe = await basecampStatusAdapter.probeAccount!({
-      account: cliAccount,
+      account: mockAccount,
       timeoutMs: 5000,
       cfg: cfg({}),
     });
@@ -327,6 +325,68 @@ describe("collectStatusIssues", () => {
     const kinds = issues.map((i) => i.kind);
     expect(kinds).toContain("auth");
     expect(kinds).toContain("runtime");
+  });
+
+  it("emits migration nudge for cliProfile-only accounts (tokenSource none)", () => {
+    const issues = basecampStatusAdapter.collectStatusIssues!([
+      {
+        accountId: "legacy",
+        tokenSource: "none",
+        cliProfile: "default",
+        configured: false,
+        enabled: true,
+        running: false,
+        lastStartAt: null,
+        lastStopAt: null,
+        lastError: null,
+        probe: { ok: true, authenticated: true },
+      },
+    ]);
+
+    const nudge = issues.filter((i) => i.message.includes("CLI profile only"));
+    expect(nudge).toHaveLength(1);
+    expect(nudge[0]!.kind).toBe("config");
+    expect(nudge[0]!.fix).toContain("openclaw channels add");
+    expect(nudge[0]!.fix).toContain("legacy");
+  });
+
+  it("does not emit migration nudge when tokenSource is not none", () => {
+    const issues = basecampStatusAdapter.collectStatusIssues!([
+      {
+        accountId: "good",
+        tokenSource: "oauth",
+        cliProfile: "default",
+        configured: true,
+        enabled: true,
+        running: true,
+        lastStartAt: Date.now(),
+        lastStopAt: null,
+        lastError: null,
+        probe: { ok: true, authenticated: true },
+      },
+    ]);
+
+    const nudge = issues.filter((i) => i.message.includes("CLI profile only"));
+    expect(nudge).toHaveLength(0);
+  });
+
+  it("does not emit migration nudge when no cliProfile", () => {
+    const issues = basecampStatusAdapter.collectStatusIssues!([
+      {
+        accountId: "empty",
+        tokenSource: "none",
+        configured: false,
+        enabled: true,
+        running: false,
+        lastStartAt: null,
+        lastStopAt: null,
+        lastError: null,
+        probe: { ok: true, authenticated: true },
+      },
+    ]);
+
+    const nudge = issues.filter((i) => i.message.includes("CLI profile only"));
+    expect(nudge).toHaveLength(0);
   });
 });
 

@@ -120,8 +120,8 @@ beforeEach(() => {
 // hatchIdentity — CLI path
 // ---------------------------------------------------------------------------
 
-describe("hatchIdentity — CLI path", () => {
-  it("resolves personId from cliMe and adds account", async () => {
+describe("hatchIdentity — CLI path (chains into OAuth)", () => {
+  it("discovers identity via CLI and chains into OAuth for persistent token", async () => {
     mockCliProfileList.mockResolvedValue({ data: ["default"], raw: "" });
     mockCliMe.mockResolvedValue({
       data: {
@@ -130,11 +130,24 @@ describe("hatchIdentity — CLI path", () => {
       } as any,
       raw: "",
     });
+    // OAuth chain-through mocks
+    mockInteractiveLogin.mockResolvedValue({
+      accessToken: "oauth-tok",
+      refreshToken: "oauth-ref",
+      tokenType: "Bearer",
+    });
+    mockDiscoverIdentity.mockResolvedValue({
+      identity: { id: 42, firstName: "Jeremy", lastName: "", emailAddress: "j@example.com" },
+      accounts: [{ id: 99, name: "Acme", product: "bc3" }],
+    });
+    mockResolveTokenFilePath.mockImplementation((id: string) => `/tmp/tokens/${id}.json`);
 
     const { prompter } = createMockPrompter({
       "How do you want to authenticate this identity?": "cli",
       "Account ID key for this identity (e.g. 'security', 'design-bot')": "security",
       "Map this identity to an agent?": "__skip__",
+      "OAuth client ID": "test-cid",
+      "Client Secret (leave blank to skip)": "",
     });
 
     const result = await hatchIdentity(cfg({}), prompter);
@@ -147,8 +160,9 @@ describe("hatchIdentity — CLI path", () => {
     expect(accounts.security.displayName).toBe("Jeremy");
     expect(accounts.security.attachableSgid).toBe("sgid://x");
     expect(accounts.security.cliProfile).toBe("default");
-    // OAuth keys should be absent
-    expect(accounts.security.oauthTokenFile).toBeUndefined();
+    // CLI path chains into OAuth — oauthTokenFile should be set
+    expect(accounts.security.oauthTokenFile).toBe("/tmp/tokens/security.json");
+    expect(mockInteractiveLogin).toHaveBeenCalled();
   });
 
   it("adds persona mapping when agent ID provided", async () => {
@@ -160,12 +174,24 @@ describe("hatchIdentity — CLI path", () => {
       } as any,
       raw: "",
     });
+    mockInteractiveLogin.mockResolvedValue({
+      accessToken: "oauth-tok",
+      refreshToken: "ref",
+      tokenType: "Bearer",
+    });
+    mockDiscoverIdentity.mockResolvedValue({
+      identity: { id: 10, firstName: "Bot", lastName: "", emailAddress: "bot@example.com" },
+      accounts: [{ id: 1, name: "Co", product: "bc3" }],
+    });
+    mockResolveTokenFilePath.mockImplementation((id: string) => `/tmp/tokens/${id}.json`);
 
     const { prompter } = createMockPrompter({
       "How do you want to authenticate this identity?": "cli",
       "Account ID key for this identity (e.g. 'security', 'design-bot')": "bot-acct",
       "Map this identity to an agent?": "__enter__",
       "Agent ID to use this identity": "security-agent",
+      "OAuth client ID": "cid",
+      "Client Secret (leave blank to skip)": "",
     });
 
     const result = await hatchIdentity(cfg({}), prompter);
@@ -185,11 +211,23 @@ describe("hatchIdentity — CLI path", () => {
       raw: "",
     });
     vi.mocked(listBasecampAccountIds).mockReturnValue(["default", "existing"]);
+    mockInteractiveLogin.mockResolvedValue({
+      accessToken: "oauth-tok",
+      refreshToken: "ref",
+      tokenType: "Bearer",
+    });
+    mockDiscoverIdentity.mockResolvedValue({
+      identity: { id: 1, firstName: "X", lastName: "", emailAddress: "x@x.com" },
+      accounts: [],
+    });
+    mockResolveTokenFilePath.mockImplementation((id: string) => `/tmp/tokens/${id}.json`);
 
     const { prompter } = createMockPrompter({
       "How do you want to authenticate this identity?": "cli",
       "Account ID key for this identity (e.g. 'security', 'design-bot')": "new-one",
       "Map this identity to an agent?": "__skip__",
+      "OAuth client ID": "cid",
+      "Client Secret (leave blank to skip)": "",
     });
 
     const result = await hatchIdentity(cfg({}), prompter);

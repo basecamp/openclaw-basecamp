@@ -8,10 +8,7 @@ vi.mock("openclaw/plugin-sdk", () => ({
   deleteAccountFromConfigSection: vi.fn(),
 }));
 
-vi.mock("../src/basecamp-cli.js", () => ({
-  cliAuthStatus: vi.fn(),
-  execCliAuthLogin: vi.fn(),
-}));
+vi.mock("../src/basecamp-cli.js", () => ({}));
 
 vi.mock("../src/config.js", () => ({
   BasecampConfigSchema: {},
@@ -85,7 +82,6 @@ vi.mock("../src/inbound/poller.js", () => {
 
 import { basecampChannel, _resetValidationState } from "../src/channel.js";
 import { resolveBasecampAccountAsync } from "../src/config.js";
-import { cliAuthStatus } from "../src/basecamp-cli.js";
 
 function makeCtx(cfg: any, accountId = "test") {
   return {
@@ -126,9 +122,7 @@ beforeEach(() => {
 
 describe("PF-002: config-hash re-validation", () => {
   it("re-validates persona mappings when config changes", async () => {
-    // Account with cliProfile — cliAuthStatus returns unauthenticated to trigger early return
-    // (validation happens before auth check)
-    vi.mocked(cliAuthStatus).mockResolvedValue({ data: { authenticated: false }, raw: "" });
+    // Validation happens before auth check
     vi.mocked(resolveBasecampAccountAsync).mockResolvedValue(makeAccount() as any);
 
     // First call: config with bad persona mapping
@@ -175,7 +169,6 @@ describe("PF-002: config-hash re-validation", () => {
   });
 
   it("re-validates when accounts change even if personas are the same", async () => {
-    vi.mocked(cliAuthStatus).mockResolvedValue({ data: { authenticated: false }, raw: "" });
     vi.mocked(resolveBasecampAccountAsync).mockResolvedValue(makeAccount() as any);
 
     // Config where persona target exists
@@ -221,8 +214,6 @@ describe("PF-003: basecampAccountId startup warning", () => {
         config: { personId: "42", cliProfile: "default" },
       }) as any,
     );
-    vi.mocked(cliAuthStatus).mockResolvedValue({ data: { authenticated: true }, raw: "" });
-
     const ctx = makeCtx({}, "my-org");
     await basecampChannel.gateway!.startAccount!(ctx as any);
 
@@ -241,8 +232,6 @@ describe("PF-003: basecampAccountId startup warning", () => {
         config: { personId: "42", cliProfile: "default" },
       }) as any,
     );
-    vi.mocked(cliAuthStatus).mockResolvedValue({ data: { authenticated: true }, raw: "" });
-
     const ctx = makeCtx({}, "12345");
     await basecampChannel.gateway!.startAccount!(ctx as any);
 
@@ -259,8 +248,6 @@ describe("PF-003: basecampAccountId startup warning", () => {
         config: { personId: "42", cliProfile: "default", basecampAccountId: "99" },
       }) as any,
     );
-    vi.mocked(cliAuthStatus).mockResolvedValue({ data: { authenticated: true }, raw: "" });
-
     const ctx = makeCtx({}, "my-org");
     await basecampChannel.gateway!.startAccount!(ctx as any);
 

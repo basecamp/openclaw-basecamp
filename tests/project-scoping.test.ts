@@ -112,7 +112,7 @@ describe("resolveBasecampAccount (virtual accounts)", () => {
     const result = resolveBasecampAccount(
       cfg({
         accounts: {
-          primary: { personId: "42", cliProfile: "prod" },
+          primary: { personId: "42", token: "tok", cliProfile: "prod" },
         },
         virtualAccounts: {
           scoped: { accountId: "primary", bucketId: "999" },
@@ -122,7 +122,7 @@ describe("resolveBasecampAccount (virtual accounts)", () => {
     );
 
     expect(result.cliProfile).toBe("prod");
-    expect(result.tokenSource).toBe("cli");
+    expect(result.tokenSource).toBe("config");
   });
 
   it("returns disabled stub when backing account missing", () => {

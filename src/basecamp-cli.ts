@@ -260,3 +260,36 @@ export async function execCliAuthLogin(
     });
   });
 }
+
+// ---------------------------------------------------------------------------
+// Bootstrap token extraction (one-shot, for wizard identity discovery)
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract a token from the Basecamp CLI for identity discovery during setup.
+ * One-shot call — no caching, no retry. Not used at runtime.
+ */
+export function extractCliBootstrapToken(profile?: string): Promise<string> {
+  const binary = resolveCliBinaryPath();
+  const args = ["auth", "token", "-q"];
+  if (profile) args.push("-P", profile);
+  return new Promise((resolve, reject) => {
+    execFile(binary, args, { timeout: 10_000, encoding: "utf-8" }, (error, stdout, stderr) => {
+      if (error) {
+        reject(new CliError(
+          `CLI token extraction failed: ${(stderr as string).trim() || error.message}`,
+          null,
+          (stderr as string).trim(),
+          [binary, ...args],
+        ));
+        return;
+      }
+      const token = (stdout as string).trim();
+      if (!token) {
+        reject(new CliError("CLI returned empty token", null, "", [binary, ...args]));
+        return;
+      }
+      resolve(token);
+    });
+  });
+}

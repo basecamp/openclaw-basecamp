@@ -80,7 +80,7 @@ describe("security.collectWarnings", () => {
         dmPolicy: "pairing",
         allowFrom: [42],
         accounts: {
-          main: { personId: "42", cliProfile: "default" },
+          main: { personId: "42", token: "tok" },
         },
       }),
       account: stubAccount,
@@ -188,11 +188,25 @@ describe("security.collectWarnings", () => {
     );
   });
 
-  it("does not warn on account with cliProfile", async () => {
+  it("warns on account with only cliProfile (no runtime auth)", async () => {
     const warnings = await basecampSecurityAdapter.collectWarnings({
       cfg: cfg({
         accounts: {
-          good: { personId: "42", cliProfile: "default" },
+          legacy: { personId: "42", cliProfile: "default" },
+        },
+      }),
+      account: stubAccount,
+    });
+    const authWarnings = warnings.filter((w) => w.includes("no token"));
+    expect(authWarnings).toHaveLength(1);
+    expect(authWarnings[0]).toContain("legacy");
+  });
+
+  it("does not warn on account with oauthTokenFile", async () => {
+    const warnings = await basecampSecurityAdapter.collectWarnings({
+      cfg: cfg({
+        accounts: {
+          good: { personId: "42", oauthTokenFile: "/tmp/tokens/good.json" },
         },
       }),
       account: stubAccount,

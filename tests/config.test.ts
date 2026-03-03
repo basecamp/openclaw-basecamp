@@ -200,7 +200,7 @@ describe("resolveBasecampAccount", () => {
     expect(result.tokenSource).toBe("config");
   });
 
-  it("threads through cliProfile field", () => {
+  it("threads through cliProfile field (resolves to tokenSource none)", () => {
     const result = resolveBasecampAccount(
       cfgWithAccounts({
         dev: {
@@ -211,10 +211,10 @@ describe("resolveBasecampAccount", () => {
       "dev",
     );
     expect(result.cliProfile).toBe("my-dev-profile");
-    expect(result.tokenSource).toBe("cli");
+    expect(result.tokenSource).toBe("none");
   });
 
-  it("cliProfile account has empty token (CLI handles auth)", () => {
+  it("cliProfile-only account has empty token and tokenSource none", () => {
     const result = resolveBasecampAccount(
       cfgWithAccounts({
         dev: {
@@ -225,7 +225,22 @@ describe("resolveBasecampAccount", () => {
       "dev",
     );
     expect(result.token).toBe("");
-    expect(result.tokenSource).toBe("cli");
+    expect(result.tokenSource).toBe("none");
+  });
+
+  it("oauthTokenFile takes precedence over cliProfile", () => {
+    const result = resolveBasecampAccount(
+      cfgWithAccounts({
+        dev: {
+          personId: "1",
+          oauthTokenFile: "/tmp/tokens/dev.json",
+          cliProfile: "my-dev-profile",
+        },
+      }),
+      "dev",
+    );
+    expect(result.tokenSource).toBe("oauth");
+    expect(result.cliProfile).toBe("my-dev-profile");
   });
 
   it("explicit token takes precedence over cliProfile", () => {

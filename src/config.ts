@@ -264,10 +264,6 @@ export function resolveBasecampAccount(
   if (!token && !accountCfg.tokenFile && accountCfg.oauthTokenFile) {
     tokenSource = "oauth";
   }
-  // If no token and no tokenFile/oauthTokenFile, but a cliProfile is configured, CLI manages auth
-  if (!token && !accountCfg.tokenFile && !accountCfg.oauthTokenFile && accountCfg.cliProfile) {
-    tokenSource = "cli";
-  }
 
   return {
     accountId: effectiveId,

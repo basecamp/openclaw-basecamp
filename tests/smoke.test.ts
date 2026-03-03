@@ -42,8 +42,8 @@ const testAccount: ResolvedBasecampAccount = {
   accountId: "2914079",
   enabled: true,
   personId: "3", // Jeremy's person ID from cliMe
-  token: "", // CLI handles auth
-  tokenSource: "cli",
+  token: "test-token",
+  tokenSource: "config",
   config: { personId: "3", basecampAccountId: "2914079" },
 };
 

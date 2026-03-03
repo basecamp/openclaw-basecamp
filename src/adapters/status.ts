@@ -4,7 +4,7 @@
  * Uses the SDK client to verify authentication and connectivity for all
  * token sources. The client's TokenProvider handles auth per source
  * (static token for "config", file read for "tokenFile", auto-refresh
- * for "oauth", Basecamp CLI extraction for "cli").
+ * for "oauth").
  *
  * Enhanced with identity resolution, project audit, persona validation,
  * and status issue collection.
@@ -82,6 +82,24 @@ function pollerLagSeconds(source: PollerSourceMetrics): number | null {
 function getBasecampSection(cfg: OpenClawConfig): BasecampChannelConfig | undefined {
   return cfg.channels?.basecamp as BasecampChannelConfig | undefined;
 }
+
+/** Snapshot shape returned by buildAccountSnapshot. */
+type BasecampAccountSnapshot = {
+  accountId: string;
+  name?: string;
+  enabled: boolean;
+  configured: boolean;
+  tokenSource: "tokenFile" | "config" | "oauth" | "none";
+  cliProfile?: string;
+  running: boolean;
+  lastStartAt: number | null;
+  lastStopAt: number | null;
+  lastError: string | null;
+  probe?: BasecampProbe;
+  audit?: BasecampAudit;
+  personName?: string;
+  accountCount?: number;
+};
 
 export const basecampStatusAdapter: ChannelStatusAdapter<ResolvedBasecampAccount, BasecampProbe, BasecampAudit> = {
   defaultRuntime: {
@@ -198,9 +216,24 @@ export const basecampStatusAdapter: ChannelStatusAdapter<ResolvedBasecampAccount
     return result;
   },
 
-  buildAccountSnapshot: ({ account, runtime, probe, audit }) => {
+  buildAccountSnapshot: ({ account, runtime, probe, audit }): {
+    accountId: string;
+    name?: string;
+    enabled: boolean;
+    configured: boolean;
+    tokenSource: "tokenFile" | "config" | "oauth" | "none";
+    cliProfile?: string;
+    running: boolean;
+    lastStartAt: number | null;
+    lastStopAt: number | null;
+    lastError: string | null;
+    probe?: BasecampProbe;
+    audit?: BasecampAudit;
+    personName?: string;
+    accountCount?: number;
+  } => {
     const configured = Boolean(
-      account.token?.trim() || account.config.tokenFile || account.config.oauthTokenFile || account.cliProfile,
+      account.token?.trim() || account.config.tokenFile || account.config.oauthTokenFile,
     );
     return {
       accountId: account.accountId,
@@ -208,6 +241,7 @@ export const basecampStatusAdapter: ChannelStatusAdapter<ResolvedBasecampAccount
       enabled: account.enabled,
       configured,
       tokenSource: account.tokenSource,
+      cliProfile: account.cliProfile,
       running: runtime?.running ?? false,
       lastStartAt: runtime?.lastStartAt ?? null,
       lastStopAt: runtime?.lastStopAt ?? null,
@@ -256,9 +290,6 @@ export const basecampStatusAdapter: ChannelStatusAdapter<ResolvedBasecampAccount
       if (probe && !probe.authenticated) {
         let fix: string;
         switch (s.tokenSource) {
-          case "cli":
-            fix = `Run \`basecamp auth login${(s as any).cliProfile ? ` --profile ${(s as any).cliProfile}` : ""}\``;
-            break;
           case "oauth":
             fix = `Run \`openclaw channels login --channel basecamp --account ${s.accountId}\``;
             break;
@@ -275,6 +306,18 @@ export const basecampStatusAdapter: ChannelStatusAdapter<ResolvedBasecampAccount
           kind: "auth",
           message: "Account is not authenticated",
           fix,
+        });
+      }
+
+      // Migration nudge: cliProfile-only accounts now resolve to tokenSource "none"
+      const snapshot = s as BasecampAccountSnapshot;
+      if (snapshot.tokenSource === "none" && snapshot.cliProfile) {
+        issues.push({
+          channel: "basecamp",
+          accountId: s.accountId,
+          kind: "config",
+          message: "Account uses CLI profile only — runtime auth requires OAuth",
+          fix: `Run \`openclaw channels add\` to set up browser login for account ${s.accountId}`,
         });
       }
 

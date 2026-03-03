@@ -111,11 +111,29 @@ describe("directory.self", () => {
     expect(result!.id).toBe("1");
   });
 
-  it("returns null when account has no token or profile", async () => {
+  it("returns null when account has no token, tokenFile, or oauthTokenFile", async () => {
     vi.mocked(resolveBasecampAccount).mockReturnValue({
       ...mockAccount,
       token: "",
-      cliProfile: undefined,
+      cliProfile: "default",
+      config: { personId: "1" },
+    } as any);
+
+    const result = await basecampDirectoryAdapter.self!({
+      cfg: cfg({}),
+      accountId: "test",
+      runtime: {} as any,
+    });
+
+    expect(result).toBeNull();
+  });
+
+  it("returns null when account has only cliProfile (no runtime auth)", async () => {
+    vi.mocked(resolveBasecampAccount).mockReturnValue({
+      ...mockAccount,
+      token: "",
+      cliProfile: "prod",
+      config: { personId: "1", cliProfile: "prod" },
     } as any);
 
     const result = await basecampDirectoryAdapter.self!({

@@ -121,8 +121,8 @@ describe("config.disabledReason", () => {
 describe("config.unconfiguredReason", () => {
   it("returns reason string", () => {
     const reason = basecampChannel.config.unconfiguredReason!(mockAccount, cfg({}));
-    expect(reason).toContain("CLI profile");
     expect(reason).toContain("token");
+    expect(reason).toContain("OAuth");
   });
 });
 

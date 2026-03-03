@@ -546,7 +546,7 @@ export type ResolvedBasecampAccount = {
   personId: string;
   attachableSgid?: string;
   token: string;
-  tokenSource: "tokenFile" | "config" | "cli" | "oauth" | "none";
+  tokenSource: "tokenFile" | "config" | "oauth" | "none";
   /** OAuth client ID (from per-account or channel-level config). */
   oauthClientId?: string;
   /** OAuth client secret (from per-account or channel-level config). */
