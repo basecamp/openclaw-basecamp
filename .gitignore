@@ -2,3 +2,7 @@ node_modules/
 dist/
 coverage/
 *.tsbuildinfo
+cursors-*.json
+dedup-*.sqlite
+dedup-*.sqlite-shm
+dedup-*.sqlite-wal
