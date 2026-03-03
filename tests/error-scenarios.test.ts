@@ -13,7 +13,7 @@ vi.mock("node:child_process", () => ({
   spawn: vi.fn(),
 }));
 
-import { cliMe, cliAuthStatus, bcqWhich, bcqProfileList, execBcqAuthLogin, cliWhich, CliError, resolveCliBinaryPath } from "../src/basecamp-cli.js";
+import { cliMe, cliAuthStatus, cliWhich, cliProfileList, execCliAuthLogin, CliError, resolveCliBinaryPath } from "../src/basecamp-cli.js";
 import { execFile, spawn } from "node:child_process";
 
 beforeEach(() => {
@@ -173,95 +173,10 @@ describe("CLI binary resolution", () => {
 });
 
 // ---------------------------------------------------------------------------
-// ENOENT fallback in execCliWithFallback
+// cliMe flag building
 // ---------------------------------------------------------------------------
 
-describe("execCliWithFallback ENOENT fallback", () => {
-  let savedBcqBin: string | undefined;
-  let savedBasecampBin: string | undefined;
-
-  beforeEach(() => {
-    savedBcqBin = process.env.BCQ_BIN;
-    savedBasecampBin = process.env.BASECAMP_BIN;
-  });
-
-  afterEach(() => {
-    if (savedBcqBin === undefined) delete process.env.BCQ_BIN;
-    else process.env.BCQ_BIN = savedBcqBin;
-    if (savedBasecampBin === undefined) delete process.env.BASECAMP_BIN;
-    else process.env.BASECAMP_BIN = savedBasecampBin;
-  });
-
-  it("retries with bcq fallback when primary binary returns ENOENT", async () => {
-    let callCount = 0;
-    vi.mocked(execFile).mockImplementation((_cmd: any, _args: any, _opts: any, cb: any) => {
-      callCount++;
-      if (callCount === 1) {
-        const err = new Error("not found") as any;
-        err.code = "ENOENT";
-        cb(err, "", "");
-      } else {
-        cb(null, JSON.stringify({ id: 1, name: "Test", email_address: "t@t.com" }), "");
-      }
-      return {} as any;
-    });
-
-    const result = await bcqMe();
-    expect(callCount).toBe(2);
-    expect(result.data.id).toBe(1);
-    // Second call should use fallback binary "bcq"
-    const secondCall = vi.mocked(execFile).mock.calls[1];
-    expect(secondCall[0]).toBe("bcq");
-  });
-
-  it("uses BCQ_BIN env override for fallback binary", async () => {
-    process.env.BCQ_BIN = "/custom/bcq-bin";
-    let callCount = 0;
-    vi.mocked(execFile).mockImplementation((_cmd: any, _args: any, _opts: any, cb: any) => {
-      callCount++;
-      if (callCount === 1) {
-        const err = new Error("not found") as any;
-        err.code = "ENOENT";
-        cb(err, "", "");
-      } else {
-        cb(null, JSON.stringify({ id: 2, name: "Custom", email_address: "c@c.com" }), "");
-      }
-      return {} as any;
-    });
-
-    const result = await bcqMe();
-    expect(callCount).toBe(2);
-    expect(result.data.id).toBe(2);
-    const secondCall = vi.mocked(execFile).mock.calls[1];
-    expect(secondCall[0]).toBe("/custom/bcq-bin");
-  });
-
-  it("propagates BcqError when both primary and fallback fail", async () => {
-    let callCount = 0;
-    vi.mocked(execFile).mockImplementation((_cmd: any, _args: any, _opts: any, cb: any) => {
-      callCount++;
-      if (callCount === 1) {
-        const err = new Error("not found") as any;
-        err.code = "ENOENT";
-        cb(err, "", "");
-      } else {
-        const err = new Error("fallback failed") as any;
-        err.code = 1;
-        cb(err, "", "fallback also missing");
-      }
-      return {} as any;
-    });
-
-    await expect(bcqMe()).rejects.toThrow(BcqError);
-    expect(callCount).toBe(2);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// execBcq flag building
-// ---------------------------------------------------------------------------
-
-describe("execBcq flag building", () => {
+describe("cliMe flag building", () => {
   beforeEach(() => {
     vi.mocked(execFile).mockImplementation((_cmd: any, _args: any, _opts: any, cb: any) => {
       cb(null, JSON.stringify({ id: 1, name: "Test", email_address: "t@t.com" }), "");
@@ -270,7 +185,7 @@ describe("execBcq flag building", () => {
   });
 
   it("includes --account flag when accountId is set", async () => {
-    await bcqMe({ accountId: "123" });
+    await cliMe({ accountId: "123" });
     const args = vi.mocked(execFile).mock.calls[0][1] as string[];
     expect(args).toContain("--account");
     expect(args).toContain("123");
@@ -279,7 +194,7 @@ describe("execBcq flag building", () => {
   });
 
   it("includes --profile flag when profile is set", async () => {
-    await bcqMe({ profile: "work" });
+    await cliMe({ profile: "work" });
     const args = vi.mocked(execFile).mock.calls[0][1] as string[];
     expect(args).toContain("--profile");
     expect(args).toContain("work");
@@ -288,7 +203,7 @@ describe("execBcq flag building", () => {
   });
 
   it("appends extraFlags", async () => {
-    await bcqMe({ extraFlags: ["--verbose"] });
+    await cliMe({ extraFlags: ["--verbose"] });
     const args = vi.mocked(execFile).mock.calls[0][1] as string[];
     expect(args).toContain("--verbose");
   });
@@ -298,7 +213,7 @@ describe("execBcq flag building", () => {
 // execBcq error shapes
 // ---------------------------------------------------------------------------
 
-describe("execBcq error shapes", () => {
+describe("cliMe error shapes", () => {
   it("reports 'timed out' when killed=true", async () => {
     vi.mocked(execFile).mockImplementation((_cmd: any, _args: any, _opts: any, cb: any) => {
       const err = new Error("Command failed: basecamp --agent me") as any;
@@ -309,11 +224,11 @@ describe("execBcq error shapes", () => {
     });
 
     try {
-      await bcqMe();
+      await cliMe();
       expect.unreachable("should have thrown");
     } catch (err) {
-      expect(err).toBeInstanceOf(BcqError);
-      expect((err as BcqError).message).toContain("timed out");
+      expect(err).toBeInstanceOf(CliError);
+      expect((err as CliError).message).toContain("timed out");
     }
   });
 
@@ -328,11 +243,11 @@ describe("execBcq error shapes", () => {
     });
 
     try {
-      await bcqMe();
+      await cliMe();
       expect.unreachable("should have thrown");
     } catch (err) {
-      expect(err).toBeInstanceOf(BcqError);
-      expect((err as BcqError).message).toContain("killed by SIGTERM");
+      expect(err).toBeInstanceOf(CliError);
+      expect((err as CliError).message).toContain("killed by SIGTERM");
     }
   });
 
@@ -345,11 +260,11 @@ describe("execBcq error shapes", () => {
     });
 
     try {
-      await bcqMe();
+      await cliMe();
       expect.unreachable("should have thrown");
     } catch (err) {
-      expect(err).toBeInstanceOf(BcqError);
-      expect((err as BcqError).exitCode).toBe(2);
+      expect(err).toBeInstanceOf(CliError);
+      expect((err as CliError).exitCode).toBe(2);
     }
   });
 
@@ -359,23 +274,23 @@ describe("execBcq error shapes", () => {
       return {} as any;
     });
 
-    const result = await bcqMe();
+    const result = await cliMe();
     expect(result.data).toEqual([]);
     expect(result.raw).toBe("");
   });
 
-  it("throws BcqError on JSON parse failure", async () => {
+  it("throws CliError on JSON parse failure", async () => {
     vi.mocked(execFile).mockImplementation((_cmd: any, _args: any, _opts: any, cb: any) => {
       cb(null, 'not json {', "");
       return {} as any;
     });
 
     try {
-      await bcqMe();
+      await cliMe();
       expect.unreachable("should have thrown");
     } catch (err) {
-      expect(err).toBeInstanceOf(BcqError);
-      expect((err as BcqError).message).toContain("not valid JSON");
+      expect(err).toBeInstanceOf(CliError);
+      expect((err as CliError).message).toContain("not valid JSON");
     }
   });
 });
@@ -384,19 +299,19 @@ describe("execBcq error shapes", () => {
 // bcqWhich
 // ---------------------------------------------------------------------------
 
-describe("bcqWhich", () => {
+describe("cliWhich", () => {
   it("returns the binary path on success", async () => {
     vi.mocked(execFile).mockImplementation((_cmd: any, _args: any, _opts: any, cb: any) => {
       cb(null, "basecamp v1.2.3", "");
       return {} as any;
     });
 
-    const result = await bcqWhich();
+    const result = await cliWhich();
     expect(result.data.path).toBe("basecamp");
     expect(result.raw).toBe("basecamp v1.2.3");
   });
 
-  it("throws BcqError on failure", async () => {
+  it("throws CliError on failure", async () => {
     vi.mocked(execFile).mockImplementation((_cmd: any, _args: any, _opts: any, cb: any) => {
       const err = new Error("not found") as any;
       err.code = 127;
@@ -404,46 +319,27 @@ describe("bcqWhich", () => {
       return {} as any;
     });
 
-    await expect(bcqWhich()).rejects.toThrow(BcqError);
+    await expect(cliWhich()).rejects.toThrow(CliError);
   });
 
-  it("falls back to bcq on ENOENT", async () => {
-    let callCount = 0;
-    vi.mocked(execFile).mockImplementation((_cmd: any, _args: any, _opts: any, cb: any) => {
-      callCount++;
-      if (callCount === 1) {
-        const err = new Error("not found") as any;
-        err.code = "ENOENT";
-        cb(err, "", "");
-      } else {
-        cb(null, "bcq v1.0.0", "");
-      }
-      return {} as any;
-    });
-
-    const result = await bcqWhich();
-    expect(callCount).toBe(2);
-    expect(result.data.path).toBe("bcq");
-    expect(result.raw).toBe("bcq v1.0.0");
-  });
 });
 
 // ---------------------------------------------------------------------------
-// bcqProfileList
+// cliProfileList
 // ---------------------------------------------------------------------------
 
-describe("bcqProfileList", () => {
+describe("cliProfileList", () => {
   it("returns parsed array", async () => {
     vi.mocked(execFile).mockImplementation((_cmd: any, _args: any, _opts: any, cb: any) => {
       cb(null, JSON.stringify(["default", "work"]), "");
       return {} as any;
     });
 
-    const result = await bcqProfileList();
+    const result = await cliProfileList();
     expect(result.data).toEqual(["default", "work"]);
   });
 
-  it("returns empty array on BcqError", async () => {
+  it("returns empty array on CliError", async () => {
     vi.mocked(execFile).mockImplementation((_cmd: any, _args: any, _opts: any, cb: any) => {
       const err = new Error("failed") as any;
       err.code = 1;
@@ -451,36 +347,36 @@ describe("bcqProfileList", () => {
       return {} as any;
     });
 
-    const result = await bcqProfileList();
+    const result = await cliProfileList();
     expect(result.data).toEqual([]);
     expect(result.raw).toBe("no profiles");
   });
 
-  it("rethrows non-BcqError errors", async () => {
+  it("rethrows non-CliError errors", async () => {
     vi.mocked(execFile).mockImplementation(() => {
       throw new TypeError("unexpected");
     });
 
-    await expect(bcqProfileList()).rejects.toThrow(TypeError);
+    await expect(cliProfileList()).rejects.toThrow(TypeError);
   });
 });
 
 // ---------------------------------------------------------------------------
-// bcqAuthStatus non-BcqError rethrow
+// bcqAuthStatus non-CliError rethrow
 // ---------------------------------------------------------------------------
 
-describe("bcqAuthStatus non-BcqError rethrow", () => {
+describe("cliAuthStatus non-CliError rethrow", () => {
   it("rethrows TypeError instead of catching it", async () => {
     vi.mocked(execFile).mockImplementation(() => {
       throw new TypeError("unexpected type error");
     });
 
-    await expect(bcqAuthStatus()).rejects.toThrow(TypeError);
+    await expect(cliAuthStatus()).rejects.toThrow(TypeError);
   });
 });
 
 // ---------------------------------------------------------------------------
-// spawnCliWithFallback / execBcqAuthLogin
+// execCliAuthLogin
 // ---------------------------------------------------------------------------
 
 function mockSpawnHandle() {
@@ -491,38 +387,23 @@ function mockSpawnHandle() {
   };
 }
 
-describe("execBcqAuthLogin", () => {
-  let savedBcqBin: string | undefined;
-  let savedBasecampBin: string | undefined;
-
-  beforeEach(() => {
-    savedBcqBin = process.env.BCQ_BIN;
-    savedBasecampBin = process.env.BASECAMP_BIN;
-  });
-
-  afterEach(() => {
-    if (savedBcqBin === undefined) delete process.env.BCQ_BIN;
-    else process.env.BCQ_BIN = savedBcqBin;
-    if (savedBasecampBin === undefined) delete process.env.BASECAMP_BIN;
-    else process.env.BASECAMP_BIN = savedBasecampBin;
-  });
-
+describe("execCliAuthLogin", () => {
   it("resolves on exit code 0", async () => {
     const handle = mockSpawnHandle();
     vi.mocked(spawn).mockReturnValue(handle as any);
 
-    const promise = execBcqAuthLogin();
+    const promise = execCliAuthLogin();
     handle._emit("close", 0);
     await expect(promise).resolves.toBeUndefined();
   });
 
-  it("rejects with BcqError on non-zero exit code", async () => {
+  it("rejects with CliError on non-zero exit code", async () => {
     const handle = mockSpawnHandle();
     vi.mocked(spawn).mockReturnValue(handle as any);
 
-    const promise = execBcqAuthLogin();
+    const promise = execCliAuthLogin();
     handle._emit("close", 1);
-    await expect(promise).rejects.toThrow(BcqError);
+    await expect(promise).rejects.toThrow(CliError);
     await expect(promise).rejects.toThrow(/exited with code 1/);
   });
 
@@ -530,7 +411,7 @@ describe("execBcqAuthLogin", () => {
     const handle = mockSpawnHandle();
     vi.mocked(spawn).mockReturnValue(handle as any);
 
-    const promise = execBcqAuthLogin({ profile: "work" });
+    const promise = execCliAuthLogin({ profile: "work" });
     handle._emit("close", 0);
     await promise;
 
@@ -541,43 +422,16 @@ describe("execBcqAuthLogin", () => {
     expect(spawnArgs[profileIdx + 1]).toBe("work");
   });
 
-  it("falls back to bcq binary on ENOENT", async () => {
-    const primaryHandle = mockSpawnHandle();
-    const fallbackHandle = mockSpawnHandle();
-    let callCount = 0;
-    vi.mocked(spawn).mockImplementation(() => {
-      callCount++;
-      if (callCount === 1) return primaryHandle as any;
-      return fallbackHandle as any;
-    });
-
-    const promise = execBcqAuthLogin();
-
-    // Primary emits ENOENT error, triggering fallback
-    const enoentErr = new Error("not found") as any;
-    enoentErr.code = "ENOENT";
-    primaryHandle._emit("error", enoentErr);
-
-    // Wait a tick for fallback spawn to be set up, then close it successfully
-    await new Promise((r) => setTimeout(r, 10));
-    fallbackHandle._emit("close", 0);
-
-    await expect(promise).resolves.toBeUndefined();
-    expect(callCount).toBe(2);
-    const secondBinary = vi.mocked(spawn).mock.calls[1][0];
-    expect(secondBinary).toBe("bcq");
-  });
-
   it("rejects on non-ENOENT spawn error", async () => {
     const handle = mockSpawnHandle();
     vi.mocked(spawn).mockReturnValue(handle as any);
 
-    const promise = execBcqAuthLogin();
+    const promise = execCliAuthLogin();
     const eaccesErr = new Error("permission denied") as any;
     eaccesErr.code = "EACCES";
     handle._emit("error", eaccesErr);
 
-    await expect(promise).rejects.toThrow(BcqError);
+    await expect(promise).rejects.toThrow(CliError);
     await expect(promise).rejects.toThrow(/failed to start/);
   });
 });
