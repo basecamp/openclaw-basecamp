@@ -20,7 +20,7 @@ export interface ReadingsPollResult {
   events: BasecampInboundMessage[];
   /** ISO timestamp of the newest reading (for cursor advancement). */
   newestAt: string | undefined;
-  /** Readable SGIDs of all processed entries — pass to cliMarkReadingsRead. */
+  /** Readable SGIDs of all processed entries — passed to the SDK mark-read call in the poller. */
   processedSgids: string[];
 }
 

@@ -293,7 +293,7 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
       }
 
       // Resolve the numeric Basecamp account ID for API calls.
-      // Prefers explicit basecampAccountId, falls back to basecampAccountId (legacy), then accountId if numeric.
+      // Prefers explicit basecampAccountId, then falls back to accountId if numeric.
       const basecampAccountId =
         account.config.basecampAccountId ??
         (/^\d+$/.test(account.accountId) ? account.accountId : undefined);

@@ -244,7 +244,7 @@ No single Basecamp API provides complete signal coverage. The channel ingests fr
 │  └──────┬───────┘  └──────┬───────┘  └──────┬───────────────┘   │
 │         │                 │                  │                    │
 │  ┌──────┴─────┐  ┌───────┴──────┐  ┌────────┴──────────┐       │
-│  │ Webhooks   │  │ Direct Polls │  │ basecamp event    │       │
+│  │ Webhooks   │  │ Direct Polls │  │ cross-app events  │       │
 │  │ (selective │  │ (per-project │  │ (h1, Help Scout,  │       │
 │  │  where     │  │  for gaps;   │  │  Sentry — via     │       │
 │  │  available)│  │  slower      │  │  webhook channel) │       │

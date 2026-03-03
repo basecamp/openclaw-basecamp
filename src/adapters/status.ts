@@ -216,22 +216,7 @@ export const basecampStatusAdapter: ChannelStatusAdapter<ResolvedBasecampAccount
     return result;
   },
 
-  buildAccountSnapshot: ({ account, runtime, probe, audit }): {
-    accountId: string;
-    name?: string;
-    enabled: boolean;
-    configured: boolean;
-    tokenSource: "tokenFile" | "config" | "oauth" | "none";
-    cliProfile?: string;
-    running: boolean;
-    lastStartAt: number | null;
-    lastStopAt: number | null;
-    lastError: string | null;
-    probe?: BasecampProbe;
-    audit?: BasecampAudit;
-    personName?: string;
-    accountCount?: number;
-  } => {
+  buildAccountSnapshot: ({ account, runtime, probe, audit }): BasecampAccountSnapshot => {
     const configured = Boolean(
       account.token?.trim() || account.config.tokenFile || account.config.oauthTokenFile,
     );

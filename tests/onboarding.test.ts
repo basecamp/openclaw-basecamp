@@ -447,6 +447,10 @@ describe("basecampOnboardingAdapter", () => {
         refreshToken: "ref",
         tokenType: "Bearer",
       });
+      mockDiscoverIdentity.mockResolvedValue({
+        identity: { id: 42, firstName: "Manual", lastName: "User", emailAddress: "m@test.com" },
+        accounts: [],
+      });
 
       // Select: auth method → "cli", then "What would you like to do?" → "done"
       // Text: personId prompt, then clientId, clientSecret

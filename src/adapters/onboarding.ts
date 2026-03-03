@@ -320,7 +320,20 @@ export const basecampOnboardingAdapter: ChannelOnboardingAdapter = {
         oauthClientSecret: clientSecret,
         config: { ...resolved.config, oauthTokenFile },
       };
-      await interactiveLogin(partialAccount, { clientId, clientSecret });
+      const oauthToken = await interactiveLogin(partialAccount, { clientId, clientSecret });
+
+      // Verify OAuth identity matches CLI-discovered identity
+      try {
+        const { discoverIdentity } = await import("@37signals/basecamp/oauth");
+        const oauthInfo = await discoverIdentity(oauthToken.accessToken);
+        const oauthPersonId = String(oauthInfo.identity.id);
+        if (oauthPersonId !== personId) {
+          personId = oauthPersonId;
+          accountPatch.personId = personId;
+        }
+      } catch {
+        // Non-fatal: proceed with CLI-discovered identity
+      }
     }
 
     accountPatch.oauthTokenFile = oauthTokenFile;

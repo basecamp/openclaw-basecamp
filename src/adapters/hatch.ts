@@ -366,7 +366,21 @@ export async function hatchIdentity(
       config: { personId: personId ?? "" },
     };
 
-    await interactiveLogin(tempAccount, { clientId: cliClientId, clientSecret: cliClientSecret });
+    const cliOauthToken = await interactiveLogin(tempAccount, { clientId: cliClientId, clientSecret: cliClientSecret });
+
+    // Verify OAuth identity matches CLI-discovered identity
+    try {
+      const oauthInfo = await discoverIdentity(cliOauthToken.accessToken);
+      const oauthPersonId = String(oauthInfo.identity.id);
+      if (oauthPersonId !== personId) {
+        personId = oauthPersonId;
+        displayName = `${oauthInfo.identity.firstName} ${oauthInfo.identity.lastName}`;
+        attachableSgid = undefined; // CLI SGID invalid for different identity
+      }
+    } catch {
+      // Non-fatal: proceed with CLI-discovered identity
+    }
+
     oauthResult = {
       clientId: cliClientId,
       clientSecret: cliClientSecret,
