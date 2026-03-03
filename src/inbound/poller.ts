@@ -21,6 +21,7 @@ import type { BasecampInboundMessage, ResolvedBasecampAccount } from "../types.j
 import { resolvePollingIntervals, resolveCircuitBreakerConfig, resolveSafetyNetConfig, resolveReconciliationConfig, resolveAccountForBucket, listBasecampAccountIds } from "../config.js";
 import { EventDedup } from "./dedup.js";
 import { getAccountDedup } from "./dedup-registry.js";
+import { resolvePluginStateDir } from "./state-dir.js";
 import { CursorStore } from "./cursors.js";
 import { pollActivityFeed } from "./activity.js";
 import { pollReadings } from "./readings.js";
@@ -108,7 +109,7 @@ export async function startCompositePoller(
   const readingsIntervalMs = intervals.readingsIntervalMs;
   const assignmentsIntervalMs = intervals.assignmentsIntervalMs;
 
-  const stateDir = opts.stateDir ?? "/tmp/basecamp-state";
+  const stateDir = opts.stateDir ?? resolvePluginStateDir();
 
   // Validate state directory
   const { mkdir, access } = await import("node:fs/promises");
