@@ -8,10 +8,7 @@ vi.mock("openclaw/plugin-sdk", () => ({
   deleteAccountFromConfigSection: vi.fn(),
 }));
 
-vi.mock("../src/bcq.js", () => ({
-  bcqAuthStatus: vi.fn(),
-  execBcqAuthLogin: vi.fn(),
-}));
+vi.mock("../src/basecamp-cli.js", () => ({}));
 
 vi.mock("../src/config.js", () => ({
   BasecampConfigSchema: {},
@@ -85,7 +82,6 @@ vi.mock("../src/inbound/poller.js", () => {
 
 import { basecampChannel, _resetValidationState } from "../src/channel.js";
 import { resolveBasecampAccountAsync } from "../src/config.js";
-import { bcqAuthStatus } from "../src/bcq.js";
 
 function makeCtx(cfg: any, accountId = "test") {
   return {
@@ -109,8 +105,8 @@ function makeAccount(overrides: Record<string, unknown> = {}) {
     personId: "42",
     token: "tok",
     tokenSource: "config",
-    bcqProfile: "default",
-    config: { personId: "42", bcqProfile: "default", bcqAccountId: "99" },
+    cliProfile: "default",
+    config: { personId: "42", cliProfile: "default", basecampAccountId: "99" },
     ...overrides,
   };
 }
@@ -126,9 +122,7 @@ beforeEach(() => {
 
 describe("PF-002: config-hash re-validation", () => {
   it("re-validates persona mappings when config changes", async () => {
-    // Account with bcqProfile — bcqAuthStatus returns unauthenticated to trigger early return
-    // (validation happens before auth check)
-    vi.mocked(bcqAuthStatus).mockResolvedValue({ data: { authenticated: false }, raw: "" });
+    // Validation happens before auth check
     vi.mocked(resolveBasecampAccountAsync).mockResolvedValue(makeAccount() as any);
 
     // First call: config with bad persona mapping
@@ -175,7 +169,6 @@ describe("PF-002: config-hash re-validation", () => {
   });
 
   it("re-validates when accounts change even if personas are the same", async () => {
-    vi.mocked(bcqAuthStatus).mockResolvedValue({ data: { authenticated: false }, raw: "" });
     vi.mocked(resolveBasecampAccountAsync).mockResolvedValue(makeAccount() as any);
 
     // Config where persona target exists
@@ -209,20 +202,18 @@ describe("PF-002: config-hash re-validation", () => {
 });
 
 // ---------------------------------------------------------------------------
-// PF-003: bcqAccountId startup warning
+// PF-003: basecampAccountId startup warning
 // ---------------------------------------------------------------------------
 
-describe("PF-003: bcqAccountId startup warning", () => {
-  it("warns when bcqAccountId cannot be resolved for non-numeric accountId", async () => {
-    // Account with non-numeric ID and no explicit bcqAccountId
+describe("PF-003: basecampAccountId startup warning", () => {
+  it("warns when basecampAccountId cannot be resolved for non-numeric accountId", async () => {
+    // Account with non-numeric ID and no explicit basecampAccountId
     vi.mocked(resolveBasecampAccountAsync).mockResolvedValue(
       makeAccount({
         accountId: "my-org",
-        config: { personId: "42", bcqProfile: "default" },
+        config: { personId: "42", cliProfile: "default" },
       }) as any,
     );
-    vi.mocked(bcqAuthStatus).mockResolvedValue({ data: { authenticated: true }, raw: "" });
-
     const ctx = makeCtx({}, "my-org");
     await basecampChannel.gateway!.startAccount!(ctx as any);
 
@@ -234,15 +225,13 @@ describe("PF-003: bcqAccountId startup warning", () => {
     );
   });
 
-  it("does not warn when accountId is numeric (implicit bcqAccountId)", async () => {
+  it("does not warn when accountId is numeric (implicit basecampAccountId)", async () => {
     vi.mocked(resolveBasecampAccountAsync).mockResolvedValue(
       makeAccount({
         accountId: "12345",
-        config: { personId: "42", bcqProfile: "default" },
+        config: { personId: "42", cliProfile: "default" },
       }) as any,
     );
-    vi.mocked(bcqAuthStatus).mockResolvedValue({ data: { authenticated: true }, raw: "" });
-
     const ctx = makeCtx({}, "12345");
     await basecampChannel.gateway!.startAccount!(ctx as any);
 
@@ -256,11 +245,9 @@ describe("PF-003: bcqAccountId startup warning", () => {
     vi.mocked(resolveBasecampAccountAsync).mockResolvedValue(
       makeAccount({
         accountId: "my-org",
-        config: { personId: "42", bcqProfile: "default", basecampAccountId: "99" },
+        config: { personId: "42", cliProfile: "default", basecampAccountId: "99" },
       }) as any,
     );
-    vi.mocked(bcqAuthStatus).mockResolvedValue({ data: { authenticated: true }, raw: "" });
-
     const ctx = makeCtx({}, "my-org");
     await basecampChannel.gateway!.startAccount!(ctx as any);
 

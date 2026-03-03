@@ -430,18 +430,11 @@ export type BasecampAccountConfig = {
   /** Whether this account is enabled. */
   enabled?: boolean;
   /**
-   * bcq profile name for this account (maps to --profile flag).
-   * Selects which bcq credential/config profile to use.
-   * Omit to use bcq's default profile.
+   * CLI profile name for this account (maps to --profile flag).
+   * Selects which CLI credential/config profile to use.
+   * Omit to use the CLI's default profile.
    */
-  bcqProfile?: string;
-  /**
-   * bcq account ID override for this account (maps to --account flag).
-   * When set, this value is passed as the bcq --account flag instead of
-   * the plugin's account key. Useful when the plugin account ID differs
-   * from the bcq-level account identifier.
-   */
-  bcqAccountId?: string;
+  cliProfile?: string;
   /** Numeric Basecamp account ID for SDK client creation. */
   basecampAccountId?: string;
   /** Path to file where OAuth tokens are stored. Presence implies tokenSource "oauth". */
@@ -515,14 +508,14 @@ export type BasecampChannelConfig = {
     readingsIntervalMs?: number;
     assignmentsIntervalMs?: number;
   };
-  /** Retry options for bcq API calls. */
+  /** Retry options for API calls. */
   retry?: {
     maxAttempts?: number;
     baseDelayMs?: number;
     maxDelayMs?: number;
     jitter?: boolean;
   };
-  /** Circuit breaker options for bcq API calls. */
+  /** Circuit breaker options for API calls. */
   circuitBreaker?: {
     threshold?: number;
     cooldownMs?: number;
@@ -553,13 +546,13 @@ export type ResolvedBasecampAccount = {
   personId: string;
   attachableSgid?: string;
   token: string;
-  tokenSource: "tokenFile" | "config" | "bcq" | "oauth" | "none";
+  tokenSource: "tokenFile" | "config" | "oauth" | "none";
   /** OAuth client ID (from per-account or channel-level config). */
   oauthClientId?: string;
   /** OAuth client secret (from per-account or channel-level config). */
   oauthClientSecret?: string;
-  /** bcq profile name (for --profile flag). */
-  bcqProfile?: string;
+  /** CLI profile name (for --profile flag). */
+  cliProfile?: string;
   /** When this account was resolved via a project-scope entry, the scoped bucket ID. */
   scopedBucketId?: string;
   config: BasecampAccountConfig;

@@ -1,7 +1,7 @@
 /**
  * Retry utilities for SDK-based API calls.
  *
- * The @basecamp/sdk already retries 429/503 internally (enableRetry: true,
+ * The @37signals/basecamp already retries 429/503 internally (enableRetry: true,
  * up to 3 attempts with Retry-After). Plugin retry exists solely for
  * transport-level failures the SDK doesn't catch (raw fetch TypeErrors).
  *

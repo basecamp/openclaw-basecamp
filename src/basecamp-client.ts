@@ -2,13 +2,11 @@
  * Basecamp SDK client factory.
  *
  * Creates and caches BasecampClient instances per account.
- * Handles token resolution from multiple sources (config, tokenFile, bcq).
+ * Handles token resolution from multiple sources (config, tokenFile, oauth).
  */
 
-import { createBasecampClient, type BasecampClient, BasecampError, errorFromResponse } from "@basecamp/sdk";
+import { createBasecampClient, type BasecampClient, BasecampError, errorFromResponse } from "@37signals/basecamp";
 import type { ResolvedBasecampAccount } from "./types.js";
-import { resolveCliBinaryPath } from "./bcq.js";
-import { execFile } from "node:child_process";
 import { homedir } from "node:os";
 import { resolve as pathResolve } from "node:path";
 
@@ -55,7 +53,6 @@ export function clearClients(): void {
 
 function resolveNumericAccountId(account: ResolvedBasecampAccount): string {
   const id = account.config.basecampAccountId
-    ?? account.config.bcqAccountId
     ?? (/^\d+$/.test(account.accountId) ? account.accountId : undefined);
   if (!id) {
     throw new Error(
@@ -88,9 +85,6 @@ function resolveTokenProvider(
         return readTokenFile(account.config.tokenFile);
       };
 
-    case "bcq":
-      return bcqTokenProvider(account.bcqProfile);
-
     case "oauth": {
       // Lazy import + lazy init: the dynamic import and TokenManager creation
       // happen on the first token request, avoiding sync import issues.
@@ -109,7 +103,7 @@ function resolveTokenProvider(
     case "none":
       throw new Error(
         `No authentication configured for account "${account.accountId}". ` +
-        `Set token, tokenFile, oauthTokenFile, or bcqProfile.`,
+        `Set token, tokenFile, or oauthTokenFile.`,
       );
   }
 }
@@ -127,70 +121,6 @@ async function readTokenFile(filePath: string): Promise<string> {
   }
   const content = await readFile(resolved, "utf-8");
   return content.trim();
-}
-
-// ---------------------------------------------------------------------------
-// Basecamp CLI token extraction (for tokenSource === "bcq")
-// ---------------------------------------------------------------------------
-
-const BCQ_TOKEN_CACHE_MS = 30_000;
-
-let cachedBcqToken: { token: string; profile: string | undefined; expiresAt: number } | null = null;
-
-/**
- * Create a token provider that extracts tokens from the Basecamp CLI.
- * Exported for use by onboarding/hatch wizards that need a token provider
- * for identity discovery via the CLI path.
- */
-export function bcqTokenProvider(profile: string | undefined): () => Promise<string> {
-  return async () => {
-    const now = Date.now();
-    if (cachedBcqToken && cachedBcqToken.profile === profile && now < cachedBcqToken.expiresAt) {
-      return cachedBcqToken.token;
-    }
-
-    const token = await bcqExtractToken(profile);
-    cachedBcqToken = { token, profile, expiresAt: now + BCQ_TOKEN_CACHE_MS };
-    return token;
-  };
-}
-
-function bcqExtractToken(profile: string | undefined): Promise<string> {
-  const binaryPath = resolveCliBinaryPath();
-  const args = ["auth", "token", "-q"];
-  if (profile) args.push("-P", profile);
-
-  return new Promise((resolve, reject) => {
-    execFile(binaryPath, args, { timeout: 10_000 }, (error, stdout, stderr) => {
-      if (error) {
-        // If primary binary not found, try fallback
-        if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-          const fallback = process.env.BCQ_BIN ?? "bcq";
-          execFile(fallback, args, { timeout: 10_000 }, (error2, stdout2, stderr2) => {
-            if (error2) {
-              reject(new Error(`Basecamp CLI auth token failed: ${stderr2.trim() || error2.message}`));
-              return;
-            }
-            const token = stdout2.trim();
-            if (!token) {
-              reject(new Error("Basecamp CLI auth token returned empty output"));
-              return;
-            }
-            resolve(token);
-          });
-          return;
-        }
-        reject(new Error(`Basecamp CLI auth token failed: ${stderr.trim() || error.message}`));
-        return;
-      }
-      const token = stdout.trim();
-      if (!token) {
-        reject(new Error("Basecamp CLI auth token returned empty output"));
-        return;
-      }
-      resolve(token);
-    });
-  });
 }
 
 // ---------------------------------------------------------------------------

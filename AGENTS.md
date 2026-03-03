@@ -12,7 +12,7 @@ This plugin is developed independently by the 37signals team and can later be no
 - **Peer model:** All Basecamp places map to OpenClaw's `dm | group` peer kinds using `recording:<id>` / `bucket:<id>` / `ping:<id>` conventions. `parentPeer` enables per-project routing without schema changes.
 - **Event fabric:** Composite ingestion from Activity Feed, Hey! Readings, webhooks, direct polls, and (later) Action Cable. Deduplication via per-account sqlite with 24h TTL.
 - **Multi-persona:** Multiple Basecamp service accounts per deployment, mapped via `channels.basecamp.personas` (agentId → accountId).
-- **Outbound:** Chat lines, comments, card creation via bcq (Phase 1), native API later.
+- **Outbound:** Chat lines, comments, card creation via the basecamp CLI (Phase 1), native API later.
 
 ## For the Dev Agent
 
@@ -24,7 +24,7 @@ Read `PLAN.md` for the full architecture. It is the authoritative source for all
 - **Agent→persona mapping** is in `channels.basecamp.personas`, not in AgentConfig (which external plugins can't extend).
 - **Pings:** 1:1 → `dm`, multi-person → `group`. Determined by Circle membership count.
 - **Webhooks are accelerators only** — correctness comes from polling. The system must work with webhooks disabled.
-- **Phase 1 uses bcq** for all Basecamp API access. Native API replaces polling in Phase 2, full native in Phase 3.
+- **Phase 1 uses the basecamp CLI** for all Basecamp API access. Native API replaces polling in Phase 2, full native in Phase 3.
 - **All recordable types are ingested from Phase 1.** Outbound actions are phased by risk.
 
 ### Where to Start (Phase 1)
@@ -34,7 +34,7 @@ Read `PLAN.md` for the full architecture. It is the authoritative source for all
 3. **Config adapter:** `src/config.ts` — parse accounts, virtualAccounts, personas from `channels.basecamp` config
 4. **Types:** `src/types.ts` — Basecamp event types, inbound message shape, peer conventions
 5. **Event fabric:** `src/inbound/` — activity feed polling, Hey! Readings polling, normalization, dedup
-6. **Outbound:** `src/outbound/` — post chat lines and comments via bcq
+6. **Outbound:** `src/outbound/` — post chat lines and comments via the basecamp CLI
 7. **Mentions:** `src/mentions/parse.ts` — bc-attachment SGID parsing
 
 ### Reference: OpenClaw Plugin API

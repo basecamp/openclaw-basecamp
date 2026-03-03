@@ -83,9 +83,9 @@ export const basecampSecurityAdapter = {
 
     // 5. Account has no auth configured
     for (const [id, acct] of Object.entries(accounts)) {
-      if (!acct.token && !acct.tokenFile && !acct.bcqProfile) {
+      if (!acct.token && !acct.tokenFile && !acct.oauthTokenFile) {
         warnings.push(
-          `Account "${id}" has no token, tokenFile, or bcqProfile configured`,
+          `Account "${id}" has no token, tokenFile, or oauthTokenFile configured`,
         );
       }
     }

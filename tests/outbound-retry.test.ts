@@ -44,7 +44,7 @@ const TEST_ACCOUNT: ResolvedBasecampAccount = {
   personId: "99",
   token: "test-token",
   tokenSource: "config" as const,
-  config: { personId: "99", bcqAccountId: "12345" },
+  config: { personId: "99", basecampAccountId: "12345" },
 };
 
 beforeEach(() => {
@@ -68,7 +68,7 @@ describe("postCampfireLine", () => {
 
     expect(result).toEqual({ ok: true, recordingId: "42" });
     expect(mockClient.campfires.createLine).toHaveBeenCalledTimes(1);
-    expect(mockClient.campfires.createLine).toHaveBeenCalledWith(1, 2, { content: "Hello" });
+    expect(mockClient.campfires.createLine).toHaveBeenCalledWith(2, { content: "Hello" });
   });
 
   it("retries on retryable TypeError and succeeds", async () => {
@@ -154,7 +154,7 @@ describe("postComment", () => {
 
     expect(result).toEqual({ ok: true, commentId: "55" });
     expect(mockClient.comments.create).toHaveBeenCalledTimes(1);
-    expect(mockClient.comments.create).toHaveBeenCalledWith(1, 2, { content: "A comment" });
+    expect(mockClient.comments.create).toHaveBeenCalledWith(2, { content: "A comment" });
   });
 
   it("retries on retryable TypeError and succeeds", async () => {

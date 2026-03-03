@@ -2,8 +2,9 @@
  * Basecamp hatch adapter — interactive wizard for provisioning new service identities.
  *
  * Supports two auth paths:
- *   1. Browser/OAuth — interactive login via @basecamp/sdk OAuth flow
- *   2. Basecamp CLI — legacy bcq profile-based authentication
+ *   1. Browser/OAuth — interactive login via @37signals/basecamp OAuth flow
+ *   2. Basecamp CLI — discovers identity via CLI (including attachable_sgid),
+ *      then chains into OAuth for persistent token
  *
  * Steps: auth method choice → identity discovery → account selection →
  * personId resolution → account ID key → optional persona mapping → config write.
@@ -14,16 +15,16 @@
 
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import { normalizeAccountId } from "openclaw/plugin-sdk";
-import type { AuthorizationInfo } from "@basecamp/sdk";
+import type { AuthorizationInfo } from "@37signals/basecamp";
 import type { BasecampChannelConfig } from "../types.js";
 import type { ResolvedBasecampAccount } from "../types.js";
-import { bcqMe, bcqProfileList } from "../bcq.js";
+import { cliMe, cliProfileList } from "../basecamp-cli.js";
 import { listBasecampAccountIds } from "../config.js";
 import {
   interactiveLogin,
   resolveTokenFilePath,
 } from "../oauth-credentials.js";
-import { discoverIdentity } from "@basecamp/sdk/oauth";
+import { discoverIdentity } from "@37signals/basecamp/oauth";
 
 type WizardPrompter = {
   select: (opts: { message: string; options: Array<{ value: string; label: string }>; initialValue?: string }) => Promise<string>;
@@ -68,7 +69,7 @@ async function chooseAuthMethod(
 // ---------------------------------------------------------------------------
 
 type OAuthDiscoveryResult = {
-  info: AuthorizationInfo;
+  info?: AuthorizationInfo;
   clientId: string;
   clientSecret?: string;
   tempTokenFile: string;
@@ -79,7 +80,7 @@ type OAuthDiscoveryResult = {
 async function discoverViaBrowser(
   cfg: OpenClawConfig,
   prompter: WizardPrompter,
-): Promise<OAuthDiscoveryResult> {
+): Promise<OAuthDiscoveryResult & { info: AuthorizationInfo }> {
   const section = getBasecampSection(cfg);
 
   // Resolve or prompt for clientId
@@ -142,7 +143,7 @@ type CliDiscoveryResult = {
   profile: string | undefined;
   identity: { id: number; name: string; email_address: string; attachable_sgid?: string };
   accounts: Array<{ id: number; name: string }>;
-  bcqAccountId?: string;
+  basecampAccountId?: string;
 };
 
 async function discoverViaCli(
@@ -153,7 +154,7 @@ async function discoverViaCli(
   let selectedProfile: string | undefined;
   if (profileNames.length > 1) {
     const choice = await prompter.select({
-      message: "Select bcq profile for the new identity",
+      message: "Select CLI profile for the new identity",
       options: [
         ...profileNames.map((name) => ({ value: name, label: name })),
         { value: "__none__", label: "Use default (no profile)" },
@@ -165,7 +166,7 @@ async function discoverViaCli(
   }
 
   try {
-    const meResult = await bcqMe(selectedProfile ? { profile: selectedProfile } : {});
+    const meResult = await cliMe(selectedProfile ? { profile: selectedProfile } : {});
     const data = meResult.data as unknown as {
       identity?: { id: number; name: string; email_address: string; attachable_sgid?: string };
       accounts?: Array<{ id: number; name: string }>;
@@ -233,7 +234,7 @@ export async function hatchIdentity(
   // Probe CLI availability
   let profileNames: string[] = [];
   try {
-    const result = await bcqProfileList();
+    const result = await cliProfileList();
     profileNames = result.data;
   } catch {
     // CLI not available
@@ -256,14 +257,14 @@ export async function hatchIdentity(
   let promptedClientId = false;
   let promptedClientSecret = false;
   let oauthResult: OAuthDiscoveryResult | undefined;
-  let bcqProfile: string | undefined;
-  let bcqAccountId: string | undefined;
+  let cliProfile: string | undefined;
 
   if (authMethod === "browser") {
     // Browser auth is all-or-nothing: if login or identity discovery fails,
     // abort rather than creating an account with no auth material.
-    oauthResult = await discoverViaBrowser(cfg, prompter);
-    const { info } = oauthResult;
+    const browserResult = await discoverViaBrowser(cfg, prompter);
+    oauthResult = browserResult;
+    const { info } = browserResult;
 
     await prompter.note(
       `Identity: ${info.identity.firstName} ${info.identity.lastName} (ID: ${info.identity.id}, ${info.identity.emailAddress})`,
@@ -290,14 +291,13 @@ export async function hatchIdentity(
       personId = String(cliResult.identity.id);
       displayName = cliResult.identity.name;
       attachableSgid = cliResult.identity.attachable_sgid;
-      bcqProfile = cliResult.profile;
+      cliProfile = cliResult.profile;
 
       // Select Basecamp account from CLI-discovered accounts
       basecampAccountId = await selectBasecampAccount(
         cliResult.accounts as Array<{ id: number; name: string; product?: string }>,
         prompter,
       );
-      bcqAccountId = basecampAccountId;
     }
   }
 
@@ -322,6 +322,73 @@ export async function hatchIdentity(
       },
     }),
   );
+
+  // CLI path: chain into OAuth for persistent token (before relocation)
+  if (authMethod === "cli" && !oauthResult) {
+    const cliSection = getBasecampSection(cfg);
+
+    // Resolve or prompt for clientId
+    let cliClientId = cliSection?.oauth?.clientId;
+    let cliPromptedClientId = false;
+    if (!cliClientId) {
+      cliClientId = await prompter.text({
+        message: "OAuth client ID",
+        validate: (v) => (v?.trim() ? undefined : "Required"),
+      });
+      cliClientId = cliClientId.trim();
+      cliPromptedClientId = true;
+    }
+
+    // Resolve or prompt for clientSecret
+    let cliClientSecret = cliSection?.oauth?.clientSecret;
+    let cliPromptedClientSecret = false;
+    if (!cliClientSecret && cliPromptedClientId) {
+      const entered = await prompter.text({
+        message: "Client Secret (leave blank to skip)",
+      });
+      const val = String(entered).trim();
+      if (val) {
+        cliClientSecret = val;
+        cliPromptedClientSecret = true;
+      }
+    }
+
+    // Use a temp key for the OAuth flow (same pattern as browser path)
+    const tempKey = `__hatch_${crypto.randomUUID()}__`;
+    const tempAccount: ResolvedBasecampAccount = {
+      accountId: tempKey,
+      enabled: true,
+      personId: personId ?? "",
+      token: "",
+      tokenSource: "oauth",
+      oauthClientId: cliClientId,
+      oauthClientSecret: cliClientSecret,
+      config: { personId: personId ?? "" },
+    };
+
+    const cliOauthToken = await interactiveLogin(tempAccount, { clientId: cliClientId, clientSecret: cliClientSecret });
+
+    // Verify OAuth identity matches CLI-discovered identity
+    try {
+      const oauthInfo = await discoverIdentity(cliOauthToken.accessToken);
+      const oauthPersonId = String(oauthInfo.identity.id);
+      if (oauthPersonId !== personId) {
+        personId = oauthPersonId;
+        displayName = `${oauthInfo.identity.firstName} ${oauthInfo.identity.lastName}`;
+        attachableSgid = undefined; // CLI SGID invalid for different identity
+      }
+    } catch {
+      // Non-fatal: proceed with CLI-discovered identity
+    }
+
+    oauthResult = {
+      clientId: cliClientId,
+      clientSecret: cliClientSecret,
+      tempTokenFile: resolveTokenFilePath(tempKey),
+      promptedClientId: cliPromptedClientId,
+      promptedClientSecret: cliPromptedClientSecret,
+    };
+  }
 
   // Relocate OAuth temp token file to final {accountId}-based path.
   // Try rename first; fall back to copy+unlink for cross-device moves.
@@ -391,14 +458,8 @@ export async function hatchIdentity(
     ...(basecampAccountId ? { basecampAccountId } : {}),
   };
 
-  if (authMethod === "browser") {
-    if (oauthTokenFile) accountEntry.oauthTokenFile = oauthTokenFile;
-    // Auth-method conflict cleanup: strip CLI fields
-  } else {
-    if (bcqProfile) accountEntry.bcqProfile = bcqProfile;
-    if (bcqAccountId) accountEntry.bcqAccountId = bcqAccountId;
-    // Auth-method conflict cleanup: strip OAuth fields
-  }
+  if (oauthTokenFile) accountEntry.oauthTokenFile = oauthTokenFile;
+  if (cliProfile) accountEntry.cliProfile = cliProfile;
 
   // Build updated channel-level oauth if credentials were prompted
   const oauthSection = promptedClientId && oauthClientId

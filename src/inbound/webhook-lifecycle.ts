@@ -120,7 +120,7 @@ export async function reconcileWebhooks(
           newTypes: config.types.length > 0 ? config.types.join(",") : "all",
         });
         try {
-          await client.webhooks.delete(numId("project", projectId), urlMatch.id);
+          await client.webhooks.delete(urlMatch.id);
           registry.remove(projectId);
         } catch (delErr) {
           log?.warn("webhook_stale_delete_failed", {
@@ -225,7 +225,7 @@ export async function deactivateWebhooks(
     }
 
     try {
-      await client.webhooks.delete(numId("project", projectId), Number(entry.webhookId));
+      await client.webhooks.delete(Number(entry.webhookId));
       registry.remove(projectId);
       log?.info("webhook_deactivated", {
         project: projectId,

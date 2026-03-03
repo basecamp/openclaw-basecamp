@@ -1,11 +1,11 @@
 /**
  * OAuth credential management for Basecamp channel plugin.
  *
- * Wraps the @basecamp/sdk OAuth building blocks (TokenManager, FileTokenStore)
+ * Wraps the @37signals/basecamp OAuth building blocks (TokenManager, FileTokenStore)
  * into plugin-aware helpers that resolve paths, cache managers per account,
  * and drive the interactive login flow.
  *
- * NOTE: The @basecamp/sdk TokenManager / FileTokenStore / performInteractiveLogin
+ * NOTE: The @37signals/basecamp TokenManager / FileTokenStore / performInteractiveLogin
  * exports are being built in a parallel SDK PR. These imports will resolve once
  * that PR lands.
  */
@@ -16,7 +16,7 @@ import {
   performInteractiveLogin,
   refreshToken as sdkRefreshToken,
   type OAuthToken,
-} from "@basecamp/sdk/oauth";
+} from "@37signals/basecamp/oauth";
 import type { ResolvedBasecampAccount } from "./types.js";
 import { homedir } from "node:os";
 import { join } from "node:path";

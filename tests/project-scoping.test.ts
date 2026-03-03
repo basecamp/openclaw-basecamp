@@ -108,11 +108,11 @@ describe("resolveBasecampAccount (virtual accounts)", () => {
     expect(result.scopedBucketId).toBe("12345");
   });
 
-  it("inherits token and bcqProfile from real account", () => {
+  it("inherits token and cliProfile from real account", () => {
     const result = resolveBasecampAccount(
       cfg({
         accounts: {
-          primary: { personId: "42", bcqProfile: "prod" },
+          primary: { personId: "42", token: "tok", cliProfile: "prod" },
         },
         virtualAccounts: {
           scoped: { accountId: "primary", bucketId: "999" },
@@ -121,8 +121,8 @@ describe("resolveBasecampAccount (virtual accounts)", () => {
       "scoped",
     );
 
-    expect(result.bcqProfile).toBe("prod");
-    expect(result.tokenSource).toBe("bcq");
+    expect(result.cliProfile).toBe("prod");
+    expect(result.tokenSource).toBe("config");
   });
 
   it("returns disabled stub when backing account missing", () => {

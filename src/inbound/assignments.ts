@@ -1,7 +1,7 @@
 /**
  * Assignments polling source.
  *
- * Polls GET /my/assignments.json via bcq to detect todos newly assigned
+ * Polls GET /my/assignments.json via the Basecamp API to detect todos newly assigned
  * to the service account. Uses a set-diff approach: tracks known todo IDs
  * and emits events only for new assignments.
  *

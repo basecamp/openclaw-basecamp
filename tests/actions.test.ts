@@ -43,8 +43,8 @@ vi.mock("../src/config.js", () => ({
     personId: "999",
     token: "tok-test",
     tokenSource: "config",
-    bcqProfile: "test-profile",
-    config: { personId: "999", bcqAccountId: undefined },
+    cliProfile: "test-profile",
+    config: { personId: "999", basecampAccountId: undefined },
   })),
 }));
 
@@ -354,9 +354,9 @@ describe("actions.handleAction — bucket scoping", () => {
       personId: "999",
       token: "tok-test",
       tokenSource: "config",
-      bcqProfile: "test-profile",
+      cliProfile: "test-profile",
       scopedBucketId: 42,
-      config: { personId: "999", bcqAccountId: undefined },
+      config: { personId: "999", basecampAccountId: undefined },
     } as any);
 
     const result = await basecampActionsAdapter.handleAction!(
@@ -382,15 +382,15 @@ describe("actions.handleAction — bucket scoping", () => {
 
 describe("actions.handleAction — react", () => {
   beforeEach(() => {
-    // Reset to default account (no bcqAccountId override, no scoping)
+    // Reset to default account (no basecampAccountId override, no scoping)
     vi.mocked(resolveBasecampAccount).mockReturnValue({
       accountId: "test-acct",
       enabled: true,
       personId: "999",
       token: "tok-test",
       tokenSource: "config",
-      bcqProfile: "test-profile",
-      config: { personId: "999", bcqAccountId: undefined },
+      cliProfile: "test-profile",
+      config: { personId: "999", basecampAccountId: undefined },
     } as any);
   });
 
@@ -409,7 +409,6 @@ describe("actions.handleAction — react", () => {
       result: { ok: true, target: "boost", boostId: 55 },
     });
     expect(mockClient.boosts.createForRecording).toHaveBeenCalledWith(
-      1,
       500,
       { content: "🎉" },
     );
@@ -426,7 +425,6 @@ describe("actions.handleAction — react", () => {
     );
 
     expect(mockClient.boosts.createForRecording).toHaveBeenCalledWith(
-      1,
       500,
       { content: "👍" },
     );
@@ -483,9 +481,9 @@ describe("actions.handleAction — react bucket scoping", () => {
       personId: "999",
       token: "tok-test",
       tokenSource: "config",
-      bcqProfile: "test-profile",
+      cliProfile: "test-profile",
       scopedBucketId: 42,
-      config: { personId: "999", bcqAccountId: undefined },
+      config: { personId: "999", basecampAccountId: undefined },
     } as any);
 
     const result = await basecampActionsAdapter.handleAction!(
@@ -518,8 +516,8 @@ describe("actions.handleAction — react dryRun", () => {
       personId: "999",
       token: "tok-test",
       tokenSource: "config",
-      bcqProfile: "test-profile",
-      config: { personId: "999", bcqAccountId: undefined },
+      cliProfile: "test-profile",
+      config: { personId: "999", basecampAccountId: undefined },
     } as any);
   });
 

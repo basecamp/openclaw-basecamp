@@ -25,7 +25,7 @@ export const basecampSetupAdapter: ChannelSetupAdapter = {
     }),
 
   validateInput: () => {
-    // No-op: Basecamp authentication is handled by bcq profiles or
+    // No-op: Basecamp authentication is handled by CLI profiles or
     // token config. Validation happens during onboarding and gateway startup.
     return null;
   },

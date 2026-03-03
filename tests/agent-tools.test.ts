@@ -34,7 +34,7 @@ vi.mock("../src/config.js", () => ({
     personId: "999",
     token: "tok-test",
     tokenSource: "config",
-    config: { personId: "999", bcqAccountId: "99" },
+    config: { personId: "999", basecampAccountId: "99" },
   })),
 }));
 
@@ -109,7 +109,6 @@ describe("basecamp_create_todo", () => {
     });
 
     expect(mockClient.todos.create).toHaveBeenCalledWith(
-      100,
       200,
       { content: "Buy milk", description: undefined, assigneeIds: undefined, dueOn: undefined, startsOn: undefined },
     );
@@ -132,7 +131,6 @@ describe("basecamp_create_todo", () => {
     });
 
     expect(mockClient.todos.create).toHaveBeenCalledWith(
-      100,
       200,
       {
         content: "Review PR",
@@ -154,7 +152,7 @@ describe("basecamp_create_todo", () => {
     });
 
     const callArgs = mockClient.todos.create.mock.calls[0]!;
-    const body = callArgs[2];
+    const body = callArgs[1];
     expect(body.content).toBe("Simple todo");
     expect(body.description).toBeUndefined();
     expect(body.assigneeIds).toBeUndefined();
@@ -193,7 +191,7 @@ describe("basecamp_complete_todo", () => {
       todoId: "300",
     });
 
-    expect(mockClient.todos.complete).toHaveBeenCalledWith(100, 300);
+    expect(mockClient.todos.complete).toHaveBeenCalledWith(300);
     const parsed = JSON.parse(result.content[0].text);
     expect(parsed).toEqual({ ok: true, todoId: "300" });
   });
@@ -227,7 +225,7 @@ describe("basecamp_reopen_todo", () => {
       todoId: "300",
     });
 
-    expect(mockClient.todos.uncomplete).toHaveBeenCalledWith(100, 300);
+    expect(mockClient.todos.uncomplete).toHaveBeenCalledWith(300);
     const parsed = JSON.parse(result.content[0].text);
     expect(parsed).toEqual({ ok: true, todoId: "300" });
   });
@@ -470,7 +468,6 @@ describe("basecamp_add_boost", () => {
     });
 
     expect(mockClient.boosts.createForRecording).toHaveBeenCalledWith(
-      100,
       500,
       { content: "👍" },
     );
@@ -489,7 +486,6 @@ describe("basecamp_add_boost", () => {
     });
 
     expect(mockClient.boosts.createForRecording).toHaveBeenCalledWith(
-      100,
       500,
       { content: "🎉" },
     );
@@ -529,7 +525,6 @@ describe("basecamp_move_card", () => {
     });
 
     expect(mockClient.cards.move).toHaveBeenCalledWith(
-      100,
       600,
       { columnId: 700 },
     );
@@ -571,7 +566,6 @@ describe("basecamp_post_message", () => {
     });
 
     expect(mockClient.messages.create).toHaveBeenCalledWith(
-      100,
       200,
       { subject: "Weekly Update", content: undefined, categoryId: undefined },
     );
@@ -592,7 +586,6 @@ describe("basecamp_post_message", () => {
     });
 
     expect(mockClient.messages.create).toHaveBeenCalledWith(
-      100,
       200,
       { subject: "Announcement", content: "<p>Big news!</p>", categoryId: 5 },
     );
@@ -608,7 +601,7 @@ describe("basecamp_post_message", () => {
     });
 
     const callArgs = mockClient.messages.create.mock.calls[0]!;
-    const body = callArgs[2];
+    const body = callArgs[1];
     expect(body.subject).toBe("Simple");
     expect(body.content).toBeUndefined();
     expect(body.categoryId).toBeUndefined();
@@ -647,7 +640,6 @@ describe("basecamp_answer_checkin", () => {
     });
 
     expect(mockClient.checkins.createAnswer).toHaveBeenCalledWith(
-      100,
       300,
       { content: "Everything is on track!" },
     );

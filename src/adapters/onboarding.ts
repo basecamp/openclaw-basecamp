@@ -2,8 +2,8 @@
  * Basecamp onboarding adapter — guides users through initial channel setup.
  *
  * Supports two authentication paths:
- * - Browser-based OAuth (recommended) — uses @basecamp/sdk interactive login
- * - Legacy Basecamp CLI profile — uses bcq auth for token management
+ * - Browser-based OAuth (recommended) — uses @37signals/basecamp interactive login
+ * - Basecamp CLI profile — discovers identity via CLI, then chains into OAuth for persistent token
  *
  * Both paths converge on discoverIdentity() for account/person resolution.
  */
@@ -17,8 +17,7 @@ import {
   resolveDefaultBasecampAccountId,
   resolveBasecampAccount,
 } from "../config.js";
-import { bcqAuthStatus, bcqProfileList } from "../bcq.js";
-import type { BcqOptions } from "../bcq.js";
+import { cliProfileList, extractCliBootstrapToken } from "../basecamp-cli.js";
 
 const channel = "basecamp" as const;
 
@@ -123,7 +122,7 @@ export const basecampOnboardingAdapter: ChannelOnboardingAdapter = {
     // Probe for CLI availability
     let cliProfileNames: string[] = [];
     try {
-      const profileResult = await bcqProfileList();
+      const profileResult = await cliProfileList();
       cliProfileNames = profileResult.data;
     } catch {
       // CLI not installed or profiles unavailable
@@ -197,7 +196,7 @@ export const basecampOnboardingAdapter: ChannelOnboardingAdapter = {
 
       // Build a token provider for later use if needed
     } else {
-      // CLI path
+      // CLI path — discover identity via CLI, then chain into OAuth
       if (cliProfileNames.length > 1) {
         const choice = await prompter.select({
           message: "Basecamp CLI profile",
@@ -211,37 +210,11 @@ export const basecampOnboardingAdapter: ChannelOnboardingAdapter = {
         selectedProfile = cliProfileNames[0];
       }
 
-      const bcqOpts: BcqOptions = selectedProfile ? { profile: selectedProfile } : {};
-      let authenticated = false;
+      // Extract token for identity discovery
       try {
-        const authResult = await bcqAuthStatus(bcqOpts);
-        authenticated = authResult.data.authenticated;
+        accessToken = await extractCliBootstrapToken(selectedProfile);
       } catch {
-        // Auth check failed
-      }
-
-      if (!authenticated) {
-        await prompter.note(
-          [
-            "Basecamp CLI is not authenticated. Run:",
-            selectedProfile
-              ? `  basecamp auth login --profile ${selectedProfile}`
-              : "  basecamp auth login",
-            "Then re-run setup.",
-          ].join("\n"),
-          "Basecamp auth",
-        );
-      }
-
-      // Get token for identity discovery
-      if (authenticated) {
-        try {
-          const { bcqTokenProvider } = await import("../basecamp-client.js");
-          const provider = bcqTokenProvider(selectedProfile);
-          accessToken = await provider();
-        } catch {
-          // Token extraction failed — will fall back to manual entry
-        }
+        // Token extraction failed — will fall back to manual entry
       }
     }
 
@@ -253,7 +226,7 @@ export const basecampOnboardingAdapter: ChannelOnboardingAdapter = {
 
     if (accessToken) {
       try {
-        const { discoverIdentity } = await import("@basecamp/sdk/oauth");
+        const { discoverIdentity } = await import("@37signals/basecamp/oauth");
         const info = await discoverIdentity(accessToken);
         identityId = info.identity.id;
         identityName = [info.identity.firstName, info.identity.lastName].filter(Boolean).join(" ");
@@ -310,15 +283,66 @@ export const basecampOnboardingAdapter: ChannelOnboardingAdapter = {
       ...(basecampAccountId ? { basecampAccountId } : {}),
     };
 
-    if (authMethod === "oauth") {
-      accountPatch.oauthTokenFile = oauthTokenFile;
-      // Clear CLI-path keys
-      delete accountPatch.bcqProfile;
-    } else {
-      if (selectedProfile) accountPatch.bcqProfile = selectedProfile;
-      if (basecampAccountId) accountPatch.bcqAccountId = basecampAccountId;
-      // Clear OAuth-path keys
-      delete accountPatch.oauthTokenFile;
+    // CLI path chains into OAuth for persistent token
+    if (authMethod === "cli" && !oauthTokenFile) {
+      const resolved = resolveBasecampAccount(cfg, accountId);
+      let clientId = resolved.oauthClientId;
+      let clientSecret = resolved.oauthClientSecret;
+
+      if (!clientId) {
+        await prompter.note(
+          "You'll need a Basecamp OAuth app. Register one at:\nhttps://launchpad.37signals.com/integrations",
+          "OAuth setup",
+        );
+        const enteredId = await prompter.text({
+          message: "Enter your Basecamp OAuth app Client ID",
+          validate: (value) => (value?.trim() ? undefined : "Required"),
+        });
+        clientId = String(enteredId).trim();
+        promptedClientId = clientId;
+
+        const enteredSecret = await prompter.text({
+          message: "Client Secret (leave blank to skip)",
+        });
+        const secretVal = String(enteredSecret).trim();
+        if (secretVal) {
+          clientSecret = secretVal;
+          promptedClientSecret = secretVal;
+        }
+      }
+
+      const { interactiveLogin, resolveTokenFilePath } = await import("../oauth-credentials.js");
+      oauthTokenFile = resolveTokenFilePath(accountId);
+      const partialAccount = {
+        ...resolved,
+        accountId,
+        oauthClientId: clientId,
+        oauthClientSecret: clientSecret,
+        config: { ...resolved.config, oauthTokenFile },
+      };
+      const oauthToken = await interactiveLogin(partialAccount, { clientId, clientSecret });
+
+      // Verify OAuth identity matches CLI-discovered identity
+      try {
+        const { discoverIdentity } = await import("@37signals/basecamp/oauth");
+        const oauthInfo = await discoverIdentity(oauthToken.accessToken);
+        const oauthPersonId = String(oauthInfo.identity.id);
+        if (oauthPersonId !== personId) {
+          personId = oauthPersonId;
+          accountPatch.personId = personId;
+        }
+      } catch {
+        // Non-fatal: proceed with CLI-discovered identity
+      }
+    }
+
+    accountPatch.oauthTokenFile = oauthTokenFile;
+    if (selectedProfile) accountPatch.cliProfile = selectedProfile;
+    // When credentials were freshly prompted and written to channel-level oauth,
+    // remove per-account overrides so the account inherits from channel-level.
+    // Otherwise preserve per-account oauthClientId/oauthClientSecret — the
+    // TokenManager reads these for token refresh.
+    if (promptedClientId) {
       delete accountPatch.oauthClientId;
       delete accountPatch.oauthClientSecret;
     }

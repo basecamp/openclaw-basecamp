@@ -95,7 +95,7 @@ const account = {
   enabled: true,
   token: "tok",
   tokenSource: "config" as const,
-  bcqProfile: undefined,
+  cliProfile: undefined,
   config: { personId: "99" },
 } as any;
 

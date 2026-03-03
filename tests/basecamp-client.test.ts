@@ -2,7 +2,7 @@
  * Tests for src/basecamp-client.ts
  *
  * Covers: numId, rawOrThrow, getClient (client caching + account ID resolution),
- * resolveTokenProvider (all token sources), bcqTokenProvider (cache + TTL + ENOENT fallback).
+ * resolveTokenProvider (config, tokenFile, oauth, none).
  */
 import { describe, it, expect, vi, afterEach } from "vitest";
 
@@ -15,7 +15,7 @@ const { mockCreateBasecampClient, mockErrorFromResponse } = vi.hoisted(() => ({
   mockErrorFromResponse: vi.fn(),
 }));
 
-vi.mock("@basecamp/sdk", () => ({
+vi.mock("@37signals/basecamp", () => ({
   createBasecampClient: mockCreateBasecampClient,
   errorFromResponse: mockErrorFromResponse,
   BasecampError: class BasecampError extends Error {
@@ -26,11 +26,7 @@ vi.mock("@basecamp/sdk", () => ({
   },
 }));
 
-vi.mock("node:child_process", () => ({
-  execFile: vi.fn(),
-}));
-
-vi.mock("../src/bcq.js", () => ({
+vi.mock("../src/basecamp-cli.js", () => ({
   resolveCliBinaryPath: vi.fn(() => "basecamp"),
 }));
 
@@ -47,8 +43,7 @@ vi.mock("node:fs/promises", () => ({
   readFile: mockReadFile,
 }));
 
-import { numId, rawOrThrow, getClient, clearClients, bcqTokenProvider } from "../src/basecamp-client.js";
-import { execFile } from "node:child_process";
+import { numId, rawOrThrow, getClient, clearClients } from "../src/basecamp-client.js";
 import type { ResolvedBasecampAccount } from "../src/types.js";
 
 // ---------------------------------------------------------------------------
@@ -164,17 +159,6 @@ describe("getClient", () => {
 
     expect(mockCreateBasecampClient).toHaveBeenCalledWith(
       expect.objectContaining({ accountId: "777" }),
-    );
-  });
-
-  it("falls back to bcqAccountId when basecampAccountId is absent", () => {
-    const account = makeAccount({
-      config: { personId: "42", bcqAccountId: "888" },
-    });
-    getClient(account);
-
-    expect(mockCreateBasecampClient).toHaveBeenCalledWith(
-      expect.objectContaining({ accountId: "888" }),
     );
   });
 
@@ -336,19 +320,6 @@ describe("resolveTokenProvider", () => {
     await expect(lazyFn()).rejects.toThrow('No tokenFile configured for account "tf-no-file"');
   });
 
-  it('tokenSource "bcq" passes a function (the bcqTokenProvider)', () => {
-    const account = makeAccount({
-      accountId: "bcq-source",
-      tokenSource: "bcq",
-      bcqProfile: "dev",
-      config: { personId: "42", basecampAccountId: "5" },
-    });
-    getClient(account);
-
-    const call = mockCreateBasecampClient.mock.calls[0]![0];
-    expect(typeof call.accessToken).toBe("function");
-  });
-
   it('tokenSource "oauth" passes an async function that triggers dynamic import', async () => {
     const account = makeAccount({
       accountId: "oauth-source",
@@ -375,179 +346,5 @@ describe("resolveTokenProvider", () => {
     expect(() => getClient(account)).toThrow(
       'No authentication configured for account "none-source"',
     );
-  });
-});
-
-// ---------------------------------------------------------------------------
-// bcqTokenProvider
-// ---------------------------------------------------------------------------
-
-describe("bcqTokenProvider", () => {
-  function mockExecFileSuccess(token: string): void {
-    vi.mocked(execFile).mockImplementation((_cmd: any, _args: any, _opts: any, cb: any) => {
-      cb(null, `  ${token}  \n`, "");
-      return {} as any;
-    });
-  }
-
-  it('calls execFile with auth token args ["auth", "token", "-q"]', async () => {
-    mockExecFileSuccess("tok-1");
-
-    const provider = bcqTokenProvider(undefined);
-    await provider();
-
-    expect(vi.mocked(execFile)).toHaveBeenCalledWith(
-      "basecamp",
-      ["auth", "token", "-q"],
-      { timeout: 10_000 },
-      expect.any(Function),
-    );
-  });
-
-  it("returns cached token within 30s (second call skips execFile)", async () => {
-    vi.useFakeTimers();
-    mockExecFileSuccess("cached-tok");
-
-    const provider = bcqTokenProvider("profile-cache-test");
-    const first = await provider();
-    const second = await provider();
-
-    expect(first).toBe("cached-tok");
-    expect(second).toBe("cached-tok");
-    expect(vi.mocked(execFile)).toHaveBeenCalledTimes(1);
-  });
-
-  it("refreshes after 30s TTL", async () => {
-    vi.useFakeTimers();
-
-    let callCount = 0;
-    vi.mocked(execFile).mockImplementation((_cmd: any, _args: any, _opts: any, cb: any) => {
-      callCount++;
-      cb(null, `token-${callCount}`, "");
-      return {} as any;
-    });
-
-    const provider = bcqTokenProvider("profile-ttl-test");
-    const first = await provider();
-    expect(first).toBe("token-1");
-
-    vi.advanceTimersByTime(30_001);
-
-    const second = await provider();
-    expect(second).toBe("token-2");
-    expect(callCount).toBe(2);
-  });
-
-  it("adds -P flag for named profile", async () => {
-    mockExecFileSuccess("prof-tok");
-
-    const provider = bcqTokenProvider("my-profile");
-    await provider();
-
-    expect(vi.mocked(execFile)).toHaveBeenCalledWith(
-      "basecamp",
-      ["auth", "token", "-q", "-P", "my-profile"],
-      { timeout: 10_000 },
-      expect.any(Function),
-    );
-  });
-
-  it("rejects on empty stdout", async () => {
-    vi.mocked(execFile).mockImplementation((_cmd: any, _args: any, _opts: any, cb: any) => {
-      cb(null, "   \n", "");
-      return {} as any;
-    });
-
-    const provider = bcqTokenProvider("profile-empty-test");
-    await expect(provider()).rejects.toThrow("Basecamp CLI auth token returned empty output");
-  });
-
-  it("falls back to BCQ_BIN on ENOENT", async () => {
-    const originalEnv = process.env.BCQ_BIN;
-    process.env.BCQ_BIN = "/usr/local/bin/bcq-custom";
-
-    try {
-      let callIdx = 0;
-      vi.mocked(execFile).mockImplementation((cmd: any, _args: any, _opts: any, cb: any) => {
-        callIdx++;
-        if (callIdx === 1) {
-          // Primary binary: ENOENT
-          const err = new Error("spawn basecamp ENOENT") as NodeJS.ErrnoException;
-          err.code = "ENOENT";
-          cb(err, "", "");
-        } else {
-          // Fallback binary: success
-          cb(null, "fallback-token", "");
-        }
-        return {} as any;
-      });
-
-      const provider = bcqTokenProvider("profile-enoent-test");
-      const token = await provider();
-
-      expect(token).toBe("fallback-token");
-      expect(vi.mocked(execFile)).toHaveBeenCalledTimes(2);
-      expect(vi.mocked(execFile).mock.calls[1]![0]).toBe("/usr/local/bin/bcq-custom");
-    } finally {
-      if (originalEnv === undefined) {
-        delete process.env.BCQ_BIN;
-      } else {
-        process.env.BCQ_BIN = originalEnv;
-      }
-    }
-  });
-
-  it("falls back to 'bcq' when BCQ_BIN is not set and primary is ENOENT", async () => {
-    const originalEnv = process.env.BCQ_BIN;
-    delete process.env.BCQ_BIN;
-
-    try {
-      let callIdx = 0;
-      vi.mocked(execFile).mockImplementation((_cmd: any, _args: any, _opts: any, cb: any) => {
-        callIdx++;
-        if (callIdx === 1) {
-          const err = new Error("ENOENT") as NodeJS.ErrnoException;
-          err.code = "ENOENT";
-          cb(err, "", "");
-        } else {
-          cb(null, "bcq-fallback-token", "");
-        }
-        return {} as any;
-      });
-
-      const provider = bcqTokenProvider("profile-bcq-fallback-test");
-      const token = await provider();
-
-      expect(token).toBe("bcq-fallback-token");
-      expect(vi.mocked(execFile).mock.calls[1]![0]).toBe("bcq");
-    } finally {
-      if (originalEnv === undefined) {
-        delete process.env.BCQ_BIN;
-      } else {
-        process.env.BCQ_BIN = originalEnv;
-      }
-    }
-  });
-
-  it("rejects with stderr message on non-ENOENT error", async () => {
-    vi.mocked(execFile).mockImplementation((_cmd: any, _args: any, _opts: any, cb: any) => {
-      const err = new Error("permission denied");
-      cb(err, "", "Permission denied: basecamp");
-      return {} as any;
-    });
-
-    const provider = bcqTokenProvider("profile-permerr-test");
-    await expect(provider()).rejects.toThrow("Basecamp CLI auth token failed: Permission denied: basecamp");
-  });
-
-  it("rejects with error message when stderr is empty", async () => {
-    vi.mocked(execFile).mockImplementation((_cmd: any, _args: any, _opts: any, cb: any) => {
-      const err = new Error("timeout exceeded");
-      cb(err, "", "");
-      return {} as any;
-    });
-
-    const provider = bcqTokenProvider("profile-timeout-test");
-    await expect(provider()).rejects.toThrow("Basecamp CLI auth token failed: timeout exceeded");
   });
 });

@@ -1,7 +1,7 @@
 /**
  * Outbound delivery adapter for Basecamp.
  *
- * Uses @basecamp/sdk for all Basecamp API writes. Provides:
+ * Uses @37signals/basecamp for all Basecamp API writes. Provides:
  * - postCampfireLine: POST /buckets/{id}/chats/{id}/lines.json
  * - postComment: POST /buckets/{id}/recordings/{id}/comments.json
  * - postReplyToEvent: dispatches to the correct endpoint based on recordableType
@@ -134,7 +134,6 @@ export async function postCampfireLine(params: {
   const doPost = async () => {
     const client = getClient(account);
     return client.campfires.createLine(
-      numId("project", bucketId),
       numId("campfire", transcriptId),
       { content },
     );
@@ -182,7 +181,6 @@ export async function postComment(params: {
   const doPost = async () => {
     const client = getClient(account);
     return client.comments.create(
-      numId("project", bucketId),
       numId("recording", recordingId),
       { content },
     );

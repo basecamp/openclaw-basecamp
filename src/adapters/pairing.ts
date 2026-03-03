@@ -3,7 +3,7 @@
  * and approval notifications.
  *
  * Basecamp uses person IDs (numeric strings) for allowlist entries.
- * Pairing approval sends a Ping message to the user via bcq.
+ * Pairing approval sends a Ping message to the user via the Basecamp API.
  */
 
 import type { ChannelPairingAdapter, OpenClawConfig } from "openclaw/plugin-sdk";

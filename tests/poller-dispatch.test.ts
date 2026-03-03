@@ -143,8 +143,8 @@ const baseAccount = {
   enabled: true,
   token: "tok",
   tokenSource: "config" as const,
-  bcqProfile: "default",
-  config: { personId: "99", bcqProfile: "default" },
+  cliProfile: "default",
+  config: { personId: "99", cliProfile: "default" },
 } as any;
 
 const log = {

@@ -50,7 +50,7 @@ const mockAccount: ResolvedBasecampAccount = {
   attachableSgid: "sgid://bc3/Person/999",
   token: "test-token",
   tokenSource: "config",
-  config: { personId: "999", bcqAccountId: "2914079" },
+  config: { personId: "999", basecampAccountId: "2914079" },
 };
 
 function makeTodo(overrides: Partial<BasecampAssignmentTodo> = {}): BasecampAssignmentTodo {

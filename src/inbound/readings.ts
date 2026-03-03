@@ -1,7 +1,7 @@
 /**
  * Hey! Readings polling source.
  *
- * Polls GET /my/readings.json via bcq to ingest unread notifications.
+ * Polls GET /my/readings.json via the Basecamp API to ingest unread notifications.
  * Processes the `unreads` array — items with new activity the service
  * account hasn't "read" yet.
  */
@@ -20,7 +20,7 @@ export interface ReadingsPollResult {
   events: BasecampInboundMessage[];
   /** ISO timestamp of the newest reading (for cursor advancement). */
   newestAt: string | undefined;
-  /** Readable SGIDs of all processed entries — pass to bcqMarkReadingsRead. */
+  /** Readable SGIDs of all processed entries — passed to the SDK mark-read call in the poller. */
   processedSgids: string[];
 }
 

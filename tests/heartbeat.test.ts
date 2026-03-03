@@ -33,8 +33,8 @@ const mockAccount = {
   personId: "42",
   token: "tok",
   tokenSource: "config" as const,
-  bcqProfile: "default",
-  config: { personId: "42", bcqProfile: "default" },
+  cliProfile: "default",
+  config: { personId: "42", cliProfile: "default" },
 };
 
 beforeEach(() => {
@@ -78,7 +78,7 @@ describe("heartbeat.checkReady", () => {
       ...mockAccount,
       token: "",
       tokenSource: "none" as const,
-      bcqProfile: undefined,
+      cliProfile: undefined,
     } as any);
 
     const result = await basecampHeartbeatAdapter.checkReady!({
@@ -95,7 +95,7 @@ describe("heartbeat.checkReady", () => {
       ...mockAccount,
       token: "",
       tokenSource: "oauth" as const,
-      bcqProfile: undefined,
+      cliProfile: undefined,
       oauthClientId: "client123",
       config: { personId: "42", oauthTokenFile: "/tmp/token.json" },
     } as any);

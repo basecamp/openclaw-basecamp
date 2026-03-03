@@ -1,10 +1,10 @@
 /**
  * Activity feed polling source.
  *
- * Uses `bcq timeline` to fetch the account-wide activity feed.
- * The command wraps GET /reports/progress.json internally and handles
- * pagination. Events arrive newest-first; we filter client-side using
- * a cursor timestamp.
+ * Uses the Basecamp API to fetch the account-wide activity feed.
+ * Wraps GET /reports/progress.json and handles pagination.
+ * Events arrive newest-first; we filter client-side using a cursor
+ * timestamp.
  */
 
 import type {
@@ -38,7 +38,7 @@ export interface ActivityPollerOptions {
 }
 
 /**
- * Poll the activity feed for new events via `bcq timeline`.
+ * Poll the activity feed for new events via the Basecamp API.
  */
 export async function pollActivityFeed(
   opts: ActivityPollerOptions,
