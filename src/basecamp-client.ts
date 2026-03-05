@@ -47,6 +47,11 @@ export function clearClients(): void {
   clientCache.clear();
 }
 
+/** Clear the cached client for a single account. */
+export function clearClient(accountId: string): void {
+  clientCache.delete(accountId);
+}
+
 // ---------------------------------------------------------------------------
 // Account ID resolution
 // ---------------------------------------------------------------------------

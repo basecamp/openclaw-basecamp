@@ -21,7 +21,7 @@ import { basecampSecurityAdapter } from "./adapters/security.js";
 import { basecampSetupAdapter } from "./adapters/setup.js";
 import type { BasecampAudit, BasecampProbe } from "./adapters/status.js";
 import { basecampStatusAdapter } from "./adapters/status.js";
-import { clearClients } from "./basecamp-client.js";
+import { clearClient } from "./basecamp-client.js";
 import {
   BasecampConfigSchema,
   listBasecampAccountIds,
@@ -521,10 +521,10 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
         }
       }
 
-      // Evict cached TokenManagers and SDK clients
-      const { clearTokenManagers } = await import("./oauth-credentials.js");
-      clearTokenManagers();
-      clearClients();
+      // Evict cached TokenManager and SDK client for this account only
+      const { clearTokenManager } = await import("./oauth-credentials.js");
+      clearTokenManager(accountId);
+      clearClient(accountId);
 
       // Close account dedup DB
       closeAccountDedup(accountId);

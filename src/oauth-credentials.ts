@@ -78,6 +78,11 @@ export function clearTokenManagers(): void {
   managerCache.clear();
 }
 
+/** Clear the cached TokenManager for a single account. */
+export function clearTokenManager(accountId: string): void {
+  managerCache.delete(accountId);
+}
+
 // ---------------------------------------------------------------------------
 // Interactive login
 // ---------------------------------------------------------------------------

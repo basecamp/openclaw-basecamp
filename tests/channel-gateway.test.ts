@@ -30,10 +30,12 @@ vi.mock("../src/config.js", () => ({
 vi.mock("../src/oauth-credentials.js", () => ({
   createTokenManager: vi.fn(),
   clearTokenManagers: vi.fn(),
+  clearTokenManager: vi.fn(),
 }));
 
 vi.mock("../src/basecamp-client.js", () => ({
   clearClients: vi.fn(),
+  clearClient: vi.fn(),
 }));
 
 vi.mock("../src/runtime.js", () => ({
@@ -107,7 +109,7 @@ vi.mock("node:fs/promises", async (importOriginal) => {
   return { ...actual, unlink: mockUnlink };
 });
 
-import { clearClients } from "../src/basecamp-client.js";
+import { clearClient, clearClients } from "../src/basecamp-client.js";
 import { bcqAuthStatus } from "../src/bcq.js";
 import { _resetValidationState, basecampChannel } from "../src/channel.js";
 import {
@@ -121,7 +123,7 @@ import { closeAccountDedup } from "../src/inbound/dedup-registry.js";
 import { startCompositePoller } from "../src/inbound/poller.js";
 import { deactivateWebhooks, reconcileWebhooks } from "../src/inbound/webhook-lifecycle.js";
 import { flushWebhookSecrets } from "../src/inbound/webhooks.js";
-import { clearTokenManagers, createTokenManager } from "../src/oauth-credentials.js";
+import { clearTokenManager, clearTokenManagers, createTokenManager } from "../src/oauth-credentials.js";
 
 function makeCtx(cfg: any, accountId = "test") {
   return {
@@ -446,8 +448,8 @@ describe("logoutAccount", () => {
 
     expect(result).toEqual({ cleared: true, loggedOut: true });
     expect(mockUnlink).toHaveBeenCalledWith("/tmp/token.json");
-    expect(clearTokenManagers).toHaveBeenCalled();
-    expect(clearClients).toHaveBeenCalled();
+    expect(clearTokenManager).toHaveBeenCalledWith("test");
+    expect(clearClient).toHaveBeenCalledWith("test");
     expect(closeAccountDedup).toHaveBeenCalledWith("test");
   });
 
@@ -474,8 +476,22 @@ describe("logoutAccount", () => {
     } as any);
 
     expect(result).toEqual({ cleared: false, loggedOut: false });
-    expect(clearTokenManagers).toHaveBeenCalled();
-    expect(clearClients).toHaveBeenCalled();
+    expect(clearTokenManager).toHaveBeenCalledWith("test");
+    expect(clearClient).toHaveBeenCalledWith("test");
     expect(closeAccountDedup).toHaveBeenCalledWith("test");
+  });
+
+  it("non-ENOENT unlink error propagates", async () => {
+    mockUnlink.mockRejectedValue(Object.assign(new Error("EACCES"), { code: "EACCES" }));
+    vi.mocked(resolveBasecampAccount).mockReturnValue(
+      makeAccount({ config: { personId: "42", oauthTokenFile: "/tmp/noperm.json" } }) as any,
+    );
+
+    await expect(
+      basecampChannel.gateway!.logoutAccount!({
+        accountId: "test",
+        cfg: {},
+      } as any),
+    ).rejects.toThrow("EACCES");
   });
 });
