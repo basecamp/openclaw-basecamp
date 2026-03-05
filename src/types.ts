@@ -524,8 +524,6 @@ export type BasecampChannelConfig = {
   safetyNet?: {
     projects?: string[];
     intervalMs?: number;
-    /** @deprecated Accepted but ignored. Frequency escalation deferred. */
-    tier2?: unknown;
   };
   /** Reconciliation pass config. */
   reconciliation?: {

@@ -31,12 +31,6 @@ const SURFACE_PROMPTS: Record<string, string> = {
     "Be concise but thorough. Structure feedback clearly.",
   ].join(" "),
 
-  "Kanban::Triage": [
-    "You are commenting on a Basecamp Card Table card.",
-    "Focus on the card's context and triage status.",
-    "Be concise but thorough.",
-  ].join(" "),
-
   "Question": [
     "You are answering a Basecamp check-in question.",
     "Be direct and structured. Match the question format.",

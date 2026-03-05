@@ -30,11 +30,9 @@ describe("getSurfacePrompt", () => {
     expect(prompt).toContain("column");
   });
 
-  it("returns card prompt for Kanban::Triage", () => {
+  it("returns undefined for Kanban::Triage (not a recognized recordable type)", () => {
     const ctx = ["[basecamp] recordableType=Kanban::Triage"];
-    const prompt = getSurfacePrompt(ctx);
-    expect(prompt).toContain("Card Table");
-    expect(prompt).toContain("triage");
+    expect(getSurfacePrompt(ctx)).toBeUndefined();
   });
 
   it("returns check-in prompt for Question", () => {

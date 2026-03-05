@@ -98,8 +98,6 @@ export const BasecampConfigSchema = z.object({
     .object({
       projects: z.array(z.string()).optional(),
       intervalMs: z.number().positive().optional(),
-      /** @deprecated tier2 is accepted but ignored. Frequency escalation deferred. */
-      tier2: z.any().optional(),
     })
     .optional(),
   reconciliation: z
@@ -416,22 +414,15 @@ export function resolveAccountForBucket(
   return undefined;
 }
 
-let _tier2Warned = false;
-
 /** Resolve safety net config with defaults. */
 export function resolveSafetyNetConfig(cfg: OpenClawConfig): {
   projects: string[];
   intervalMs: number;
 } {
   const section = getBasecampSection(cfg);
-  const sn = section?.safetyNet as { projects?: string[]; intervalMs?: number; tier2?: unknown } | undefined;
-  if (sn?.tier2 != null && !_tier2Warned) {
-    _tier2Warned = true;
-    console.warn("[basecamp] safetyNet.tier2 is deprecated and ignored — frequency escalation is deferred");
-  }
   return {
-    projects: sn?.projects ?? [],
-    intervalMs: sn?.intervalMs ?? 600_000,
+    projects: section?.safetyNet?.projects ?? [],
+    intervalMs: section?.safetyNet?.intervalMs ?? 600_000,
   };
 }
 
