@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("openclaw/plugin-sdk", () => ({
   DEFAULT_ACCOUNT_ID: "default",
@@ -19,7 +19,10 @@ vi.mock("../src/basecamp-client.js", () => ({
   rawOrThrow: vi.fn(async (r: any) => r?.data),
   BasecampError: class BasecampError extends Error {
     code: string;
-    constructor(msg: string, code: string) { super(msg); this.code = code; }
+    constructor(msg: string, code: string) {
+      super(msg);
+      this.code = code;
+    }
   },
 }));
 
@@ -72,9 +75,7 @@ describe("resolver.resolveTargets (users)", () => {
       runtime: {} as any,
     });
 
-    expect(results).toEqual([
-      { input: "10", resolved: true, id: "10", name: "Alice Smith" },
-    ]);
+    expect(results).toEqual([{ input: "10", resolved: true, id: "10", name: "Alice Smith" }]);
   });
 
   it("resolves by exact name (case-insensitive)", async () => {
@@ -87,9 +88,7 @@ describe("resolver.resolveTargets (users)", () => {
       runtime: {} as any,
     });
 
-    expect(results).toEqual([
-      { input: "bob jones", resolved: true, id: "20", name: "Bob Jones" },
-    ]);
+    expect(results).toEqual([{ input: "bob jones", resolved: true, id: "20", name: "Bob Jones" }]);
   });
 
   it("resolves by partial name", async () => {
@@ -102,9 +101,7 @@ describe("resolver.resolveTargets (users)", () => {
       runtime: {} as any,
     });
 
-    expect(results).toEqual([
-      { input: "carol", resolved: true, id: "30", name: "Carol Davis" },
-    ]);
+    expect(results).toEqual([{ input: "carol", resolved: true, id: "30", name: "Carol Davis" }]);
   });
 
   it("resolves by email prefix", async () => {
@@ -117,9 +114,7 @@ describe("resolver.resolveTargets (users)", () => {
       runtime: {} as any,
     });
 
-    expect(results).toEqual([
-      { input: "alice@", resolved: true, id: "10", name: "Alice Smith" },
-    ]);
+    expect(results).toEqual([{ input: "alice@", resolved: true, id: "10", name: "Alice Smith" }]);
   });
 
   it("returns unresolved for no match", async () => {
@@ -145,9 +140,7 @@ describe("resolver.resolveTargets (users)", () => {
       runtime: {} as any,
     });
 
-    expect(results).toEqual([
-      { input: "alice", resolved: false, note: "Failed to fetch people list" },
-    ]);
+    expect(results).toEqual([{ input: "alice", resolved: false, note: "Failed to fetch people list" }]);
   });
 
   it("resolves multiple inputs in one call", async () => {
@@ -184,9 +177,7 @@ describe("resolver.resolveTargets (groups)", () => {
       runtime: {} as any,
     });
 
-    expect(results).toEqual([
-      { input: "100", resolved: true, id: "bucket:100", name: "Design Project" },
-    ]);
+    expect(results).toEqual([{ input: "100", resolved: true, id: "bucket:100", name: "Design Project" }]);
   });
 
   it("resolves by bucket:<id> prefix", async () => {
@@ -199,9 +190,7 @@ describe("resolver.resolveTargets (groups)", () => {
       runtime: {} as any,
     });
 
-    expect(results).toEqual([
-      { input: "bucket:200", resolved: true, id: "bucket:200", name: "Engineering" },
-    ]);
+    expect(results).toEqual([{ input: "bucket:200", resolved: true, id: "bucket:200", name: "Engineering" }]);
   });
 
   it("resolves by project name", async () => {
@@ -214,9 +203,7 @@ describe("resolver.resolveTargets (groups)", () => {
       runtime: {} as any,
     });
 
-    expect(results).toEqual([
-      { input: "marketing", resolved: true, id: "bucket:300", name: "Marketing Campaign" },
-    ]);
+    expect(results).toEqual([{ input: "marketing", resolved: true, id: "bucket:300", name: "Marketing Campaign" }]);
   });
 
   it("returns unresolved for no match", async () => {

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 vi.mock("openclaw/plugin-sdk", () => ({
   DEFAULT_ACCOUNT_ID: "default",
@@ -8,11 +8,7 @@ vi.mock("openclaw/plugin-sdk", () => ({
   },
 }));
 
-import {
-  listBasecampAccountIds,
-  resolveBasecampAccount,
-  resolveProjectScope,
-} from "../src/config.js";
+import { listBasecampAccountIds, resolveBasecampAccount, resolveProjectScope } from "../src/config.js";
 
 function cfg(basecamp?: Record<string, unknown>) {
   if (!basecamp) return {} as any;
@@ -43,10 +39,7 @@ describe("resolveProjectScope", () => {
   });
 
   it("returns undefined when virtualAccounts is empty", () => {
-    const result = resolveProjectScope(
-      cfg({ virtualAccounts: {} }),
-      "anything",
-    );
+    const result = resolveProjectScope(cfg({ virtualAccounts: {} }), "anything");
     expect(result).toBeUndefined();
   });
 });
@@ -154,8 +147,8 @@ describe("dispatch project-scope routing", () => {
     const config = cfg({
       accounts: { primary: { personId: "1" } },
       virtualAccounts: {
-        "design": { accountId: "primary", bucketId: "456" },
-        "eng": { accountId: "primary", bucketId: "789" },
+        design: { accountId: "primary", bucketId: "456" },
+        eng: { accountId: "primary", bucketId: "789" },
       },
     });
 

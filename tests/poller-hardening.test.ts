@@ -1,7 +1,7 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtemp, rm, stat } from "node:fs/promises";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CursorStore } from "../src/inbound/cursors.js";
 
 // ---------------------------------------------------------------------------
@@ -29,9 +29,7 @@ describe("CursorStore monotonicity", () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     store.setActivitySince("2025-01-01T00:00:00Z");
     expect(store.get().activitySince).toBe("2025-06-01T00:00:00Z");
-    expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining("clock skew detected: new activitySince"),
-    );
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("clock skew detected: new activitySince"));
     warnSpy.mockRestore();
   });
 
@@ -45,9 +43,7 @@ describe("CursorStore monotonicity", () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     store.setReadingsSince("2025-01-01T00:00:00Z");
     expect(store.get().readingsSince).toBe("2025-06-01T00:00:00Z");
-    expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining("clock skew detected: new readingsSince"),
-    );
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("clock skew detected: new readingsSince"));
     warnSpy.mockRestore();
   });
 

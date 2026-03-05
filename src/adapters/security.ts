@@ -14,7 +14,15 @@ function getBasecampSection(cfg: OpenClawConfig): BasecampChannelConfig | undefi
 }
 
 export const basecampSecurityAdapter = {
-  resolveDmPolicy: ({ cfg, accountId: _accountId, account: _account }: { cfg: OpenClawConfig; accountId?: string | null; account: ResolvedBasecampAccount }) => {
+  resolveDmPolicy: ({
+    cfg,
+    accountId: _accountId,
+    account: _account,
+  }: {
+    cfg: OpenClawConfig;
+    accountId?: string | null;
+    account: ResolvedBasecampAccount;
+  }) => {
     const section = getBasecampSection(cfg);
     const dmPolicy = section?.dmPolicy ?? "pairing";
     const allowFrom = section?.allowFrom ?? [];
@@ -29,7 +37,14 @@ export const basecampSecurityAdapter = {
     };
   },
 
-  collectWarnings: async ({ cfg, account: _account }: { cfg: OpenClawConfig; accountId?: string | null; account: ResolvedBasecampAccount }): Promise<string[]> => {
+  collectWarnings: async ({
+    cfg,
+    account: _account,
+  }: {
+    cfg: OpenClawConfig;
+    accountId?: string | null;
+    account: ResolvedBasecampAccount;
+  }): Promise<string[]> => {
     const section = getBasecampSection(cfg);
     if (!section) return [];
 
@@ -37,9 +52,7 @@ export const basecampSecurityAdapter = {
 
     // 1. Open DM policy with no allowFrom entries
     if (section.dmPolicy === "open" && (!section.allowFrom || section.allowFrom.length === 0)) {
-      warnings.push(
-        "dmPolicy is \"open\" with no allowFrom entries — any Basecamp user can DM agents",
-      );
+      warnings.push('dmPolicy is "open" with no allowFrom entries — any Basecamp user can DM agents');
     }
 
     // 2. Persona mapping references non-existent account
@@ -47,9 +60,7 @@ export const basecampSecurityAdapter = {
     const accounts = section.accounts ?? {};
     for (const [agentId, targetAccountId] of Object.entries(personas)) {
       if (!accounts[targetAccountId]) {
-        warnings.push(
-          `Persona "${agentId}" maps to account "${targetAccountId}" which does not exist`,
-        );
+        warnings.push(`Persona "${agentId}" maps to account "${targetAccountId}" which does not exist`);
       }
     }
 
@@ -57,9 +68,7 @@ export const basecampSecurityAdapter = {
     const virtualAccounts = section.virtualAccounts ?? {};
     for (const [scopeId, va] of Object.entries(virtualAccounts)) {
       if (!accounts[va.accountId]) {
-        warnings.push(
-          `Virtual account "${scopeId}" references backing account "${va.accountId}" which does not exist`,
-        );
+        warnings.push(`Virtual account "${scopeId}" references backing account "${va.accountId}" which does not exist`);
       }
     }
 
@@ -75,18 +84,14 @@ export const basecampSecurityAdapter = {
     }
     for (const [pid, ids] of personIdMap) {
       if (ids.length > 1) {
-        warnings.push(
-          `Person ID ${pid} is used by multiple accounts: ${ids.join(", ")}`,
-        );
+        warnings.push(`Person ID ${pid} is used by multiple accounts: ${ids.join(", ")}`);
       }
     }
 
     // 5. Account has no auth configured
     for (const [id, acct] of Object.entries(accounts)) {
       if (!acct.token && !acct.tokenFile && !acct.oauthTokenFile) {
-        warnings.push(
-          `Account "${id}" has no token, tokenFile, or oauthTokenFile configured`,
-        );
+        warnings.push(`Account "${id}" has no token, tokenFile, or oauthTokenFile configured`);
       }
     }
 
@@ -95,9 +100,7 @@ export const basecampSecurityAdapter = {
     for (const entry of allowFrom) {
       const str = String(entry);
       if (!/^\d+$/.test(str)) {
-        warnings.push(
-          `allowFrom entry "${str}" does not look like a numeric person ID`,
-        );
+        warnings.push(`allowFrom entry "${str}" does not look like a numeric person ID`);
       }
     }
 

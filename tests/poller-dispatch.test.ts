@@ -9,11 +9,12 @@
  * - Self-message filtering
  * - Webhook-active → 5x activity interval (via log assertion)
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { mkdtemp, rm } from "node:fs/promises";
+
 import { mkdtempSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // ---------------------------------------------------------------------------
 // Module mocks
@@ -63,7 +64,10 @@ vi.mock("../src/basecamp-client.js", () => ({
   numId: (_label: string, value: string | number) => Number(value),
   BasecampError: class BasecampError extends Error {
     code: string;
-    constructor(msg: string, code: string) { super(msg); this.code = code; }
+    constructor(msg: string, code: string) {
+      super(msg);
+      this.code = code;
+    }
   },
   clearClients: vi.fn(),
 }));
@@ -102,8 +106,8 @@ vi.mock("../src/inbound/normalize.js", () => ({
 }));
 
 import { CursorStore } from "../src/inbound/cursors.js";
-import { startCompositePoller } from "../src/inbound/poller.js";
 import { closeAccountDedup } from "../src/inbound/dedup-registry.js";
+import { startCompositePoller } from "../src/inbound/poller.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -190,7 +194,10 @@ describe("poller dispatch flow", () => {
       account: baseAccount,
       cfg: {},
       abortSignal: ac.signal,
-      onEvent: async (msg) => { dispatched.push(msg); return true; },
+      onEvent: async (msg) => {
+        dispatched.push(msg);
+        return true;
+      },
       log,
       stateDir: tmpDir,
     });
@@ -215,7 +222,10 @@ describe("poller dispatch flow", () => {
       account: baseAccount,
       cfg: {},
       abortSignal: ac.signal,
-      onEvent: async (msg) => { dispatched.push(msg); return true; },
+      onEvent: async (msg) => {
+        dispatched.push(msg);
+        return true;
+      },
       log,
       stateDir: tmpDir,
     });
@@ -240,7 +250,10 @@ describe("poller dispatch flow", () => {
       account: baseAccount,
       cfg: {},
       abortSignal: ac.signal,
-      onEvent: async (msg) => { dispatched.push(msg); return true; },
+      onEvent: async (msg) => {
+        dispatched.push(msg);
+        return true;
+      },
       log,
       stateDir: tmpDir,
     });
@@ -265,7 +278,10 @@ describe("poller dispatch flow", () => {
       account: baseAccount,
       cfg: {},
       abortSignal: ac.signal,
-      onEvent: async (msg) => { dispatched.push(msg); return true; },
+      onEvent: async (msg) => {
+        dispatched.push(msg);
+        return true;
+      },
       log,
       stateDir: tmpDir,
     });
@@ -288,7 +304,10 @@ describe("poller dispatch flow", () => {
       account: baseAccount,
       cfg: {},
       abortSignal: ac.signal,
-      onEvent: async (msg) => { dispatched.push(msg); return true; },
+      onEvent: async (msg) => {
+        dispatched.push(msg);
+        return true;
+      },
       log,
       stateDir: tmpDir,
     });
@@ -318,7 +337,10 @@ describe("poller dispatch flow", () => {
       account: baseAccount,
       cfg: {},
       abortSignal: ac.signal,
-      onEvent: async (msg) => { dispatched.push(msg); return true; },
+      onEvent: async (msg) => {
+        dispatched.push(msg);
+        return true;
+      },
       log,
       stateDir: tmpDir,
     });

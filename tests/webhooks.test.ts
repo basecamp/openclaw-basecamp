@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../src/dispatch.js", () => ({
   dispatchBasecampEvent: vi.fn().mockResolvedValue(true),
@@ -47,7 +47,16 @@ vi.mock("../src/inbound/normalize.js", () => ({
       sender: { id: "2", name: "Tester" },
       text: "hi",
       html: "<p>hi</p>",
-      meta: { bucketId: "1", recordingId: String(seq), recordableType: "Chat::Line", eventKind: "line_created", mentions: [], mentionsAgent: false, attachments: [], sources: ["webhook"] },
+      meta: {
+        bucketId: "1",
+        recordingId: String(seq),
+        recordableType: "Chat::Line",
+        eventKind: "line_created",
+        mentions: [],
+        mentionsAgent: false,
+        attachments: [],
+        sources: ["webhook"],
+      },
       dedupKey: `webhook:${seq}`,
       createdAt: `2025-01-01T00:00:${String(seq).padStart(2, "0")}Z`,
     };
@@ -56,13 +65,18 @@ vi.mock("../src/inbound/normalize.js", () => ({
 }));
 
 import { mkdtempSync, rmSync } from "node:fs";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { Semaphore, handleBasecampWebhook } from "../src/inbound/webhooks.js";
-import { closeAllAccountDedup } from "../src/inbound/dedup-registry.js";
-import { resolveDefaultBasecampAccountId, resolveWebhookSecret, resolveAccountForBucket, listBasecampAccountIds } from "../src/config.js";
+import { join } from "node:path";
+import {
+  listBasecampAccountIds,
+  resolveAccountForBucket,
+  resolveDefaultBasecampAccountId,
+  resolveWebhookSecret,
+} from "../src/config.js";
 import { dispatchBasecampEvent } from "../src/dispatch.js";
-import { getAccountMetrics, clearMetrics } from "../src/metrics.js";
+import { closeAllAccountDedup } from "../src/inbound/dedup-registry.js";
+import { handleBasecampWebhook, Semaphore } from "../src/inbound/webhooks.js";
+import { clearMetrics, getAccountMetrics } from "../src/metrics.js";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -100,7 +114,9 @@ describe("Semaphore", () => {
 
     // This should queue
     let resolved = false;
-    const p = sem.acquire().then(() => { resolved = true; });
+    const p = sem.acquire().then(() => {
+      resolved = true;
+    });
 
     // Give microtask a chance
     await Promise.resolve();
@@ -120,8 +136,12 @@ describe("Semaphore", () => {
 
     await sem.acquire();
 
-    const p1 = sem.acquire().then(() => { order.push(1); });
-    const p2 = sem.acquire().then(() => { order.push(2); });
+    const p1 = sem.acquire().then(() => {
+      order.push(1);
+    });
+    const p2 = sem.acquire().then(() => {
+      order.push(2);
+    });
 
     expect(sem.pending).toBe(2);
 
@@ -192,11 +212,7 @@ describe("Semaphore", () => {
 // Webhook handler hardening
 // ---------------------------------------------------------------------------
 
-function mockReq(
-  method: string,
-  url: string,
-  body?: string,
-): IncomingMessage {
+function mockReq(method: string, url: string, body?: string): IncomingMessage {
   const { Readable } = require("node:stream");
   const req = new Readable({
     read() {
@@ -351,10 +367,7 @@ describe("handleBasecampWebhook — hardening", () => {
 
     expect(res.status).toBe(200);
     expect(dispatchBasecampEvent).toHaveBeenCalled();
-    expect(resolveBasecampAccount).toHaveBeenCalledWith(
-      expect.anything(),
-      "work",
-    );
+    expect(resolveBasecampAccount).toHaveBeenCalledWith(expect.anything(), "work");
   });
 });
 

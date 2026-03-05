@@ -1,6 +1,6 @@
-import { z } from "zod";
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import { DEFAULT_ACCOUNT_ID, normalizeAccountId } from "openclaw/plugin-sdk";
+import { z } from "zod";
 import type {
   BasecampAccountConfig,
   BasecampChannelConfig,
@@ -31,16 +31,16 @@ const BasecampVirtualAccountSchema = z.object({
   bucketId: z.string(),
 });
 
-const EngagementTypeSchema = z.enum([
-  "dm", "mention", "assignment", "checkin", "conversation", "activity",
-]);
+const EngagementTypeSchema = z.enum(["dm", "mention", "assignment", "checkin", "conversation", "activity"]);
 
 const BasecampBucketConfigSchema = z.object({
   requireMention: z.boolean().optional(),
-  tools: z.object({
-    allow: z.array(z.string()).optional(),
-    deny: z.array(z.string()).optional(),
-  }).optional(),
+  tools: z
+    .object({
+      allow: z.array(z.string()).optional(),
+      deny: z.array(z.string()).optional(),
+    })
+    .optional(),
   enabled: z.boolean().optional(),
   engage: z.array(EngagementTypeSchema).optional(),
   allowFrom: z.array(z.union([z.string(), z.number()])).optional(),
@@ -98,8 +98,6 @@ export const BasecampConfigSchema = z.object({
     .object({
       projects: z.array(z.string()).optional(),
       intervalMs: z.number().positive().optional(),
-      /** @deprecated tier2 is accepted but ignored. Frequency escalation deferred. */
-      tier2: z.any().optional(),
     })
     .optional(),
   reconciliation: z
@@ -308,10 +306,7 @@ export async function resolveBasecampAccountAsync(
  * Resolve the persona (Basecamp account) for a given agent ID.
  * Returns undefined if no persona mapping exists.
  */
-export function resolvePersonaAccountId(
-  cfg: OpenClawConfig,
-  agentId: string,
-): string | undefined {
+export function resolvePersonaAccountId(cfg: OpenClawConfig, agentId: string): string | undefined {
   const section = getBasecampSection(cfg);
   return section?.personas?.[agentId];
 }
@@ -327,7 +322,12 @@ export function resolvePollingIntervals(cfg: unknown) {
 }
 
 /** Resolve retry options from config, with defaults. */
-export function resolveRetryConfig(cfg: OpenClawConfig): { maxAttempts: number; baseDelayMs: number; maxDelayMs: number; jitter: boolean } {
+export function resolveRetryConfig(cfg: OpenClawConfig): {
+  maxAttempts: number;
+  baseDelayMs: number;
+  maxDelayMs: number;
+  jitter: boolean;
+} {
   const section = getBasecampSection(cfg);
   return {
     maxAttempts: section?.retry?.maxAttempts ?? 3,
@@ -359,10 +359,7 @@ export function resolveBasecampAllowFrom(cfg: OpenClawConfig): string[] {
 }
 
 /** Get the allow-from list for a specific bucket. Returns undefined if unset (all senders allowed). */
-export function resolveBasecampBucketAllowFrom(
-  cfg: OpenClawConfig,
-  bucketId: string,
-): string[] | undefined {
+export function resolveBasecampBucketAllowFrom(cfg: OpenClawConfig, bucketId: string): string[] | undefined {
   const section = getBasecampSection(cfg);
   const bucketConfig = section?.buckets?.[bucketId] ?? section?.buckets?.["*"];
   if (!bucketConfig?.allowFrom) return undefined;
@@ -399,10 +396,7 @@ export function resolveWebhooksConfig(cfg: OpenClawConfig): {
  * Checks virtualAccounts for a scope mapping and returns the concrete
  * accountId (not the virtual alias key). Returns undefined if no mapping found.
  */
-export function resolveAccountForBucket(
-  cfg: OpenClawConfig,
-  bucketId: string,
-): string | undefined {
+export function resolveAccountForBucket(cfg: OpenClawConfig, bucketId: string): string | undefined {
   const section = getBasecampSection(cfg);
   // Check virtualAccounts for a scope mapping to this bucket.
   // Return the concrete account ID — not the alias key — so callers can
@@ -416,22 +410,15 @@ export function resolveAccountForBucket(
   return undefined;
 }
 
-let _tier2Warned = false;
-
 /** Resolve safety net config with defaults. */
 export function resolveSafetyNetConfig(cfg: OpenClawConfig): {
   projects: string[];
   intervalMs: number;
 } {
   const section = getBasecampSection(cfg);
-  const sn = section?.safetyNet as { projects?: string[]; intervalMs?: number; tier2?: unknown } | undefined;
-  if (sn?.tier2 != null && !_tier2Warned) {
-    _tier2Warned = true;
-    console.warn("[basecamp] safetyNet.tier2 is deprecated and ignored — frequency escalation is deferred");
-  }
   return {
-    projects: sn?.projects ?? [],
-    intervalMs: sn?.intervalMs ?? 600_000,
+    projects: section?.safetyNet?.projects ?? [],
+    intervalMs: section?.safetyNet?.intervalMs ?? 600_000,
   };
 }
 
@@ -473,7 +460,7 @@ export function scopeWebhookProjects(opts: {
     if (isSingleAccount) return true;
     log?.warn(
       `[${accountId}] skipping unmapped webhook project ${projectId} — ` +
-      `add a virtualAccounts entry to assign it to an account`,
+        `add a virtualAccounts entry to assign it to an account`,
     );
     return false;
   });

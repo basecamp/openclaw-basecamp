@@ -5,7 +5,7 @@
  * This file does NOT contain any test code (no describe/it/expect).
  * Import these helpers into test files that need them.
  */
-import type { ResolvedBasecampAccount, BasecampInboundMessage, BasecampInboundMeta } from "../src/types.js";
+import type { BasecampInboundMessage, BasecampInboundMeta, ResolvedBasecampAccount } from "../src/types.js";
 
 /**
  * Build a minimal OpenClaw config object with optional basecamp section.
@@ -43,7 +43,9 @@ export function stubAccount(overrides?: Partial<ResolvedBasecampAccount>): Resol
 /**
  * Build a default BasecampInboundMessage for testing.
  */
-export function stubMsg(overrides?: Partial<BasecampInboundMessage> & { meta?: Partial<BasecampInboundMeta> }): BasecampInboundMessage {
+export function stubMsg(
+  overrides?: Partial<BasecampInboundMessage> & { meta?: Partial<BasecampInboundMeta> },
+): BasecampInboundMessage {
   const meta: BasecampInboundMeta = {
     bucketId: "456",
     recordingId: "123",

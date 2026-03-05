@@ -1,11 +1,11 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import {
+  clearMetrics,
+  getAccountMetrics,
   recordDispatchFailure,
   recordQueueFullDrop,
-  recordWebhookReceived,
   recordWebhookDispatched,
-  getAccountMetrics,
-  clearMetrics,
+  recordWebhookReceived,
 } from "../src/metrics.js";
 
 beforeEach(() => {

@@ -7,14 +7,10 @@
  * timestamp.
  */
 
-import type {
-  BasecampActivityEvent,
-  BasecampInboundMessage,
-  ResolvedBasecampAccount,
-} from "../types.js";
-import type { CircuitBreaker } from "../circuit-breaker.js";
 import { getClient, rawOrThrow } from "../basecamp-client.js";
+import type { CircuitBreaker } from "../circuit-breaker.js";
 import { withCircuitBreaker } from "../retry.js";
+import type { BasecampActivityEvent, BasecampInboundMessage, ResolvedBasecampAccount } from "../types.js";
 import { normalizeActivityEvent } from "./normalize.js";
 
 export interface ActivityPollResult {
@@ -40,9 +36,7 @@ export interface ActivityPollerOptions {
 /**
  * Poll the activity feed for new events via the Basecamp API.
  */
-export async function pollActivityFeed(
-  opts: ActivityPollerOptions,
-): Promise<ActivityPollResult> {
+export async function pollActivityFeed(opts: ActivityPollerOptions): Promise<ActivityPollResult> {
   const { account, since, log } = opts;
 
   log?.debug?.(`[${account.accountId}] polling activity feed via SDK`);
@@ -80,9 +74,7 @@ export async function pollActivityFeed(
         newestAt = raw.created_at;
       }
     } catch (err) {
-      log?.warn?.(
-        `[${account.accountId}] failed to normalize activity event id=${raw.id}: ${String(err)}`,
-      );
+      log?.warn?.(`[${account.accountId}] failed to normalize activity event id=${raw.id}: ${String(err)}`);
     }
   }
 

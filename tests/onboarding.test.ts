@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // ---------------------------------------------------------------------------
 // Mock openclaw/plugin-sdk
@@ -10,12 +10,7 @@ vi.mock("openclaw/plugin-sdk", () => ({
     const trimmed = (value ?? "").trim();
     return trimmed || "default";
   },
-  applyAccountNameToChannelSection: (params: {
-    cfg: any;
-    channelKey: string;
-    accountId: string;
-    name?: string;
-  }) => {
+  applyAccountNameToChannelSection: (params: { cfg: any; channelKey: string; accountId: string; name?: string }) => {
     if (!params.name?.trim()) return params.cfg;
     const section = params.cfg.channels?.[params.channelKey] ?? {};
     const accounts = section.accounts ?? {};
@@ -37,8 +32,7 @@ vi.mock("openclaw/plugin-sdk", () => ({
     };
   },
   buildChannelConfigSchema: (schema: any) => schema,
-  PAIRING_APPROVED_MESSAGE:
-    "You have been approved to message this agent.",
+  PAIRING_APPROVED_MESSAGE: "You have been approved to message this agent.",
   createDefaultChannelRuntimeState: (accountId: string) => ({
     accountId,
     running: false,
@@ -60,11 +54,15 @@ vi.mock("openclaw/plugin-sdk", () => ({
 // ---------------------------------------------------------------------------
 
 const mockCliProfileList = vi.fn();
+const mockCliProfileListFull = vi.fn();
 const mockExtractCliBootstrapToken = vi.fn();
+const mockExportCliCredentials = vi.fn();
 
 vi.mock("../src/basecamp-cli.js", () => ({
   cliProfileList: (...args: any[]) => mockCliProfileList(...args),
+  cliProfileListFull: (...args: any[]) => mockCliProfileListFull(...args),
   extractCliBootstrapToken: (...args: any[]) => mockExtractCliBootstrapToken(...args),
+  exportCliCredentials: (...args: any[]) => mockExportCliCredentials(...args),
 }));
 
 // ---------------------------------------------------------------------------
@@ -98,9 +96,14 @@ vi.mock("../src/basecamp-client.js", () => ({
 // ---------------------------------------------------------------------------
 
 const mockDiscoverIdentity = vi.fn();
+const mockFileTokenStoreSave = vi.fn().mockResolvedValue(undefined);
 
 vi.mock("@37signals/basecamp/oauth", () => ({
   discoverIdentity: (...args: any[]) => mockDiscoverIdentity(...args),
+  FileTokenStore: class {
+    constructor(public path: string) {}
+    save = mockFileTokenStoreSave;
+  },
 }));
 
 // ---------------------------------------------------------------------------
@@ -160,9 +163,9 @@ vi.mock("../src/config.js", () => ({
 // ---------------------------------------------------------------------------
 
 import { basecampOnboardingAdapter } from "../src/adapters/onboarding.js";
+import { basecampPairingAdapter } from "../src/adapters/pairing.js";
 import { basecampSetupAdapter } from "../src/adapters/setup.js";
 import { basecampStatusAdapter } from "../src/adapters/status.js";
-import { basecampPairingAdapter } from "../src/adapters/pairing.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -178,11 +181,7 @@ function cfgWithAccounts(accounts: Record<string, Record<string, unknown>>) {
 }
 
 /** Creates a minimal WizardPrompter mock. */
-function createPrompter(overrides?: {
-  selectAnswers?: string[];
-  textAnswers?: string[];
-  confirmAnswer?: boolean;
-}) {
+function createPrompter(overrides?: { selectAnswers?: string[]; textAnswers?: string[]; confirmAnswer?: boolean }) {
   let selectIdx = 0;
   let textIdx = 0;
   const selectAnswers = overrides?.selectAnswers ?? [];
@@ -208,7 +207,7 @@ function createPrompter(overrides?: {
 
 describe("basecampOnboardingAdapter", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
   });
 
   describe("channel", () => {
@@ -263,7 +262,7 @@ describe("basecampOnboardingAdapter", () => {
   describe("configure — OAuth path", () => {
     it("configures a new account via OAuth when no CLI profiles available", async () => {
       // No CLI → auto-selects OAuth
-      mockCliProfileList.mockRejectedValue(new Error("not installed"));
+      mockCliProfileListFull.mockRejectedValue(new Error("not installed"));
       mockResolveTokenFilePath.mockReturnValue("/tmp/tokens/default.json");
       mockInteractiveLogin.mockResolvedValue({
         accessToken: "new-access-token",
@@ -308,7 +307,7 @@ describe("basecampOnboardingAdapter", () => {
     });
 
     it("uses existing channel-level OAuth clientId without prompting", async () => {
-      mockCliProfileList.mockRejectedValue(new Error("not installed"));
+      mockCliProfileListFull.mockRejectedValue(new Error("not installed"));
       mockResolveTokenFilePath.mockReturnValue("/tmp/tokens/default.json");
       mockInteractiveLogin.mockResolvedValue({
         accessToken: "tok",
@@ -342,14 +341,11 @@ describe("basecampOnboardingAdapter", () => {
       expect(account.personId).toBe("42");
       expect(account.oauthTokenFile).toBe("/tmp/tokens/default.json");
       // Should NOT have prompted for clientId — no text calls for it
-      expect(prompter.note).not.toHaveBeenCalledWith(
-        expect.stringContaining("OAuth app"),
-        expect.any(String),
-      );
+      expect(prompter.note).not.toHaveBeenCalledWith(expect.stringContaining("OAuth app"), expect.any(String));
     });
 
     it("preserves per-account oauthClientId when not prompting for new credentials", async () => {
-      mockCliProfileList.mockRejectedValue(new Error("not installed"));
+      mockCliProfileListFull.mockRejectedValue(new Error("not installed"));
       mockResolveTokenFilePath.mockReturnValue("/tmp/tokens/work.json");
       mockInteractiveLogin.mockResolvedValue({
         accessToken: "tok",
@@ -394,29 +390,35 @@ describe("basecampOnboardingAdapter", () => {
     });
   });
 
-  describe("configure — CLI path (chains into OAuth)", () => {
-    it("discovers identity via CLI then chains into OAuth", async () => {
-      mockCliProfileList.mockResolvedValue({ data: ["prod", "dev"] });
+  describe("configure — CLI path (imports credentials)", () => {
+    it("discovers identity via CLI and imports credentials", async () => {
+      mockCliProfileListFull.mockResolvedValue({
+        data: [
+          { name: "prod", base_url: "https://3.basecampapi.com", authenticated: true },
+          { name: "dev", base_url: "http://3.basecamp.localhost:3001", authenticated: true },
+        ],
+      });
       mockExtractCliBootstrapToken.mockResolvedValue("cli-access-token");
       mockDiscoverIdentity.mockResolvedValue({
         identity: { id: 5, firstName: "Service", lastName: "", emailAddress: "svc@test.com" },
         accounts: [{ id: 100, name: "Acme", product: "bc3" }],
       });
       mockResolveTokenFilePath.mockReturnValue("/tmp/tokens/default.json");
-      mockInteractiveLogin.mockResolvedValue({
-        accessToken: "oauth-access-token",
-        refreshToken: "oauth-refresh",
-        tokenType: "Bearer",
+      mockExportCliCredentials.mockReturnValue({
+        accessToken: "cli-access-token",
+        refreshToken: "cli-refresh-token",
+        expiresAt: 1770188269,
+        clientId: "cli-client-id",
+        clientSecret: "",
       });
 
       // Select answers in order:
       // 1. Auth method: "cli"
       // 2. Profile: "dev"
       // 3. "What would you like to do?" → "done"
-      // Text answers: clientId, clientSecret (blank)
       const prompter = createPrompter({
         selectAnswers: ["cli", "dev", "done"],
-        textAnswers: ["test-client-id", ""],
+        textAnswers: [],
       });
 
       const result = await basecampOnboardingAdapter.configure({
@@ -432,31 +434,40 @@ describe("basecampOnboardingAdapter", () => {
       expect(account.cliProfile).toBe("dev");
       expect(account.personId).toBe("5");
       expect(account.basecampAccountId).toBe("100");
-      // CLI path chains into OAuth — oauthTokenFile should be set
       expect(account.oauthTokenFile).toBe("/tmp/tokens/default.json");
-      // interactiveLogin should have been called for OAuth chain-through
-      expect(mockInteractiveLogin).toHaveBeenCalled();
+      // CLI-imported client creds go per-account, not channel-level
+      expect(account.oauthClientId).toBe("cli-client-id");
+      // Should import CLI credentials, not run interactiveLogin
+      expect(mockInteractiveLogin).not.toHaveBeenCalled();
+      expect(mockFileTokenStoreSave).toHaveBeenCalledWith(
+        expect.objectContaining({
+          accessToken: "cli-access-token",
+          refreshToken: "cli-refresh-token",
+          tokenType: "Bearer",
+          expiresAt: new Date(1770188269 * 1000),
+        }),
+      );
+      expect(mockExportCliCredentials).toHaveBeenCalledWith("http://3.basecamp.localhost:3001");
+      // Channel-level OAuth should be preserved (not overwritten by CLI creds)
+      expect(result.cfg.channels.basecamp.oauth).toBeUndefined();
     });
 
-    it("prompts for person ID when CLI token extraction fails", async () => {
-      mockCliProfileList.mockResolvedValue({ data: ["default"] });
+    it("prompts for person ID when CLI token extraction and identity discovery both fail", async () => {
+      mockCliProfileListFull.mockResolvedValue({
+        data: [{ name: "default", base_url: "https://3.basecampapi.com", authenticated: true }],
+      });
       mockExtractCliBootstrapToken.mockRejectedValue(new Error("CLI not authenticated"));
+      mockExportCliCredentials.mockReturnValue(null);
+      // Fallback triggers OAuth — login succeeds but discovery fails
       mockResolveTokenFilePath.mockReturnValue("/tmp/tokens/default.json");
-      mockInteractiveLogin.mockResolvedValue({
-        accessToken: "oauth-tok",
-        refreshToken: "ref",
-        tokenType: "Bearer",
-      });
-      mockDiscoverIdentity.mockResolvedValue({
-        identity: { id: 42, firstName: "Manual", lastName: "User", emailAddress: "m@test.com" },
-        accounts: [],
-      });
+      mockInteractiveLogin.mockResolvedValue({ accessToken: "fallback-token", tokenType: "Bearer" });
+      mockDiscoverIdentity.mockRejectedValue(new Error("discovery failed"));
 
       // Select: auth method → "cli", then "What would you like to do?" → "done"
-      // Text: personId prompt, then clientId, clientSecret
+      // Text: fallback OAuth clientId, clientSecret (empty), then personId
       const prompter = createPrompter({
         selectAnswers: ["cli", "done"],
-        textAnswers: ["42", "client-id", ""],
+        textAnswers: ["fallback-client", "", "42"],
       });
 
       const result = await basecampOnboardingAdapter.configure({
@@ -470,12 +481,100 @@ describe("basecampOnboardingAdapter", () => {
 
       const account = result.cfg.channels.basecamp.accounts.default;
       expect(account.personId).toBe("42");
+      expect(account.oauthTokenFile).toBe("/tmp/tokens/default.json");
+      expect(mockInteractiveLogin).toHaveBeenCalled();
+    });
+
+    it("falls back to OAuth when CLI credential import fails", async () => {
+      mockCliProfileListFull.mockResolvedValue({
+        data: [{ name: "dev", base_url: "http://3.basecamp.localhost:3001", authenticated: true }],
+      });
+      mockExtractCliBootstrapToken.mockResolvedValue("cli-bootstrap-token");
+      mockExportCliCredentials.mockReturnValue(null);
+      mockResolveTokenFilePath.mockReturnValue("/tmp/tokens/default.json");
+      mockInteractiveLogin.mockResolvedValue({ accessToken: "oauth-token", tokenType: "Bearer" });
+      mockDiscoverIdentity.mockResolvedValue({
+        identity: { id: 42, firstName: "Bot", lastName: "", emailAddress: "b@t.com" },
+        accounts: [{ id: 100, name: "Co", product: "bc3" }],
+      });
+
+      // Select: auth method → "cli", then "done"
+      // Text: fallback OAuth clientId, clientSecret (empty)
+      const prompter = createPrompter({
+        selectAnswers: ["cli", "done"],
+        textAnswers: ["fallback-client", ""],
+      });
+
+      const result = await basecampOnboardingAdapter.configure({
+        cfg: {} as any,
+        runtime: {} as any,
+        prompter,
+        accountOverrides: {},
+        shouldPromptAccountIds: false,
+        forceAllowFrom: false,
+      });
+
+      const account = result.cfg.channels.basecamp.accounts.default;
+      expect(mockInteractiveLogin).toHaveBeenCalled();
+      expect(account.oauthTokenFile).toBe("/tmp/tokens/default.json");
+      expect(account.personId).toBe("42");
+      expect(mockExportCliCredentials).toHaveBeenCalled();
+    });
+
+    it("resolves active/default profile when user picks 'Use default (no profile)'", async () => {
+      mockCliProfileListFull.mockResolvedValue({
+        data: [
+          { name: "prod", base_url: "https://3.basecampapi.com", authenticated: true, active: true, default: false },
+          {
+            name: "dev",
+            base_url: "http://3.basecamp.localhost:3001",
+            authenticated: true,
+            active: false,
+            default: false,
+          },
+        ],
+      });
+      mockExtractCliBootstrapToken.mockResolvedValue("cli-token");
+      mockDiscoverIdentity.mockResolvedValue({
+        identity: { id: 7, firstName: "Bot", lastName: "", emailAddress: "b@t.com" },
+        accounts: [{ id: 200, name: "Acme", product: "bc3" }],
+      });
+      mockResolveTokenFilePath.mockReturnValue("/tmp/tokens/default.json");
+      mockExportCliCredentials.mockReturnValue({
+        accessToken: "cli-token",
+        refreshToken: "cli-refresh",
+        expiresAt: 1770188269,
+        clientId: "cli-client-id",
+        clientSecret: "",
+      });
+
+      // Select: auth method → "cli", profile → "__none__", then "done"
+      const prompter = createPrompter({
+        selectAnswers: ["cli", "__none__", "done"],
+      });
+
+      const result = await basecampOnboardingAdapter.configure({
+        cfg: {} as any,
+        runtime: {} as any,
+        prompter,
+        accountOverrides: {},
+        shouldPromptAccountIds: false,
+        forceAllowFrom: false,
+      });
+
+      const account = result.cfg.channels.basecamp.accounts.default;
+      // Should use active profile's base_url for credential export
+      expect(mockExportCliCredentials).toHaveBeenCalledWith("https://3.basecampapi.com");
+      // No explicit profile stored when user picks "Use default"
+      expect(account.cliProfile).toBeUndefined();
+      // Credentials were still imported
+      expect(account.oauthTokenFile).toBe("/tmp/tokens/default.json");
     });
   });
 
   describe("configure — auth-method cleanup", () => {
     it("preserves existing cliProfile as diagnostic metadata when switching to OAuth", async () => {
-      mockCliProfileList.mockRejectedValue(new Error("not installed"));
+      mockCliProfileListFull.mockRejectedValue(new Error("not installed"));
       mockResolveTokenFilePath.mockReturnValue("/tmp/tokens/default.json");
       mockInteractiveLogin.mockResolvedValue({
         accessToken: "tok",
@@ -512,21 +611,25 @@ describe("basecampOnboardingAdapter", () => {
       expect(account.cliProfile).toBe("old-profile");
     });
 
-    it("CLI path preserves cliProfile alongside OAuth token file", async () => {
-      mockCliProfileList.mockResolvedValue({ data: ["dev"] });
+    it("CLI path preserves cliProfile alongside imported credentials", async () => {
+      mockCliProfileListFull.mockResolvedValue({
+        data: [{ name: "dev", base_url: "http://3.basecamp.localhost:3001", authenticated: true }],
+      });
       mockExtractCliBootstrapToken.mockResolvedValue("cli-token");
       mockDiscoverIdentity.mockResolvedValue({
         identity: { id: 10, firstName: "Bot", lastName: "", emailAddress: "b@t.com" },
         accounts: [{ id: 1, name: "Co", product: "bc3" }],
       });
       mockResolveTokenFilePath.mockReturnValue("/tmp/tokens/default.json");
-      mockInteractiveLogin.mockResolvedValue({
-        accessToken: "oauth-tok",
-        refreshToken: "ref",
-        tokenType: "Bearer",
+      mockExportCliCredentials.mockReturnValue({
+        accessToken: "cli-token",
+        refreshToken: "cli-refresh",
+        expiresAt: 1770188269,
+        clientId: "cli-client-id",
+        clientSecret: "",
       });
 
-      // Start with OAuth-configured account — CLI path still chains into OAuth
+      // Start with OAuth-configured account
       const existingCfg = cfg({
         oauth: { clientId: "existing-client", clientSecret: "existing-secret" },
       });
@@ -547,14 +650,21 @@ describe("basecampOnboardingAdapter", () => {
 
       const account = result.cfg.channels.basecamp.accounts.default;
       expect(account.cliProfile).toBe("dev");
-      // CLI path chains into OAuth — oauthTokenFile should be set
       expect(account.oauthTokenFile).toBe("/tmp/tokens/default.json");
+      // CLI-imported creds are per-account, not channel-level
+      expect(account.oauthClientId).toBe("cli-client-id");
+      // Existing channel-level OAuth must be preserved
+      expect(result.cfg.channels.basecamp.oauth).toEqual({
+        clientId: "existing-client",
+        clientSecret: "existing-secret",
+      });
+      expect(mockInteractiveLogin).not.toHaveBeenCalled();
     });
   });
 
   describe("configure — general", () => {
     it("respects accountOverrides for basecamp", async () => {
-      mockCliProfileList.mockRejectedValue(new Error("not installed"));
+      mockCliProfileListFull.mockRejectedValue(new Error("not installed"));
       mockResolveTokenFilePath.mockReturnValue("/tmp/tokens/my-custom-id.json");
       mockInteractiveLogin.mockResolvedValue({
         accessToken: "tok",
@@ -585,7 +695,7 @@ describe("basecampOnboardingAdapter", () => {
     });
 
     it("prompts for OpenClaw account ID when shouldPromptAccountIds is true", async () => {
-      mockCliProfileList.mockRejectedValue(new Error("not installed"));
+      mockCliProfileListFull.mockRejectedValue(new Error("not installed"));
       mockResolveTokenFilePath.mockReturnValue("/tmp/tokens/staging.json");
       mockInteractiveLogin.mockResolvedValue({
         accessToken: "tok",
@@ -664,15 +774,11 @@ describe("basecampOnboardingAdapter", () => {
 describe("basecampSetupAdapter", () => {
   describe("resolveAccountId", () => {
     it("normalizes account ID", () => {
-      expect(basecampSetupAdapter.resolveAccountId!({ cfg: {} as any, accountId: "  foo  " })).toBe(
-        "foo",
-      );
+      expect(basecampSetupAdapter.resolveAccountId!({ cfg: {} as any, accountId: "  foo  " })).toBe("foo");
     });
 
     it("returns 'default' for empty input", () => {
-      expect(basecampSetupAdapter.resolveAccountId!({ cfg: {} as any, accountId: "" })).toBe(
-        "default",
-      );
+      expect(basecampSetupAdapter.resolveAccountId!({ cfg: {} as any, accountId: "" })).toBe("default");
     });
   });
 
@@ -979,9 +1085,7 @@ describe("basecampPairingAdapter", () => {
       const testCfg = cfgWithAccounts({
         default: { personId: "1", token: "tok" },
       });
-      await expect(
-        basecampPairingAdapter.notifyApproval!({ cfg: testCfg, id: "42" }),
-      ).resolves.toBeUndefined();
+      await expect(basecampPairingAdapter.notifyApproval!({ cfg: testCfg, id: "42" })).resolves.toBeUndefined();
     });
   });
 });

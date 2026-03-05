@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("openclaw/plugin-sdk", () => ({
   DEFAULT_ACCOUNT_ID: "default",
@@ -20,7 +20,10 @@ vi.mock("../src/basecamp-client.js", () => ({
   rawOrThrow: vi.fn(async (r: any) => r?.data),
   BasecampError: class BasecampError extends Error {
     code: string;
-    constructor(msg: string, code: string) { super(msg); this.code = code; }
+    constructor(msg: string, code: string) {
+      super(msg);
+      this.code = code;
+    }
   },
 }));
 
@@ -262,9 +265,7 @@ describe("directory.listGroupsLive", () => {
 
 describe("directory.listGroupMembers", () => {
   it("fetches members for bucket:<id> group", async () => {
-    mockClient.people.listForProject.mockResolvedValue([
-      { id: 5, name: "Carol", email_address: "carol@example.com" },
-    ]);
+    mockClient.people.listForProject.mockResolvedValue([{ id: 5, name: "Carol", email_address: "carol@example.com" }]);
 
     const result = await basecampDirectoryAdapter.listGroupMembers!({
       cfg: cfg({ accounts: { test: {} } }),

@@ -14,24 +14,20 @@
  */
 
 import crypto from "node:crypto";
+import { BasecampError } from "../basecamp-client.js";
 import type {
+  BasecampEventKind,
   BasecampInboundMessage,
   BasecampInboundMeta,
-  BasecampEventKind,
   BasecampRecordableType,
   ResolvedBasecampAccount,
 } from "../types.js";
 import { EventDedup } from "./dedup.js";
-import { resolveDockToolIds, invalidateDockCache } from "./dock-cache.js";
-import { BasecampError } from "../basecamp-client.js";
+import { invalidateDockCache, resolveDockToolIds } from "./dock-cache.js";
 
 function isStaleResourceError(err: unknown): boolean {
   if (err instanceof BasecampError) {
-    return (
-      err.httpStatus === 404 ||
-      err.httpStatus === 410 ||
-      err.code === "not_found"
-    );
+    return err.httpStatus === 404 || err.httpStatus === 410 || err.code === "not_found";
   }
   return false;
 }
@@ -152,9 +148,7 @@ export interface SafetyNetPollOptions {
   };
 }
 
-export async function pollSafetyNet(
-  opts: SafetyNetPollOptions,
-): Promise<SafetyNetPollResult> {
+export async function pollSafetyNet(opts: SafetyNetPollOptions): Promise<SafetyNetPollResult> {
   const { account, client, projectIds, previousSnapshot, isDeepCrawl, log } = opts;
   const maxItems = isDeepCrawl ? undefined : (opts.maxItems ?? 50);
   const events: BasecampInboundMessage[] = [];
@@ -198,32 +192,36 @@ export async function pollSafetyNet(
             if (!prev) {
               // Appeared
               const hash = changeHash(`appeared:${cardId}`);
-              events.push(buildDeltaMessage({
-                accountId: account.accountId,
-                projectId,
-                recordingId: cardId,
-                recordableType: "Kanban::Card",
-                eventKind: "created",
-                text: `Card ${cardId} appeared in ${card.columnName}`,
-                dedupKey: `direct:card:${cardId}:${hash}`,
-                createdAt: card.updatedAt,
-                extraMeta: { column: card.columnName, assignees: card.assignees },
-              }));
-            } else {
-              if (prev.columnId !== card.columnId) {
-                // Moved
-                const hash = changeHash(`moved:${cardId}:${prev.columnId}:${card.columnId}`);
-                events.push(buildDeltaMessage({
+              events.push(
+                buildDeltaMessage({
                   accountId: account.accountId,
                   projectId,
                   recordingId: cardId,
                   recordableType: "Kanban::Card",
-                  eventKind: "moved",
-                  text: `Card ${cardId} moved from ${prev.columnName} to ${card.columnName}`,
+                  eventKind: "created",
+                  text: `Card ${cardId} appeared in ${card.columnName}`,
                   dedupKey: `direct:card:${cardId}:${hash}`,
                   createdAt: card.updatedAt,
-                  extraMeta: { column: card.columnName, columnPrevious: prev.columnName },
-                }));
+                  extraMeta: { column: card.columnName, assignees: card.assignees },
+                }),
+              );
+            } else {
+              if (prev.columnId !== card.columnId) {
+                // Moved
+                const hash = changeHash(`moved:${cardId}:${prev.columnId}:${card.columnId}`);
+                events.push(
+                  buildDeltaMessage({
+                    accountId: account.accountId,
+                    projectId,
+                    recordingId: cardId,
+                    recordableType: "Kanban::Card",
+                    eventKind: "moved",
+                    text: `Card ${cardId} moved from ${prev.columnName} to ${card.columnName}`,
+                    dedupKey: `direct:card:${cardId}:${hash}`,
+                    createdAt: card.updatedAt,
+                    extraMeta: { column: card.columnName, columnPrevious: prev.columnName },
+                  }),
+                );
               }
               // Assignment diff
               const added = card.assignees.filter((a) => !prev.assignees.includes(a));
@@ -231,20 +229,22 @@ export async function pollSafetyNet(
               if (added.length > 0 || removed.length > 0) {
                 const hash = changeHash(`assign:${cardId}:${card.assignees.sort().join(",")}`);
                 const agentAssigned = account.personId ? added.includes(account.personId) : false;
-                events.push(buildDeltaMessage({
-                  accountId: account.accountId,
-                  projectId,
-                  recordingId: cardId,
-                  recordableType: "Kanban::Card",
-                  eventKind: "assigned",
-                  text: `Card ${cardId} assignees changed: +${added.length} -${removed.length}`,
-                  dedupKey: `direct:card:${cardId}:${hash}`,
-                  createdAt: card.updatedAt,
-                  extraMeta: {
-                    assignees: card.assignees,
-                    assignedToAgent: agentAssigned || undefined,
-                  },
-                }));
+                events.push(
+                  buildDeltaMessage({
+                    accountId: account.accountId,
+                    projectId,
+                    recordingId: cardId,
+                    recordableType: "Kanban::Card",
+                    eventKind: "assigned",
+                    text: `Card ${cardId} assignees changed: +${added.length} -${removed.length}`,
+                    dedupKey: `direct:card:${cardId}:${hash}`,
+                    createdAt: card.updatedAt,
+                    extraMeta: {
+                      assignees: card.assignees,
+                      assignedToAgent: agentAssigned || undefined,
+                    },
+                  }),
+                );
               }
             }
           }
@@ -257,16 +257,18 @@ export async function pollSafetyNet(
                 pending.entries[pendingKey] = (pending.entries[pendingKey] ?? 0) + 1;
                 if (pending.entries[pendingKey] >= 2) {
                   const hash = changeHash(`disappeared:${cardId}`);
-                  events.push(buildDeltaMessage({
-                    accountId: account.accountId,
-                    projectId,
-                    recordingId: cardId,
-                    recordableType: "Kanban::Card",
-                    eventKind: "disappeared",
-                    text: `Card ${cardId} disappeared`,
-                    dedupKey: `direct:card:${cardId}:${hash}`,
-                    createdAt: new Date().toISOString(),
-                  }));
+                  events.push(
+                    buildDeltaMessage({
+                      accountId: account.accountId,
+                      projectId,
+                      recordingId: cardId,
+                      recordableType: "Kanban::Card",
+                      eventKind: "disappeared",
+                      text: `Card ${cardId} disappeared`,
+                      dedupKey: `direct:card:${cardId}:${hash}`,
+                      createdAt: new Date().toISOString(),
+                    }),
+                  );
                   delete pending.entries[pendingKey];
                 }
               } else {
@@ -295,17 +297,19 @@ export async function pollSafetyNet(
             const prev = prevProject.todos[todoId];
             if (!prev) {
               const hash = changeHash(`appeared:${todoId}`);
-              events.push(buildDeltaMessage({
-                accountId: account.accountId,
-                projectId,
-                recordingId: todoId,
-                recordableType: "Todo",
-                eventKind: "created",
-                text: `Todo ${todoId} appeared`,
-                dedupKey: `direct:todo:${todoId}:${hash}`,
-                createdAt: todo.updatedAt,
-                extraMeta: { assignees: todo.assignees },
-              }));
+              events.push(
+                buildDeltaMessage({
+                  accountId: account.accountId,
+                  projectId,
+                  recordingId: todoId,
+                  recordableType: "Todo",
+                  eventKind: "created",
+                  text: `Todo ${todoId} appeared`,
+                  dedupKey: `direct:todo:${todoId}:${hash}`,
+                  createdAt: todo.updatedAt,
+                  extraMeta: { assignees: todo.assignees },
+                }),
+              );
             } else {
               // Assignment diff
               const added = todo.assignees.filter((a) => !prev.assignees.includes(a));
@@ -313,20 +317,22 @@ export async function pollSafetyNet(
               if (added.length > 0 || removed.length > 0) {
                 const hash = changeHash(`assign:${todoId}:${todo.assignees.sort().join(",")}`);
                 const agentAssigned = account.personId ? added.includes(account.personId) : false;
-                events.push(buildDeltaMessage({
-                  accountId: account.accountId,
-                  projectId,
-                  recordingId: todoId,
-                  recordableType: "Todo",
-                  eventKind: "assigned",
-                  text: `Todo ${todoId} assignees changed: +${added.length} -${removed.length}`,
-                  dedupKey: `direct:todo:${todoId}:${hash}`,
-                  createdAt: todo.updatedAt,
-                  extraMeta: {
-                    assignees: todo.assignees,
-                    assignedToAgent: agentAssigned || undefined,
-                  },
-                }));
+                events.push(
+                  buildDeltaMessage({
+                    accountId: account.accountId,
+                    projectId,
+                    recordingId: todoId,
+                    recordableType: "Todo",
+                    eventKind: "assigned",
+                    text: `Todo ${todoId} assignees changed: +${added.length} -${removed.length}`,
+                    dedupKey: `direct:todo:${todoId}:${hash}`,
+                    createdAt: todo.updatedAt,
+                    extraMeta: {
+                      assignees: todo.assignees,
+                      assignedToAgent: agentAssigned || undefined,
+                    },
+                  }),
+                );
               }
             }
           }
@@ -338,16 +344,18 @@ export async function pollSafetyNet(
                 pending.entries[pendingKey] = (pending.entries[pendingKey] ?? 0) + 1;
                 if (pending.entries[pendingKey] >= 2) {
                   const hash = changeHash(`disappeared:${todoId}`);
-                  events.push(buildDeltaMessage({
-                    accountId: account.accountId,
-                    projectId,
-                    recordingId: todoId,
-                    recordableType: "Todo",
-                    eventKind: "disappeared",
-                    text: `Todo ${todoId} disappeared`,
-                    dedupKey: `direct:todo:${todoId}:${hash}`,
-                    createdAt: new Date().toISOString(),
-                  }));
+                  events.push(
+                    buildDeltaMessage({
+                      accountId: account.accountId,
+                      projectId,
+                      recordingId: todoId,
+                      recordableType: "Todo",
+                      eventKind: "disappeared",
+                      text: `Todo ${todoId} disappeared`,
+                      dedupKey: `direct:todo:${todoId}:${hash}`,
+                      createdAt: new Date().toISOString(),
+                    }),
+                  );
                   delete pending.entries[pendingKey];
                 }
               } else {
@@ -376,16 +384,18 @@ export async function pollSafetyNet(
               const prevSet = new Set(prev.answerIds);
               const newAnswerIds = q.answerIds.filter((id) => !prevSet.has(id));
               for (const answerId of newAnswerIds) {
-                events.push(buildDeltaMessage({
-                  accountId: account.accountId,
-                  projectId,
-                  recordingId: answerId,
-                  recordableType: "Question::Answer",
-                  eventKind: "checkin_answered",
-                  text: `New answer ${answerId} to check-in question ${questionId}`,
-                  dedupKey: `direct:answer:${answerId}`,
-                  createdAt: new Date().toISOString(),
-                }));
+                events.push(
+                  buildDeltaMessage({
+                    accountId: account.accountId,
+                    projectId,
+                    recordingId: answerId,
+                    recordableType: "Question::Answer",
+                    eventKind: "checkin_answered",
+                    text: `New answer ${answerId} to check-in question ${questionId}`,
+                    dedupKey: `direct:answer:${answerId}`,
+                    createdAt: new Date().toISOString(),
+                  }),
+                );
               }
             }
           }
@@ -393,7 +403,9 @@ export async function pollSafetyNet(
       } catch (err) {
         if (isStaleResourceError(err)) invalidateDockCache(projectId);
         if (prevProject) projectSnap.checkins = prevProject.checkins;
-        log?.warn?.(`[${account.accountId}] safety_net: checkins crawl failed for project ${projectId}: ${String(err)}`);
+        log?.warn?.(
+          `[${account.accountId}] safety_net: checkins crawl failed for project ${projectId}: ${String(err)}`,
+        );
       }
     }
 
@@ -434,9 +446,7 @@ async function crawlCards(
     if (result?.meta?.truncated) truncated = true;
 
     for (const card of items) {
-      const assignees: string[] = Array.isArray(card.assignees)
-        ? card.assignees.map((a: any) => String(a.id))
-        : [];
+      const assignees: string[] = Array.isArray(card.assignees) ? card.assignees.map((a: any) => String(a.id)) : [];
       cards[String(card.id)] = {
         columnId: col.id,
         columnName: col.title,
@@ -454,11 +464,7 @@ interface TodoCrawlResult {
   truncated: boolean;
 }
 
-async function crawlTodos(
-  client: any,
-  projectId: number,
-  maxItems?: number,
-): Promise<TodoCrawlResult> {
+async function crawlTodos(client: any, projectId: number, maxItems?: number): Promise<TodoCrawlResult> {
   const todos: Record<string, TodoSnapshot> = {};
   let truncated = false;
 
@@ -471,9 +477,7 @@ async function crawlTodos(
   if (result?.meta?.truncated) truncated = true;
 
   for (const todo of items) {
-    const assignees: string[] = Array.isArray(todo.assignees)
-      ? todo.assignees.map((a: any) => String(a.id))
-      : [];
+    const assignees: string[] = Array.isArray(todo.assignees) ? todo.assignees.map((a: any) => String(a.id)) : [];
     todos[String(todo.id)] = {
       updatedAt: todo.updated_at ?? new Date().toISOString(),
       assignees,
@@ -487,11 +491,7 @@ interface CheckinCrawlResult {
   checkins: Record<string, CheckinSnapshot>;
 }
 
-async function crawlCheckins(
-  client: any,
-  projectId: number,
-  questionnaireId: number,
-): Promise<CheckinCrawlResult> {
+async function crawlCheckins(client: any, projectId: number, questionnaireId: number): Promise<CheckinCrawlResult> {
   const checkins: Record<string, CheckinSnapshot> = {};
 
   const questions = await client.checkins.listQuestions(projectId, questionnaireId);

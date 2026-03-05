@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("openclaw/plugin-sdk", () => ({
   DEFAULT_ACCOUNT_ID: "default",
@@ -23,7 +23,10 @@ vi.mock("../src/basecamp-client.js", () => ({
   rawOrThrow: vi.fn(async (r: any) => r?.data),
   BasecampError: class BasecampError extends Error {
     code: string;
-    constructor(msg: string, code: string) { super(msg); this.code = code; }
+    constructor(msg: string, code: string) {
+      super(msg);
+      this.code = code;
+    }
   },
 }));
 
@@ -49,9 +52,9 @@ vi.mock("../src/config.js", () => ({
 }));
 
 import { basecampActionsAdapter } from "../src/adapters/actions.js";
-import { postCampfireLine, postComment } from "../src/outbound/send.js";
-import { markdownToBasecampHtml } from "../src/outbound/format.js";
 import { resolveBasecampAccount } from "../src/config.js";
+import { markdownToBasecampHtml } from "../src/outbound/format.js";
+import { postCampfireLine, postComment } from "../src/outbound/send.js";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -229,7 +232,11 @@ describe("actions.handleAction — send comment", () => {
   });
 
   it("returns error from failed comment post", async () => {
-    vi.mocked(postComment).mockResolvedValue({ ok: false, message: "403 Forbidden", error: new Error("403 Forbidden") });
+    vi.mocked(postComment).mockResolvedValue({
+      ok: false,
+      message: "403 Forbidden",
+      error: new Error("403 Forbidden"),
+    });
 
     const result = await basecampActionsAdapter.handleAction!(
       actionCtx({
@@ -251,24 +258,18 @@ describe("actions.handleAction — send comment", () => {
 describe("actions.handleAction — send validation", () => {
   it("throws when bucketId is missing", async () => {
     await expect(
-      basecampActionsAdapter.handleAction!(
-        actionCtx({ params: { transcriptId: "2", text: "Hello" } }),
-      ),
+      basecampActionsAdapter.handleAction!(actionCtx({ params: { transcriptId: "2", text: "Hello" } })),
     ).rejects.toThrow(/Bucket ID/);
   });
 
   it("throws when text is missing", async () => {
     await expect(
-      basecampActionsAdapter.handleAction!(
-        actionCtx({ params: { bucketId: "1", transcriptId: "2" } }),
-      ),
+      basecampActionsAdapter.handleAction!(actionCtx({ params: { bucketId: "1", transcriptId: "2" } })),
     ).rejects.toThrow(/Message text/);
   });
 
   it("returns error when neither transcriptId nor recordingId is provided", async () => {
-    const result = await basecampActionsAdapter.handleAction!(
-      actionCtx({ params: { bucketId: "1", text: "Hello" } }),
-    );
+    const result = await basecampActionsAdapter.handleAction!(actionCtx({ params: { bucketId: "1", text: "Hello" } }));
 
     expect(result).toEqual({
       ok: true,
@@ -331,9 +332,7 @@ describe("actions.handleAction — send dryRun", () => {
 
 describe("actions.handleAction — unsupported action", () => {
   it("returns error for unsupported action", async () => {
-    const result = await basecampActionsAdapter.handleAction!(
-      actionCtx({ action: "delete" }),
-    );
+    const result = await basecampActionsAdapter.handleAction!(actionCtx({ action: "delete" }));
 
     expect(result).toEqual({
       ok: true,
@@ -408,10 +407,7 @@ describe("actions.handleAction — react", () => {
       ok: true,
       result: { ok: true, target: "boost", boostId: 55 },
     });
-    expect(mockClient.boosts.createForRecording).toHaveBeenCalledWith(
-      500,
-      { content: "🎉" },
-    );
+    expect(mockClient.boosts.createForRecording).toHaveBeenCalledWith(500, { content: "🎉" });
   });
 
   it("defaults emoji to thumbs up", async () => {
@@ -424,10 +420,7 @@ describe("actions.handleAction — react", () => {
       }),
     );
 
-    expect(mockClient.boosts.createForRecording).toHaveBeenCalledWith(
-      500,
-      { content: "👍" },
-    );
+    expect(mockClient.boosts.createForRecording).toHaveBeenCalledWith(500, { content: "👍" });
   });
 
   it("returns error on API failure", async () => {

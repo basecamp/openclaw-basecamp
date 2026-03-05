@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // Mock basecamp-client (transitive dep via outbound/send.js)
 vi.mock("../src/basecamp-client.js", () => ({
@@ -7,7 +7,10 @@ vi.mock("../src/basecamp-client.js", () => ({
   rawOrThrow: vi.fn(async (result: any) => result?.data),
   BasecampError: class BasecampError extends Error {
     code: string;
-    constructor(msg: string, code: string) { super(msg); this.code = code; }
+    constructor(msg: string, code: string) {
+      super(msg);
+      this.code = code;
+    }
   },
   clearClients: vi.fn(),
 }));
@@ -27,8 +30,8 @@ vi.mock("../src/outbound/send.js", () => ({
 
 import {
   normalizeActivityEvent,
-  normalizeReadingsEvent,
   normalizeAssignmentTodo,
+  normalizeReadingsEvent,
   normalizeWebhookPayload,
 } from "../src/inbound/normalize.js";
 import type { ResolvedBasecampAccount } from "../src/types.js";

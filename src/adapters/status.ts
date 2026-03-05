@@ -10,13 +10,13 @@
  * and status issue collection.
  */
 
-import type { ChannelStatusAdapter, ChannelAccountSnapshot, OpenClawConfig } from "openclaw/plugin-sdk";
+import type { ChannelAccountSnapshot, ChannelStatusAdapter, OpenClawConfig } from "openclaw/plugin-sdk";
 import { DEFAULT_ACCOUNT_ID } from "openclaw/plugin-sdk";
-import type { ResolvedBasecampAccount, BasecampChannelConfig, BasecampProject } from "../types.js";
 import { getClient, numId } from "../basecamp-client.js";
 import { resolveBasecampAccount } from "../config.js";
-import { getAccountMetrics } from "../metrics.js";
 import type { AccountMetrics, PollerSourceMetrics } from "../metrics.js";
+import { getAccountMetrics } from "../metrics.js";
+import type { BasecampChannelConfig, BasecampProject, ResolvedBasecampAccount } from "../types.js";
 
 export type BasecampProbe = {
   ok: boolean;
@@ -156,16 +156,28 @@ export const basecampStatusAdapter: ChannelStatusAdapter<ResolvedBasecampAccount
         if (resolved.tokenSource !== "none") {
           personasValid++;
         } else {
-          errors.push({ kind: "config", message: `Persona "${agentId}" → account "${targetAccountId}": no auth configured` });
+          errors.push({
+            kind: "config",
+            message: `Persona "${agentId}" → account "${targetAccountId}": no auth configured`,
+          });
         }
       } else {
-        errors.push({ kind: "config", message: `Persona "${agentId}" → account "${targetAccountId}": account does not exist` });
+        errors.push({
+          kind: "config",
+          message: `Persona "${agentId}" → account "${targetAccountId}": account does not exist`,
+        });
       }
     }
 
     // Enrich with operational metrics
     const metrics = getAccountMetrics(account.accountId);
-    const result: BasecampAudit = { projectsAccessible, personasMapped, personasValid, errors, personIdSet: !!account.personId };
+    const result: BasecampAudit = {
+      projectsAccessible,
+      personasMapped,
+      personasValid,
+      errors,
+      personIdSet: !!account.personId,
+    };
 
     if (metrics) {
       result.pollerLag = {
@@ -217,9 +229,7 @@ export const basecampStatusAdapter: ChannelStatusAdapter<ResolvedBasecampAccount
   },
 
   buildAccountSnapshot: ({ account, runtime, probe, audit }): BasecampAccountSnapshot => {
-    const configured = Boolean(
-      account.token?.trim() || account.config.tokenFile || account.config.oauthTokenFile,
-    );
+    const configured = Boolean(account.token?.trim() || account.config.tokenFile || account.config.oauthTokenFile);
     return {
       accountId: account.accountId,
       name: account.displayName,

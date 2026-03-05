@@ -4,9 +4,10 @@
  * Validates token auth, HMAC auth, bucket-scoped secret resolution,
  * and fail-closed semantics across multi-account configurations.
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+
 import crypto from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -83,21 +84,22 @@ vi.mock("../../src/inbound/dedup-registry.js", () => {
       flush: vi.fn(),
       size: seen.size,
     })),
-    closeAccountDedup: vi.fn(() => { seen.clear(); }),
-    closeAllAccountDedup: vi.fn(() => { seen.clear(); }),
+    closeAccountDedup: vi.fn(() => {
+      seen.clear();
+    }),
+    closeAllAccountDedup: vi.fn(() => {
+      seen.clear();
+    }),
     flushAccountDedup: vi.fn(),
   };
 });
 
 import { mkdtempSync, rmSync } from "node:fs";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
-import {
-  handleBasecampWebhook,
-  getWebhookSecretRegistry,
-} from "../../src/inbound/webhooks.js";
-import { closeAllAccountDedup } from "../../src/inbound/dedup-registry.js";
+import { join } from "node:path";
 import { dispatchBasecampEvent } from "../../src/dispatch.js";
+import { closeAllAccountDedup } from "../../src/inbound/dedup-registry.js";
+import { getWebhookSecretRegistry, handleBasecampWebhook } from "../../src/inbound/webhooks.js";
 import { clearMetrics } from "../../src/metrics.js";
 
 // ---------------------------------------------------------------------------
@@ -147,9 +149,7 @@ function makeReq(
   body: string,
   opts?: { token?: string; hmacSignature?: string; hmacTimestamp?: string },
 ): IncomingMessage {
-  const url = opts?.token
-    ? `/webhooks/basecamp?token=${opts.token}`
-    : "/webhooks/basecamp";
+  const url = opts?.token ? `/webhooks/basecamp?token=${opts.token}` : "/webhooks/basecamp";
 
   const headers: Record<string, string> = {
     host: "localhost",
@@ -175,8 +175,14 @@ function makeRes(): ServerResponse & { statusCode: number; body: string } {
   const res: any = {
     statusCode: 0,
     body: "",
-    writeHead(code: number) { res.statusCode = code; return res; },
-    end(data?: string) { res.body = data ?? ""; return res; },
+    writeHead(code: number) {
+      res.statusCode = code;
+      return res;
+    },
+    end(data?: string) {
+      res.body = data ?? "";
+      return res;
+    },
   };
   return res;
 }

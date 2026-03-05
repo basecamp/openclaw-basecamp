@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import { getSurfacePrompt } from "../src/hooks/agent-prompt-context.js";
 
 describe("getSurfacePrompt", () => {
@@ -30,11 +30,9 @@ describe("getSurfacePrompt", () => {
     expect(prompt).toContain("column");
   });
 
-  it("returns card prompt for Kanban::Triage", () => {
+  it("returns undefined for Kanban::Triage (not a recognized recordable type)", () => {
     const ctx = ["[basecamp] recordableType=Kanban::Triage"];
-    const prompt = getSurfacePrompt(ctx);
-    expect(prompt).toContain("Card Table");
-    expect(prompt).toContain("triage");
+    expect(getSurfacePrompt(ctx)).toBeUndefined();
   });
 
   it("returns check-in prompt for Question", () => {
@@ -79,10 +77,7 @@ describe("getSurfacePrompt", () => {
   });
 
   it("uses first recordableType match", () => {
-    const ctx = [
-      "[basecamp] recordableType=Chat::Line",
-      "[basecamp] recordableType=Todo",
-    ];
+    const ctx = ["[basecamp] recordableType=Chat::Line", "[basecamp] recordableType=Todo"];
     const prompt = getSurfacePrompt(ctx);
     expect(prompt).toContain("Campfire");
   });

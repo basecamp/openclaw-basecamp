@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("openclaw/plugin-sdk", () => ({
   DEFAULT_ACCOUNT_ID: "default",
@@ -76,8 +76,8 @@ vi.mock("../src/adapters/agent-prompt.js", () => ({
 }));
 
 import { basecampChannel } from "../src/channel.js";
-import { interactiveLogin } from "../src/oauth-credentials.js";
 import { resolveBasecampAccount } from "../src/config.js";
+import { interactiveLogin } from "../src/oauth-credentials.js";
 
 const oauthAccount = {
   accountId: "oauth-test",

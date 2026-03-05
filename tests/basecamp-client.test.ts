@@ -4,7 +4,7 @@
  * Covers: numId, rawOrThrow, getClient (client caching + account ID resolution),
  * resolveTokenProvider (config, tokenFile, oauth, none).
  */
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 // ---------------------------------------------------------------------------
 // Mocks — vi.hoisted ensures these survive vi.mock hoisting
@@ -43,7 +43,7 @@ vi.mock("node:fs/promises", () => ({
   readFile: mockReadFile,
 }));
 
-import { numId, rawOrThrow, getClient, clearClients } from "../src/basecamp-client.js";
+import { clearClients, getClient, numId, rawOrThrow } from "../src/basecamp-client.js";
 import type { ResolvedBasecampAccount } from "../src/types.js";
 
 // ---------------------------------------------------------------------------
@@ -157,9 +157,7 @@ describe("getClient", () => {
     });
     getClient(account);
 
-    expect(mockCreateBasecampClient).toHaveBeenCalledWith(
-      expect.objectContaining({ accountId: "777" }),
-    );
+    expect(mockCreateBasecampClient).toHaveBeenCalledWith(expect.objectContaining({ accountId: "777" }));
   });
 
   it("falls back to numeric accountId when no explicit IDs are set", () => {
@@ -169,9 +167,7 @@ describe("getClient", () => {
     });
     getClient(account);
 
-    expect(mockCreateBasecampClient).toHaveBeenCalledWith(
-      expect.objectContaining({ accountId: "99999" }),
-    );
+    expect(mockCreateBasecampClient).toHaveBeenCalledWith(expect.objectContaining({ accountId: "99999" }));
   });
 
   it("throws on non-numeric accountId with no explicit ID", () => {
@@ -180,9 +176,7 @@ describe("getClient", () => {
       config: { personId: "42" },
     });
 
-    expect(() => getClient(account)).toThrow(
-      'Cannot resolve numeric Basecamp account ID for "my-org"',
-    );
+    expect(() => getClient(account)).toThrow('Cannot resolve numeric Basecamp account ID for "my-org"');
   });
 
   it("returns cached client on second call (same object, factory called once)", () => {
@@ -226,9 +220,7 @@ describe("resolveTokenProvider", () => {
     });
     getClient(account);
 
-    expect(mockCreateBasecampClient).toHaveBeenCalledWith(
-      expect.objectContaining({ accessToken: "direct-token" }),
-    );
+    expect(mockCreateBasecampClient).toHaveBeenCalledWith(expect.objectContaining({ accessToken: "direct-token" }));
   });
 
   it('tokenSource "tokenFile" with pre-loaded token passes string directly', () => {
@@ -261,10 +253,7 @@ describe("resolveTokenProvider", () => {
     const token = await lazyFn();
 
     expect(token).toBe("file-token-value");
-    expect(mockReadFile).toHaveBeenCalledWith(
-      expect.stringContaining("tokens/bc.txt"),
-      "utf-8",
-    );
+    expect(mockReadFile).toHaveBeenCalledWith(expect.stringContaining("tokens/bc.txt"), "utf-8");
     // ~ should be expanded, not present in the resolved path
     expect(mockReadFile.mock.calls[0][0]).not.toContain("~");
   });
@@ -306,7 +295,7 @@ describe("resolveTokenProvider", () => {
     expect(mockReadFile.mock.calls[0][0]).toBe("/etc/tokens/bc.txt");
   });
 
-  it('tokenFile lazy fn throws when tokenFile missing in config', async () => {
+  it("tokenFile lazy fn throws when tokenFile missing in config", async () => {
     const account = makeAccount({
       accountId: "tf-no-file",
       tokenSource: "tokenFile",
@@ -343,8 +332,6 @@ describe("resolveTokenProvider", () => {
       config: { personId: "42", basecampAccountId: "7" },
     });
 
-    expect(() => getClient(account)).toThrow(
-      'No authentication configured for account "none-source"',
-    );
+    expect(() => getClient(account)).toThrow('No authentication configured for account "none-source"');
   });
 });

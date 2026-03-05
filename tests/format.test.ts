@@ -1,9 +1,5 @@
-import { describe, it, expect } from "vitest";
-import {
-  markdownToBasecampHtml,
-  stripHtml,
-  basecampHtmlToPlainText,
-} from "../src/outbound/format.js";
+import { describe, expect, it } from "vitest";
+import { basecampHtmlToPlainText, markdownToBasecampHtml, stripHtml } from "../src/outbound/format.js";
 
 // ---------------------------------------------------------------------------
 // markdownToBasecampHtml
@@ -56,15 +52,11 @@ describe("markdownToBasecampHtml", () => {
 
   // Inline code
   it("converts `inline code` to <code>", () => {
-    expect(markdownToBasecampHtml("`inline code`")).toBe(
-      "<code>inline code</code>"
-    );
+    expect(markdownToBasecampHtml("`inline code`")).toBe("<code>inline code</code>");
   });
 
   it("HTML-escapes content inside inline code", () => {
-    expect(markdownToBasecampHtml("`<div>&</div>`")).toBe(
-      "<code>&lt;div&gt;&amp;&lt;/div&gt;</code>"
-    );
+    expect(markdownToBasecampHtml("`<div>&</div>`")).toBe("<code>&lt;div&gt;&amp;&lt;/div&gt;</code>");
   });
 
   // Fenced code blocks
@@ -114,7 +106,7 @@ describe("markdownToBasecampHtml", () => {
   // Links
   it("converts [text](url) to <a>", () => {
     expect(markdownToBasecampHtml("[click here](https://example.com)")).toBe(
-      '<a href="https://example.com">click here</a>'
+      '<a href="https://example.com">click here</a>',
     );
   });
 
@@ -283,7 +275,8 @@ describe("stripHtml", () => {
   });
 
   it("strips table elements to plain text", () => {
-    const html = "<table><thead><tr><th>A</th><th>B</th></tr></thead><tbody><tr><td>1</td><td>2</td></tr></tbody></table>";
+    const html =
+      "<table><thead><tr><th>A</th><th>B</th></tr></thead><tbody><tr><td>1</td><td>2</td></tr></tbody></table>";
     const result = stripHtml(html);
     expect(result).toContain("A");
     expect(result).toContain("B");
@@ -315,9 +308,7 @@ describe("basecampHtmlToPlainText", () => {
   });
 
   it("converts simple HTML to plain text", () => {
-    expect(basecampHtmlToPlainText("<strong>hello</strong> world")).toBe(
-      "hello world"
-    );
+    expect(basecampHtmlToPlainText("<strong>hello</strong> world")).toBe("hello world");
   });
 
   it("delegates to stripHtml for full processing", () => {

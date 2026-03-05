@@ -170,11 +170,7 @@ export function recordWebhookDedupSize(accountId: string, size: number): void {
   m.webhookDedupSize = size;
 }
 
-export function recordCircuitBreakerState(
-  accountId: string,
-  key: string,
-  state: CircuitBreakerMetrics,
-): void {
+export function recordCircuitBreakerState(accountId: string, key: string, state: CircuitBreakerMetrics): void {
   const m = getOrCreate(accountId);
   m.circuitBreaker[key] = state;
 }
@@ -194,7 +190,10 @@ export function recordWebhookAuthMethod(accountId: string, method: "token" | "hm
   m.webhook.authMethods[method] = (m.webhook.authMethods[method] ?? 0) + 1;
 }
 
-export function recordReconciliationRun(accountId: string, result: { replayed: number; unseen: number; promotedTypes: string[] }): void {
+export function recordReconciliationRun(
+  accountId: string,
+  result: { replayed: number; unseen: number; promotedTypes: string[] },
+): void {
   const m = getOrCreate(accountId);
   m.reconciliation.lastRunAt = Date.now();
   m.reconciliation.replayed = result.replayed;

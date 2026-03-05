@@ -1,5 +1,11 @@
 import { defineConfig } from "vitest/config";
-import path from "path";
+
+// When OPENCLAW_PLUGIN_SDK_PATH is set, alias openclaw/plugin-sdk to local
+// source for development. Otherwise let Node resolve from node_modules.
+const alias: Record<string, string> = {};
+if (process.env.OPENCLAW_PLUGIN_SDK_PATH) {
+  alias["openclaw/plugin-sdk"] = process.env.OPENCLAW_PLUGIN_SDK_PATH;
+}
 
 export default defineConfig({
   test: {
@@ -9,18 +15,8 @@ export default defineConfig({
       include: ["src/**/*.ts"],
       exclude: ["src/types.ts", "src/**/*.d.ts"],
       reporter: ["text", "json-summary"],
-      thresholds: { lines: 50, functions: 50, branches: 40, statements: 50 },
+      thresholds: { lines: 85, functions: 85, branches: 82, statements: 85 },
     },
   },
-  resolve: {
-    alias: {
-      // Resolve openclaw/plugin-sdk to local source for testing.
-      // Set OPENCLAW_PLUGIN_SDK_PATH to override the default location.
-      "openclaw/plugin-sdk": process.env.OPENCLAW_PLUGIN_SDK_PATH ??
-        path.resolve(
-          process.env.HOME ?? "~",
-          "Work/basecamp/openclaw/src/plugin-sdk/index.ts",
-        ),
-    },
-  },
+  resolve: { alias },
 });

@@ -6,7 +6,7 @@
  * check-in answer detection, serialization, error handling, and
  * invalidateDockCache on 404/410 errors.
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // ---------------------------------------------------------------------------
 // Mock dock-cache
@@ -35,19 +35,19 @@ vi.mock("../src/basecamp-client.js", () => {
   return { BasecampError };
 });
 
-import { resolveDockToolIds, invalidateDockCache } from "../src/inbound/dock-cache.js";
-import {
-  pollSafetyNet,
-  serializeSnapshot,
-  deserializeSnapshot,
-  serializePending,
-  deserializePending,
-} from "../src/inbound/safety-net.js";
+import { invalidateDockCache, resolveDockToolIds } from "../src/inbound/dock-cache.js";
 import type {
-  SafetyNetSnapshot,
-  SafetyNetPollOptions,
   DisappearedPending,
   ProjectSnapshot,
+  SafetyNetPollOptions,
+  SafetyNetSnapshot,
+} from "../src/inbound/safety-net.js";
+import {
+  deserializePending,
+  deserializeSnapshot,
+  pollSafetyNet,
+  serializePending,
+  serializeSnapshot,
 } from "../src/inbound/safety-net.js";
 import type { ResolvedBasecampAccount } from "../src/types.js";
 
@@ -173,9 +173,7 @@ describe("safety-net", () => {
     client.cardTables.get.mockResolvedValue({
       lists: [{ id: 100, title: "Backlog" }],
     });
-    client.cards.list.mockResolvedValue([
-      { id: 501, updated_at: "2026-01-01T00:00:00Z", assignees: [] },
-    ]);
+    client.cards.list.mockResolvedValue([{ id: 501, updated_at: "2026-01-01T00:00:00Z", assignees: [] }]);
 
     const prev = emptySnapshot(1);
     const result = await pollSafetyNet(baseOpts(client, { previousSnapshot: prev }));
@@ -196,9 +194,7 @@ describe("safety-net", () => {
     client.cardTables.get.mockResolvedValue({
       lists: [{ id: 200, title: "In Progress" }],
     });
-    client.cards.list.mockResolvedValue([
-      { id: 501, updated_at: "2026-01-02T00:00:00Z", assignees: [] },
-    ]);
+    client.cards.list.mockResolvedValue([{ id: 501, updated_at: "2026-01-02T00:00:00Z", assignees: [] }]);
 
     const prev = snapshotWithCards(1, {
       "501": { columnId: 100, columnName: "Backlog", updatedAt: "2026-01-01T00:00:00Z", assignees: [] },
@@ -246,19 +242,23 @@ describe("safety-net", () => {
     });
 
     // Deep crawl #1: card missing → pending count=1
-    const r1 = await pollSafetyNet(baseOpts(client, {
-      previousSnapshot: prev,
-      isDeepCrawl: true,
-    }));
+    const r1 = await pollSafetyNet(
+      baseOpts(client, {
+        previousSnapshot: prev,
+        isDeepCrawl: true,
+      }),
+    );
     expect(r1.events.filter((e) => e.meta.eventKind === "disappeared")).toEqual([]);
     expect(r1.pending.entries["card:501"]).toBe(1);
 
     // Deep crawl #2: still missing → disappeared event
-    const r2 = await pollSafetyNet(baseOpts(client, {
-      previousSnapshot: prev,
-      previousPending: r1.pending,
-      isDeepCrawl: true,
-    }));
+    const r2 = await pollSafetyNet(
+      baseOpts(client, {
+        previousSnapshot: prev,
+        previousPending: r1.pending,
+        isDeepCrawl: true,
+      }),
+    );
     const disappeared = r2.events.find((e) => e.meta.eventKind === "disappeared");
     expect(disappeared).toBeDefined();
     expect(disappeared!.meta.recordableType).toBe("Kanban::Card");
@@ -276,10 +276,12 @@ describe("safety-net", () => {
       "501": { columnId: 100, columnName: "Backlog", updatedAt: "2026-01-01T00:00:00Z", assignees: [] },
     });
 
-    const result = await pollSafetyNet(baseOpts(client, {
-      previousSnapshot: prev,
-      isDeepCrawl: false, // capped
-    }));
+    const result = await pollSafetyNet(
+      baseOpts(client, {
+        previousSnapshot: prev,
+        isDeepCrawl: false, // capped
+      }),
+    );
     // No disappeared detection on capped crawl
     expect(result.events.filter((e) => e.meta.eventKind === "disappeared")).toEqual([]);
   });
@@ -291,20 +293,20 @@ describe("safety-net", () => {
     setupDock({ cardTableId: 10 });
     client.cardTables.get.mockResolvedValue({ lists: [{ id: 100, title: "Backlog" }] });
     // Card is present
-    client.cards.list.mockResolvedValue([
-      { id: 501, updated_at: "2026-01-01T00:00:00Z", assignees: [] },
-    ]);
+    client.cards.list.mockResolvedValue([{ id: 501, updated_at: "2026-01-01T00:00:00Z", assignees: [] }]);
 
     const prev = snapshotWithCards(1, {
       "501": { columnId: 100, columnName: "Backlog", updatedAt: "2026-01-01T00:00:00Z", assignees: [] },
     });
 
     const pendingBefore: DisappearedPending = { entries: { "card:501": 1 } };
-    const result = await pollSafetyNet(baseOpts(client, {
-      previousSnapshot: prev,
-      previousPending: pendingBefore,
-      isDeepCrawl: true,
-    }));
+    const result = await pollSafetyNet(
+      baseOpts(client, {
+        previousSnapshot: prev,
+        previousPending: pendingBefore,
+        isDeepCrawl: true,
+      }),
+    );
 
     // Pending counter should be cleared
     expect(result.pending.entries["card:501"]).toBeUndefined();
@@ -358,18 +360,22 @@ describe("safety-net", () => {
     });
 
     // Miss 1
-    const r1 = await pollSafetyNet(baseOpts(client, {
-      previousSnapshot: prev,
-      isDeepCrawl: true,
-    }));
+    const r1 = await pollSafetyNet(
+      baseOpts(client, {
+        previousSnapshot: prev,
+        isDeepCrawl: true,
+      }),
+    );
     expect(r1.pending.entries["todo:601"]).toBe(1);
 
     // Miss 2
-    const r2 = await pollSafetyNet(baseOpts(client, {
-      previousSnapshot: prev,
-      previousPending: r1.pending,
-      isDeepCrawl: true,
-    }));
+    const r2 = await pollSafetyNet(
+      baseOpts(client, {
+        previousSnapshot: prev,
+        previousPending: r1.pending,
+        isDeepCrawl: true,
+      }),
+    );
     const disappeared = r2.events.find((e) => e.meta.eventKind === "disappeared");
     expect(disappeared).toBeDefined();
     expect(disappeared!.meta.recordableType).toBe("Todo");
@@ -380,13 +386,8 @@ describe("safety-net", () => {
   it("check-in new answers → checkin_answered per answer", async () => {
     const client = makeClient();
     setupDock({ questionnaireId: 30 });
-    client.checkins.listQuestions.mockResolvedValue([
-      { id: 701 },
-    ]);
-    client.checkins.listAnswers.mockResolvedValue([
-      { id: 801 },
-      { id: 802 },
-    ]);
+    client.checkins.listQuestions.mockResolvedValue([{ id: 701 }]);
+    client.checkins.listAnswers.mockResolvedValue([{ id: 801 }, { id: 802 }]);
 
     const prev = snapshotWithCheckins(1, {
       "701": { answerIds: ["801"] }, // only 801 was known
@@ -435,9 +436,7 @@ describe("safety-net", () => {
     client.cardTables.get.mockRejectedValue(new Error("cards exploded"));
 
     // Todos crawl works
-    client.recordings.list.mockResolvedValue([
-      { id: 601, updated_at: "2026-01-01T00:00:00Z", assignees: [] },
-    ]);
+    client.recordings.list.mockResolvedValue([{ id: 601, updated_at: "2026-01-01T00:00:00Z", assignees: [] }]);
 
     const prev = emptySnapshot(1);
     const result = await pollSafetyNet(baseOpts(client, { previousSnapshot: prev }));
@@ -514,7 +513,9 @@ describe("safety-net", () => {
       updatedAt: "2026-01-01T00:00:00Z",
       projects: {
         "1": {
-          cards: { "501": { columnId: 1, columnName: "Backlog", updatedAt: "2026-01-01T00:00:00Z", assignees: ["42"] } },
+          cards: {
+            "501": { columnId: 1, columnName: "Backlog", updatedAt: "2026-01-01T00:00:00Z", assignees: ["42"] },
+          },
           todos: {},
           checkins: {},
         },
@@ -554,9 +555,7 @@ describe("safety-net", () => {
     setupDock({ cardTableId: 10, todosetId: 20 });
 
     // Cards crawl throws a 404 BasecampError
-    client.cardTables.get.mockRejectedValue(
-      new BasecampError("not_found", "Not found", { httpStatus: 404 }),
-    );
+    client.cardTables.get.mockRejectedValue(new BasecampError("not_found", "Not found", { httpStatus: 404 }));
     // Todos work fine
     client.recordings.list.mockResolvedValue([]);
 
@@ -569,9 +568,7 @@ describe("safety-net", () => {
     const client = makeClient();
     setupDock({ todosetId: 20 });
 
-    client.recordings.list.mockRejectedValue(
-      new BasecampError("api_error", "Gone", { httpStatus: 410 }),
-    );
+    client.recordings.list.mockRejectedValue(new BasecampError("api_error", "Gone", { httpStatus: 410 }));
 
     await pollSafetyNet(baseOpts(client));
     expect(invalidateDockCache).toHaveBeenCalledWith(1);
@@ -582,9 +579,7 @@ describe("safety-net", () => {
     const client = makeClient();
     setupDock({ questionnaireId: 30 });
 
-    client.checkins.listQuestions.mockRejectedValue(
-      new BasecampError("not_found", "Not found", { httpStatus: 404 }),
-    );
+    client.checkins.listQuestions.mockRejectedValue(new BasecampError("not_found", "Not found", { httpStatus: 404 }));
 
     await pollSafetyNet(baseOpts(client));
     expect(invalidateDockCache).toHaveBeenCalledWith(1);
@@ -596,9 +591,7 @@ describe("safety-net", () => {
     setupDock({ cardTableId: 10, todosetId: 20 });
 
     // 404 httpStatus but code is "api_error" — should still invalidate
-    client.cardTables.get.mockRejectedValue(
-      new BasecampError("api_error", "Not found", { httpStatus: 404 }),
-    );
+    client.cardTables.get.mockRejectedValue(new BasecampError("api_error", "Not found", { httpStatus: 404 }));
     client.recordings.list.mockResolvedValue([]);
 
     await pollSafetyNet(baseOpts(client));
@@ -633,11 +626,13 @@ describe("safety-net", () => {
 
     // Even with 2 deep crawl cycles, truncated results suppress disappeared
     const pending: DisappearedPending = { entries: { "card:501": 1 } };
-    const result = await pollSafetyNet(baseOpts(client, {
-      previousSnapshot: prev,
-      previousPending: pending,
-      isDeepCrawl: true,
-    }));
+    const result = await pollSafetyNet(
+      baseOpts(client, {
+        previousSnapshot: prev,
+        previousPending: pending,
+        isDeepCrawl: true,
+      }),
+    );
 
     expect(result.events.filter((e) => e.meta.eventKind === "disappeared")).toEqual([]);
   });
@@ -660,10 +655,12 @@ describe("safety-net", () => {
       },
     };
 
-    const result = await pollSafetyNet(baseOpts(client, {
-      projectIds: [1, 2],
-      previousSnapshot: prev,
-    }));
+    const result = await pollSafetyNet(
+      baseOpts(client, {
+        projectIds: [1, 2],
+        previousSnapshot: prev,
+      }),
+    );
 
     expect(result.events.length).toBe(2);
     expect(result.snapshot.projects["1"]).toBeDefined();

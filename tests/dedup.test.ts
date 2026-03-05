@@ -1,6 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { EventDedup } from "../src/inbound/dedup.js";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { DedupSource } from "../src/inbound/dedup.js";
+import { EventDedup } from "../src/inbound/dedup.js";
 
 describe("EventDedup", () => {
   let dedup: EventDedup;
@@ -20,13 +20,11 @@ describe("EventDedup", () => {
 
   describe("secondaryKey", () => {
     it("builds recordingId:action:createdAt strings", () => {
-      expect(
-        EventDedup.secondaryKey("456", "created", "2025-01-15T10:00:00Z"),
-      ).toBe("456:created:2025-01-15T10:00:00Z");
+      expect(EventDedup.secondaryKey("456", "created", "2025-01-15T10:00:00Z")).toBe(
+        "456:created:2025-01-15T10:00:00Z",
+      );
 
-      expect(
-        EventDedup.secondaryKey(789, "updated", "2025-06-01T12:30:00Z"),
-      ).toBe("789:updated:2025-06-01T12:30:00Z");
+      expect(EventDedup.secondaryKey(789, "updated", "2025-06-01T12:30:00Z")).toBe("789:updated:2025-06-01T12:30:00Z");
     });
   });
 

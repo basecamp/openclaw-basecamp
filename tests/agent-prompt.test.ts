@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import { basecampAgentPromptAdapter } from "../src/adapters/agent-prompt.js";
 
 function cfg(basecamp?: Record<string, unknown>) {

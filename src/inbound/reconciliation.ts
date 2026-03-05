@@ -19,7 +19,7 @@ import { isNormalizableKind, recordableTypeForKind, resolveEventKind } from "./n
 // Which recordable types can be promoted to safety-net direct polling
 const PROMOTABLE_TYPES: Partial<Record<BasecampRecordableType, string>> = {
   "Kanban::Card": "cards",
-  "Todo": "todos",
+  Todo: "todos",
   "Question::Answer": "checkins",
 };
 
@@ -80,25 +80,15 @@ export interface ReconciliationOptions {
   };
 }
 
-export async function runReconciliation(
-  opts: ReconciliationOptions,
-): Promise<ReconciliationResult> {
-  const {
-    account,
-    client,
-    dedup,
-    log,
-    maxItems = 250,
-    windowMs = 24 * 60 * 60 * 1000,
-    gapThreshold = 3,
-  } = opts;
+export async function runReconciliation(opts: ReconciliationOptions): Promise<ReconciliationResult> {
+  const { account, client, dedup, log, maxItems = 250, windowMs = 24 * 60 * 60 * 1000, gapThreshold = 3 } = opts;
 
   const cutoff = new Date(Date.now() - windowMs).toISOString();
 
   // Fetch recent activity
   let rawEvents: BasecampActivityEvent[];
   try {
-    rawEvents = await client.reports.progress({ maxItems }) as BasecampActivityEvent[];
+    rawEvents = (await client.reports.progress({ maxItems })) as BasecampActivityEvent[];
     if (!Array.isArray(rawEvents)) rawEvents = [];
   } catch (err) {
     log?.error?.(`[${account.accountId}] reconciliation: fetch failed: ${String(err)}`);
@@ -163,9 +153,7 @@ function applyPromotionLogic(opts: {
   const { gapsByType, gapThreshold, previousState } = opts;
   const now = Date.now();
   const previousGaps = previousState?.previousGaps ?? {};
-  const existing = (previousState?.promotions ?? []).filter(
-    (p) => now - p.promotedAt < PROMOTION_TTL_MS,
-  );
+  const existing = (previousState?.promotions ?? []).filter((p) => now - p.promotedAt < PROMOTION_TTL_MS);
 
   const result: PromotionEntry[] = [];
 

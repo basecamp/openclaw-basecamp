@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("openclaw/plugin-sdk", () => ({
   DEFAULT_ACCOUNT_ID: "default",
@@ -80,7 +80,7 @@ vi.mock("../src/inbound/poller.js", () => {
   throw new Error("test: skip poller startup");
 });
 
-import { basecampChannel, _resetValidationState } from "../src/channel.js";
+import { _resetValidationState, basecampChannel } from "../src/channel.js";
 import { resolveBasecampAccountAsync } from "../src/config.js";
 
 function makeCtx(cfg: any, accountId = "test") {
@@ -138,17 +138,13 @@ describe("PF-002: config-hash re-validation", () => {
     await basecampChannel.gateway!.startAccount!(ctx1 as any);
 
     // Should warn about the bad persona
-    expect(ctx1.log.warn).toHaveBeenCalledWith(
-      expect.stringContaining('persona "agent-1"'),
-    );
+    expect(ctx1.log.warn).toHaveBeenCalledWith(expect.stringContaining('persona "agent-1"'));
 
     // Second call: same config → should NOT re-validate
     const ctx2 = makeCtx(cfg1);
     await basecampChannel.gateway!.startAccount!(ctx2 as any);
 
-    const personaWarns2 = vi.mocked(ctx2.log.warn).mock.calls.filter(
-      (c) => String(c[0]).includes("persona"),
-    );
+    const personaWarns2 = vi.mocked(ctx2.log.warn).mock.calls.filter((c) => String(c[0]).includes("persona"));
     expect(personaWarns2).toHaveLength(0);
 
     // Third call: different config → should re-validate
@@ -163,9 +159,7 @@ describe("PF-002: config-hash re-validation", () => {
     const ctx3 = makeCtx(cfg3);
     await basecampChannel.gateway!.startAccount!(ctx3 as any);
 
-    expect(ctx3.log.warn).toHaveBeenCalledWith(
-      expect.stringContaining('persona "agent-2"'),
-    );
+    expect(ctx3.log.warn).toHaveBeenCalledWith(expect.stringContaining('persona "agent-2"'));
   });
 
   it("re-validates when accounts change even if personas are the same", async () => {
@@ -195,9 +189,7 @@ describe("PF-002: config-hash re-validation", () => {
     const ctx2 = makeCtx(cfg2);
     await basecampChannel.gateway!.startAccount!(ctx2 as any);
 
-    expect(ctx2.log.warn).toHaveBeenCalledWith(
-      expect.stringContaining('persona "agent-1"'),
-    );
+    expect(ctx2.log.warn).toHaveBeenCalledWith(expect.stringContaining('persona "agent-1"'));
   });
 });
 
@@ -217,12 +209,8 @@ describe("PF-003: basecampAccountId startup warning", () => {
     const ctx = makeCtx({}, "my-org");
     await basecampChannel.gateway!.startAccount!(ctx as any);
 
-    expect(ctx.log.warn).toHaveBeenCalledWith(
-      expect.stringContaining("Basecamp account ID could not be resolved"),
-    );
-    expect(ctx.log.warn).toHaveBeenCalledWith(
-      expect.stringContaining("my-org"),
-    );
+    expect(ctx.log.warn).toHaveBeenCalledWith(expect.stringContaining("Basecamp account ID could not be resolved"));
+    expect(ctx.log.warn).toHaveBeenCalledWith(expect.stringContaining("my-org"));
   });
 
   it("does not warn when accountId is numeric (implicit basecampAccountId)", async () => {
@@ -235,9 +223,9 @@ describe("PF-003: basecampAccountId startup warning", () => {
     const ctx = makeCtx({}, "12345");
     await basecampChannel.gateway!.startAccount!(ctx as any);
 
-    const accountIdWarns = vi.mocked(ctx.log.warn).mock.calls.filter(
-      (c) => String(c[0]).includes("Basecamp account ID"),
-    );
+    const accountIdWarns = vi
+      .mocked(ctx.log.warn)
+      .mock.calls.filter((c) => String(c[0]).includes("Basecamp account ID"));
     expect(accountIdWarns).toHaveLength(0);
   });
 
@@ -251,9 +239,9 @@ describe("PF-003: basecampAccountId startup warning", () => {
     const ctx = makeCtx({}, "my-org");
     await basecampChannel.gateway!.startAccount!(ctx as any);
 
-    const accountIdWarns = vi.mocked(ctx.log.warn).mock.calls.filter(
-      (c) => String(c[0]).includes("Basecamp account ID"),
-    );
+    const accountIdWarns = vi
+      .mocked(ctx.log.warn)
+      .mock.calls.filter((c) => String(c[0]).includes("Basecamp account ID"));
     expect(accountIdWarns).toHaveLength(0);
   });
 });

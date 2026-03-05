@@ -1,13 +1,16 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  resolveBasecampAccount,
+  resolveBasecampAllowFrom,
+  resolveBasecampBucketAllowFrom,
+  resolveBasecampDmPolicy,
+  resolvePersonaAccountId,
+} from "../src/config.js";
 import { dispatchBasecampEvent } from "../src/dispatch.js";
-import type {
-  BasecampInboundMessage,
-  ResolvedBasecampAccount,
-} from "../src/types.js";
-import { getBasecampRuntime } from "../src/runtime.js";
-import { resolvePersonaAccountId, resolveBasecampAccount, resolveBasecampDmPolicy, resolveBasecampAllowFrom, resolveBasecampBucketAllowFrom } from "../src/config.js";
-import { postReplyToEvent } from "../src/outbound/send.js";
 import { markdownToBasecampHtml } from "../src/outbound/format.js";
+import { postReplyToEvent } from "../src/outbound/send.js";
+import { getBasecampRuntime } from "../src/runtime.js";
+import type { BasecampInboundMessage, ResolvedBasecampAccount } from "../src/types.js";
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -104,9 +107,7 @@ beforeEach(() => {
     matchedBy: "peer",
     sessionKey: "session:abc",
   });
-  mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mockResolvedValue(
-    undefined,
-  );
+  mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mockResolvedValue(undefined);
 });
 
 // ---------------------------------------------------------------------------
@@ -119,9 +120,7 @@ describe("dispatchBasecampEvent", () => {
     const result = await dispatchBasecampEvent(selfMsg, { account: mockAccount });
 
     expect(result).toBe(false);
-    expect(
-      mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher,
-    ).not.toHaveBeenCalled();
+    expect(mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
   });
 
   it("returns false when no route is matched", async () => {
@@ -130,22 +129,16 @@ describe("dispatchBasecampEvent", () => {
     const result = await dispatchBasecampEvent(mockMsg, { account: mockAccount });
 
     expect(result).toBe(false);
-    expect(
-      mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher,
-    ).not.toHaveBeenCalled();
+    expect(mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
   });
 
   it("dispatches successfully with correct MsgContext fields", async () => {
     const result = await dispatchBasecampEvent(mockMsg, { account: mockAccount });
 
     expect(result).toBe(true);
-    expect(
-      mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher,
-    ).toHaveBeenCalledTimes(1);
+    expect(mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledTimes(1);
 
-    const call =
-      mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock
-        .calls[0][0];
+    const call = mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock.calls[0][0];
     const ctx = call.ctx;
 
     expect(ctx.Body).toBe("Hello");
@@ -178,9 +171,7 @@ describe("dispatchBasecampEvent", () => {
 
     await dispatchBasecampEvent(mockMsg, { account: mockAccount });
 
-    const call =
-      mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock
-        .calls[0][0];
+    const call = mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock.calls[0][0];
     const deliver = call.dispatcherOptions.deliver;
 
     await deliver({ text: "Reply text" }, {});
@@ -207,9 +198,7 @@ describe("dispatchBasecampEvent", () => {
     expect(result).toBe(false);
     expect(log.error).toHaveBeenCalledTimes(1);
     expect(log.error.mock.calls[0][0]).toContain("outbound_account_id_missing");
-    expect(
-      mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher,
-    ).not.toHaveBeenCalled();
+    expect(mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
   });
 
   it("accepts basecampAccountId for OAuth accounts", async () => {
@@ -234,8 +223,7 @@ describe("dispatchBasecampEvent", () => {
     const result = await dispatchBasecampEvent(mockMsg, { account: accountNumericId });
 
     expect(result).toBe(true);
-    const call =
-      mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock.calls[0][0];
+    const call = mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock.calls[0][0];
     const deliver = call.dispatcherOptions.deliver;
     await deliver({ text: "Reply" }, {});
 
@@ -249,9 +237,7 @@ describe("dispatchBasecampEvent", () => {
   it("deliver callback calls postReplyToEvent with correct params", async () => {
     await dispatchBasecampEvent(mockMsg, { account: mockAccount });
 
-    const call =
-      mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock
-        .calls[0][0];
+    const call = mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock.calls[0][0];
     const deliver = call.dispatcherOptions.deliver;
 
     await deliver({ text: "Agent reply" }, {});
@@ -273,9 +259,7 @@ describe("dispatchBasecampEvent", () => {
   it("deliver callback skips postReplyToEvent when payload.text is empty", async () => {
     await dispatchBasecampEvent(mockMsg, { account: mockAccount });
 
-    const call =
-      mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock
-        .calls[0][0];
+    const call = mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock.calls[0][0];
     const deliver = call.dispatcherOptions.deliver;
 
     await deliver({ text: "" }, {});
@@ -286,9 +270,7 @@ describe("dispatchBasecampEvent", () => {
   it("UntrustedContext contains [basecamp] prefixed metadata lines", async () => {
     await dispatchBasecampEvent(mockMsg, { account: mockAccount });
 
-    const call =
-      mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock
-        .calls[0][0];
+    const call = mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock.calls[0][0];
     const ctx = call.ctx;
     const untrusted: string[] = ctx.UntrustedContext;
 
@@ -296,18 +278,10 @@ describe("dispatchBasecampEvent", () => {
     for (const line of untrusted) {
       expect(line).toMatch(/^\[basecamp\] /);
     }
-    expect(untrusted).toContainEqual(
-      expect.stringContaining("recordableType=Chat::Transcript"),
-    );
-    expect(untrusted).toContainEqual(
-      expect.stringContaining("eventKind=created"),
-    );
-    expect(untrusted).toContainEqual(
-      expect.stringContaining("bucketId=456"),
-    );
-    expect(untrusted).toContainEqual(
-      expect.stringContaining("recordingId=123"),
-    );
+    expect(untrusted).toContainEqual(expect.stringContaining("recordableType=Chat::Transcript"));
+    expect(untrusted).toContainEqual(expect.stringContaining("eventKind=created"));
+    expect(untrusted).toContainEqual(expect.stringContaining("bucketId=456"));
+    expect(untrusted).toContainEqual(expect.stringContaining("recordingId=123"));
   });
 
   it("sets ChatType to 'direct' when msg.peer.kind is 'dm'", async () => {
@@ -315,9 +289,7 @@ describe("dispatchBasecampEvent", () => {
 
     await dispatchBasecampEvent(dmMsg, { account: mockAccount });
 
-    const call =
-      mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock
-        .calls[0][0];
+    const call = mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock.calls[0][0];
     expect(call.ctx.ChatType).toBe("direct");
   });
 

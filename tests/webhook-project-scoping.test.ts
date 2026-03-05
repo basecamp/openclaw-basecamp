@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 vi.mock("openclaw/plugin-sdk", () => ({
   DEFAULT_ACCOUNT_ID: "default",
@@ -8,11 +8,7 @@ vi.mock("openclaw/plugin-sdk", () => ({
   },
 }));
 
-import {
-  scopeWebhookProjects,
-  resolveAccountForBucket,
-  listBasecampAccountIds,
-} from "../src/config.js";
+import { listBasecampAccountIds, resolveAccountForBucket, scopeWebhookProjects } from "../src/config.js";
 
 // ---------------------------------------------------------------------------
 // Helpers

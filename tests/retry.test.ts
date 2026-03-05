@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { isRetryableError, withRetry } from "../src/retry.js";
 
 // ---------------------------------------------------------------------------
@@ -55,10 +55,7 @@ describe("withRetry", () => {
   const fast = { baseDelayMs: 1, maxDelayMs: 4, jitter: false };
 
   it("retries on retryable TypeError and succeeds on 2nd attempt", async () => {
-    const fn = vi
-      .fn()
-      .mockRejectedValueOnce(new TypeError("fetch failed"))
-      .mockResolvedValueOnce({ data: "ok" });
+    const fn = vi.fn().mockRejectedValueOnce(new TypeError("fetch failed")).mockResolvedValueOnce({ data: "ok" });
 
     const result = await withRetry(fn, { ...fast, maxAttempts: 3 });
 
@@ -103,9 +100,7 @@ describe("withRetry", () => {
         return origSetTimeout(cb, 0, ...args);
       });
 
-    await expect(
-      withRetry(fn, { maxAttempts: 4, baseDelayMs: 100, jitter: false }),
-    ).rejects.toThrow();
+    await expect(withRetry(fn, { maxAttempts: 4, baseDelayMs: 100, jitter: false })).rejects.toThrow();
 
     expect(delays).toEqual([100, 200, 400]);
     timeoutSpy.mockRestore();
@@ -126,9 +121,7 @@ describe("withRetry", () => {
         return origSetTimeout(cb, 0, ...args);
       });
 
-    await expect(
-      withRetry(fn, { maxAttempts: 2, baseDelayMs: 1000, jitter: true }),
-    ).rejects.toThrow();
+    await expect(withRetry(fn, { maxAttempts: 2, baseDelayMs: 1000, jitter: true })).rejects.toThrow();
 
     // With random()=1, jitter = 1000 * 1 * 0.25 = 250, so delay = 750
     expect(delays).toEqual([750]);
@@ -138,10 +131,7 @@ describe("withRetry", () => {
 
   it("custom retryable function overrides default", async () => {
     // Regular Error is normally not retryable, but custom function says yes
-    const fn = vi
-      .fn()
-      .mockRejectedValueOnce(new Error("server error"))
-      .mockResolvedValueOnce({ data: "found" });
+    const fn = vi.fn().mockRejectedValueOnce(new Error("server error")).mockResolvedValueOnce({ data: "found" });
 
     const result = await withRetry(fn, {
       ...fast,

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 // Mock transitive dependencies to avoid module resolution issues
 vi.mock("../src/basecamp-client.js", () => ({
@@ -7,7 +7,10 @@ vi.mock("../src/basecamp-client.js", () => ({
   rawOrThrow: vi.fn(async (result: any) => result?.data),
   BasecampError: class BasecampError extends Error {
     code: string;
-    constructor(msg: string, code: string) { super(msg); this.code = code; }
+    constructor(msg: string, code: string) {
+      super(msg);
+      this.code = code;
+    }
   },
   clearClients: vi.fn(),
 }));

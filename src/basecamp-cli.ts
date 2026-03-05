@@ -6,6 +6,9 @@
  */
 
 import { execFile, spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 
 // Re-export from extracted module for backwards compatibility
 export { CircuitBreaker, type CircuitBreakerOptions } from "./circuit-breaker.js";
@@ -102,15 +105,17 @@ function execCli<T = unknown>(args: string[], opts: CliOptions = {}): Promise<Cl
             meaningfulMsg ||
             `exit code ${(error as any).code ?? "unknown"}`;
           const exitCode =
-            typeof (error as any).code === "number" ? (error as any).code :
-            typeof (error as any).status === "number" ? (error as any).status :
-            null;
-          reject(new CliError(
-            `Basecamp CLI failed (${cmdStr}): ${detail}`,
-            exitCode,
-            stderrTrimmed || stdoutTrimmed,
-            [binary, ...fullArgs],
-          ));
+            typeof (error as any).code === "number"
+              ? (error as any).code
+              : typeof (error as any).status === "number"
+                ? (error as any).status
+                : null;
+          reject(
+            new CliError(`Basecamp CLI failed (${cmdStr}): ${detail}`, exitCode, stderrTrimmed || stdoutTrimmed, [
+              binary,
+              ...fullArgs,
+            ]),
+          );
           return;
         }
 
@@ -124,12 +129,12 @@ function execCli<T = unknown>(args: string[], opts: CliOptions = {}): Promise<Cl
           const data = JSON.parse(raw) as T;
           resolve({ data, raw });
         } catch (parseErr) {
-          reject(new CliError(
-            `Basecamp CLI output is not valid JSON: ${String(parseErr)}`,
-            null,
-            raw,
-            [binary, ...fullArgs],
-          ));
+          reject(
+            new CliError(`Basecamp CLI output is not valid JSON: ${String(parseErr)}`, null, raw, [
+              binary,
+              ...fullArgs,
+            ]),
+          );
         }
       },
     );
@@ -146,9 +151,7 @@ function execCli<T = unknown>(args: string[], opts: CliOptions = {}): Promise<Cl
  */
 export async function cliMe(
   opts: CliOptions = {},
-): Promise<
-  CliResult<{ id: number; name: string; email_address: string; attachable_sgid?: string }>
-> {
+): Promise<CliResult<{ id: number; name: string; email_address: string; attachable_sgid?: string }>> {
   return execCli<{ id: number; name: string; email_address: string; attachable_sgid?: string }>(["me"], opts);
 }
 
@@ -179,15 +182,10 @@ export async function cliWhich(): Promise<CliResult<{ path: string }>> {
  * Check the authentication status of a CLI profile.
  * Runs `basecamp auth status` to verify the profile's credentials are valid.
  */
-export async function cliAuthStatus(
-  opts: CliOptions = {},
-): Promise<CliResult<{ authenticated: boolean }>> {
+export async function cliAuthStatus(opts: CliOptions = {}): Promise<CliResult<{ authenticated: boolean }>> {
   try {
     const result = await execCli<{ authenticated?: boolean }>(["auth", "status"], opts);
-    const authenticated =
-      typeof result.data === "object" &&
-      result.data !== null &&
-      result.data.authenticated === true;
+    const authenticated = typeof result.data === "object" && result.data !== null && result.data.authenticated === true;
     return { data: { authenticated }, raw: result.raw };
   } catch (err) {
     if (err instanceof CliError) {
@@ -203,8 +201,12 @@ export async function cliAuthStatus(
  */
 export async function cliProfileList(opts: CliOptions = {}): Promise<CliResult<string[]>> {
   try {
-    const result = await execCli<string[]>(["profile", "list"], opts);
-    const profiles = Array.isArray(result.data) ? result.data : [];
+    const result = await execCli<unknown[]>(["profile", "list"], opts);
+    const raw = Array.isArray(result.data) ? result.data : [];
+    // CLI returns objects like { name, account_id, ... } — extract names
+    const profiles = raw
+      .map((entry) => (typeof entry === "string" ? entry : ((entry as Record<string, unknown>)?.name as string)))
+      .filter((n): n is string => typeof n === "string" && n.length > 0);
     return { data: profiles, raw: result.raw };
   } catch (err) {
     if (err instanceof CliError) {
@@ -218,9 +220,7 @@ export async function cliProfileList(opts: CliOptions = {}): Promise<CliResult<s
  * Launch `basecamp auth login` as an interactive subprocess.
  * This opens the browser for Basecamp OAuth and waits for completion.
  */
-export async function execCliAuthLogin(
-  opts: { profile?: string } = {},
-): Promise<void> {
+export async function execCliAuthLogin(opts: { profile?: string } = {}): Promise<void> {
   const binary = resolveCliBinaryPath();
   const args = ["auth", "login"];
   if (opts.profile) {
@@ -234,31 +234,95 @@ export async function execCliAuthLogin(
     });
 
     proc.on("error", (err: Error) => {
-      reject(
-        new CliError(
-          `Basecamp CLI auth login failed to start: ${err.message}`,
-          null,
-          "",
-          [binary, ...args],
-        ),
-      );
+      reject(new CliError(`Basecamp CLI auth login failed to start: ${err.message}`, null, "", [binary, ...args]));
     });
 
     proc.on("close", (code: number | null) => {
       if (code === 0) {
         resolve();
       } else {
-        reject(
-          new CliError(
-            `Basecamp CLI auth login exited with code ${code}`,
-            code,
-            "",
-            [binary, ...args],
-          ),
-        );
+        reject(new CliError(`Basecamp CLI auth login exited with code ${code}`, code, "", [binary, ...args]));
       }
     });
   });
+}
+
+// ---------------------------------------------------------------------------
+// CLI credential export (for onboarding — imports CLI's token into plugin)
+// ---------------------------------------------------------------------------
+
+/** Shape returned by `basecamp --agent profile list`. */
+export interface CliProfile {
+  name: string;
+  base_url: string;
+  account_id?: string;
+  authenticated?: boolean;
+  active?: boolean;
+  default?: boolean;
+}
+
+/** Parsed result from CLI credential files. */
+export interface CliCredentials {
+  accessToken: string;
+  refreshToken: string;
+  expiresAt: number;
+  clientId: string;
+  clientSecret: string;
+}
+
+const CLI_CONFIG_DIR = join(homedir(), ".config", "basecamp");
+
+/**
+ * List CLI profiles as full objects (name, base_url, account_id, etc.).
+ */
+export async function cliProfileListFull(opts: CliOptions = {}): Promise<CliResult<CliProfile[]>> {
+  try {
+    const result = await execCli<unknown[]>(["profile", "list"], opts);
+    const raw = Array.isArray(result.data) ? result.data : [];
+    const profiles = raw.filter(
+      (e): e is CliProfile =>
+        typeof e === "object" &&
+        e !== null &&
+        typeof (e as Record<string, unknown>).name === "string" &&
+        typeof (e as Record<string, unknown>).base_url === "string",
+    );
+    return { data: profiles, raw: result.raw };
+  } catch (err) {
+    if (err instanceof CliError) {
+      return { data: [], raw: err.stderr };
+    }
+    throw err;
+  }
+}
+
+/**
+ * Export the CLI's stored OAuth credentials for a given base URL.
+ *
+ * Reads `~/.config/basecamp/credentials.json` (tokens keyed by base_url)
+ * and `~/.config/basecamp/client.json` (CLI's OAuth client ID/secret).
+ * Returns null if credentials are missing or unparseable.
+ */
+export function exportCliCredentials(baseUrl: string): CliCredentials | null {
+  try {
+    const credsRaw = readFileSync(join(CLI_CONFIG_DIR, "credentials.json"), "utf-8");
+    const creds = JSON.parse(credsRaw) as Record<string, Record<string, unknown>>;
+    const entry = creds[baseUrl];
+    if (!entry?.access_token || !entry?.refresh_token) return null;
+
+    const clientRaw = readFileSync(join(CLI_CONFIG_DIR, "client.json"), "utf-8");
+    const client = JSON.parse(clientRaw) as Record<string, unknown>;
+    if (!client.client_id) return null;
+
+    return {
+      accessToken: String(entry.access_token),
+      refreshToken: String(entry.refresh_token),
+      expiresAt: typeof entry.expires_at === "number" ? entry.expires_at : 0,
+      clientId: String(client.client_id),
+      clientSecret: String(client.client_secret ?? ""),
+    };
+  } catch {
+    return null;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -276,12 +340,14 @@ export function extractCliBootstrapToken(profile?: string): Promise<string> {
   return new Promise((resolve, reject) => {
     execFile(binary, args, { timeout: 10_000, encoding: "utf-8" }, (error, stdout, stderr) => {
       if (error) {
-        reject(new CliError(
-          `CLI token extraction failed: ${(stderr as string).trim() || error.message}`,
-          null,
-          (stderr as string).trim(),
-          [binary, ...args],
-        ));
+        reject(
+          new CliError(
+            `CLI token extraction failed: ${(stderr as string).trim() || error.message}`,
+            null,
+            (stderr as string).trim(),
+            [binary, ...args],
+          ),
+        );
         return;
       }
       const token = (stdout as string).trim();

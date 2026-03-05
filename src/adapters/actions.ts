@@ -10,15 +10,15 @@
 
 import type {
   ChannelMessageActionAdapter,
-  ChannelMessageActionName,
   ChannelMessageActionContext,
+  ChannelMessageActionName,
   ChannelToolSend,
 } from "openclaw/plugin-sdk";
 import { jsonResult, readStringParam } from "openclaw/plugin-sdk";
-import { postCampfireLine, postComment } from "../outbound/send.js";
-import { markdownToBasecampHtml } from "../outbound/format.js";
-import { resolveBasecampAccount } from "../config.js";
 import { getClient, numId } from "../basecamp-client.js";
+import { resolveBasecampAccount } from "../config.js";
+import { markdownToBasecampHtml } from "../outbound/format.js";
+import { postCampfireLine, postComment } from "../outbound/send.js";
 
 // ---------------------------------------------------------------------------
 // Supported action set
@@ -174,10 +174,7 @@ async function handleReact(ctx: ChannelMessageActionContext) {
 
   try {
     const client = getClient(account);
-    const result = await client.boosts.createForRecording(
-      numId("recording", recordingId),
-      { content: emoji },
-    );
+    const result = await client.boosts.createForRecording(numId("recording", recordingId), { content: emoji });
     return jsonResult({ ok: true, target: "boost", boostId: (result as any)?.id });
   } catch (err) {
     console.error(`[basecamp:${accountId}] react error: bucket=${bucketId} recording=${recordingId}`, err);

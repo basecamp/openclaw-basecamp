@@ -21,7 +21,7 @@ export function resolvePluginStateDir(): string {
       fallbackWarned = true;
       console.warn(
         `[basecamp:state-dir] runtime unavailable, using fallback ${FALLBACK_STATE_DIR} — ` +
-        "secrets and dedup state will persist here until runtime is available",
+          "secrets and dedup state will persist here until runtime is available",
       );
     }
     // Create with restrictive permissions — may contain webhook secrets and dedup DBs

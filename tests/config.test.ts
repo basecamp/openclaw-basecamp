@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 vi.mock("openclaw/plugin-sdk", () => ({
   DEFAULT_ACCOUNT_ID: "default",
@@ -10,15 +10,15 @@ vi.mock("openclaw/plugin-sdk", () => ({
 
 import {
   listBasecampAccountIds,
-  resolveDefaultBasecampAccountId,
+  resolveAccountForBucket,
   resolveBasecampAccount,
   resolveBasecampAccountAsync,
-  resolvePersonaAccountId,
-  resolvePollingIntervals,
-  resolveBasecampDmPolicy,
   resolveBasecampAllowFrom,
   resolveBasecampBucketAllowFrom,
-  resolveAccountForBucket,
+  resolveBasecampDmPolicy,
+  resolveDefaultBasecampAccountId,
+  resolvePersonaAccountId,
+  resolvePollingIntervals,
 } from "../src/config.js";
 
 // ---------------------------------------------------------------------------
@@ -53,9 +53,7 @@ describe("listBasecampAccountIds", () => {
   });
 
   it("returns the single configured account ID", () => {
-    const result = listBasecampAccountIds(
-      cfgWithAccounts({ myaccount: { personId: "1" } }),
-    );
+    const result = listBasecampAccountIds(cfgWithAccounts({ myaccount: { personId: "1" } }));
     expect(result).toEqual(["myaccount"]);
   });
 
@@ -73,9 +71,7 @@ describe("listBasecampAccountIds", () => {
   it("normalizes numeric-like account IDs to strings", () => {
     // normalizeAccountId converts keys to strings; numeric keys in JS objects
     // are already strings, but this ensures the pipeline handles them.
-    const result = listBasecampAccountIds(
-      cfgWithAccounts({ 123: { personId: "1" } } as any),
-    );
+    const result = listBasecampAccountIds(cfgWithAccounts({ 123: { personId: "1" } } as any));
     expect(result).toEqual(["123"]);
     expect(typeof result[0]).toBe("string");
   });
@@ -91,11 +87,7 @@ describe("resolveDefaultBasecampAccountId", () => {
   });
 
   it("returns the only configured account when there is one", () => {
-    expect(
-      resolveDefaultBasecampAccountId(
-        cfgWithAccounts({ solo: { personId: "1" } }),
-      ),
-    ).toBe("solo");
+    expect(resolveDefaultBasecampAccountId(cfgWithAccounts({ solo: { personId: "1" } }))).toBe("solo");
   });
 
   it("returns 'default' when it is among multiple accounts", () => {
@@ -136,9 +128,7 @@ describe("resolveBasecampAccount", () => {
   });
 
   it("defaults to 'default' account when no accountId is provided", () => {
-    const result = resolveBasecampAccount(
-      cfgWithAccounts({ default: { personId: "42", token: "tok" } }),
-    );
+    const result = resolveBasecampAccount(cfgWithAccounts({ default: { personId: "42", token: "tok" } }));
     expect(result.accountId).toBe("default");
     expect(result.personId).toBe("42");
     expect(result.token).toBe("tok");
@@ -146,19 +136,13 @@ describe("resolveBasecampAccount", () => {
   });
 
   it("defaults to 'default' account when accountId is null", () => {
-    const result = resolveBasecampAccount(
-      cfgWithAccounts({ default: { personId: "42", token: "tok" } }),
-      null,
-    );
+    const result = resolveBasecampAccount(cfgWithAccounts({ default: { personId: "42", token: "tok" } }), null);
     expect(result.accountId).toBe("default");
     expect(result.token).toBe("tok");
   });
 
   it("resolves an account with an inline token", () => {
-    const result = resolveBasecampAccount(
-      cfgWithAccounts({ prod: { personId: "10", token: "secret123" } }),
-      "prod",
-    );
+    const result = resolveBasecampAccount(cfgWithAccounts({ prod: { personId: "10", token: "secret123" } }), "prod");
     expect(result.accountId).toBe("prod");
     expect(result.enabled).toBe(true);
     expect(result.personId).toBe("10");
@@ -167,10 +151,7 @@ describe("resolveBasecampAccount", () => {
   });
 
   it("trims whitespace from inline token", () => {
-    const result = resolveBasecampAccount(
-      cfgWithAccounts({ prod: { personId: "10", token: "  tok  " } }),
-      "prod",
-    );
+    const result = resolveBasecampAccount(cfgWithAccounts({ prod: { personId: "10", token: "  tok  " } }), "prod");
     expect(result.token).toBe("tok");
   });
 
@@ -325,9 +306,7 @@ describe("resolveBasecampAccount", () => {
   });
 
   it("resolves personId from config", () => {
-    const result = resolveBasecampAccount(
-      cfgWithAccounts({ default: { personId: "999", token: "t" } }),
-    );
+    const result = resolveBasecampAccount(cfgWithAccounts({ default: { personId: "999", token: "t" } }));
     expect(result.personId).toBe("999");
   });
 
@@ -350,17 +329,13 @@ describe("resolveBasecampAccount", () => {
   });
 
   it("defaults enabled to true when not specified", () => {
-    const result = resolveBasecampAccount(
-      cfgWithAccounts({ default: { personId: "1", token: "t" } }),
-    );
+    const result = resolveBasecampAccount(cfgWithAccounts({ default: { personId: "1", token: "t" } }));
     expect(result.enabled).toBe(true);
   });
 
   it("includes the raw account config in the config field", () => {
     const accountCfg = { personId: "1", token: "t", displayName: "X" };
-    const result = resolveBasecampAccount(
-      cfgWithAccounts({ default: accountCfg }),
-    );
+    const result = resolveBasecampAccount(cfgWithAccounts({ default: accountCfg }));
     expect(result.config).toEqual(accountCfg);
   });
 });
@@ -400,18 +375,12 @@ describe("resolveBasecampAccountAsync", () => {
 
 describe("resolvePersonaAccountId", () => {
   it("returns the mapped account ID for a known agent", () => {
-    const result = resolvePersonaAccountId(
-      cfg({ personas: { "agent-alpha": "account-one" } }),
-      "agent-alpha",
-    );
+    const result = resolvePersonaAccountId(cfg({ personas: { "agent-alpha": "account-one" } }), "agent-alpha");
     expect(result).toBe("account-one");
   });
 
   it("returns undefined for an unmapped agent", () => {
-    const result = resolvePersonaAccountId(
-      cfg({ personas: { "agent-alpha": "account-one" } }),
-      "agent-beta",
-    );
+    const result = resolvePersonaAccountId(cfg({ personas: { "agent-alpha": "account-one" } }), "agent-beta");
     expect(result).toBeUndefined();
   });
 
@@ -450,18 +419,14 @@ describe("resolvePollingIntervals", () => {
   });
 
   it("overrides activityIntervalMs", () => {
-    const result = resolvePollingIntervals(
-      cfg({ polling: { activityIntervalMs: 30_000 } }),
-    );
+    const result = resolvePollingIntervals(cfg({ polling: { activityIntervalMs: 30_000 } }));
     expect(result.activityIntervalMs).toBe(30_000);
     expect(result.readingsIntervalMs).toBe(60_000);
     expect(result.assignmentsIntervalMs).toBe(300_000);
   });
 
   it("overrides readingsIntervalMs", () => {
-    const result = resolvePollingIntervals(
-      cfg({ polling: { readingsIntervalMs: 10_000 } }),
-    );
+    const result = resolvePollingIntervals(cfg({ polling: { readingsIntervalMs: 10_000 } }));
     expect(result.readingsIntervalMs).toBe(10_000);
   });
 
@@ -501,9 +466,7 @@ describe("resolveBasecampDmPolicy", () => {
   });
 
   it("returns 'pairing' when configured", () => {
-    expect(resolveBasecampDmPolicy(cfg({ dmPolicy: "pairing" }))).toBe(
-      "pairing",
-    );
+    expect(resolveBasecampDmPolicy(cfg({ dmPolicy: "pairing" }))).toBe("pairing");
   });
 
   it("returns 'open' when explicitly configured", () => {
@@ -525,21 +488,15 @@ describe("resolveBasecampAllowFrom", () => {
   });
 
   it("returns string entries as-is", () => {
-    expect(
-      resolveBasecampAllowFrom(cfg({ allowFrom: ["100", "200"] })),
-    ).toEqual(["100", "200"]);
+    expect(resolveBasecampAllowFrom(cfg({ allowFrom: ["100", "200"] }))).toEqual(["100", "200"]);
   });
 
   it("coerces numeric entries to strings", () => {
-    expect(
-      resolveBasecampAllowFrom(cfg({ allowFrom: [100, 200] })),
-    ).toEqual(["100", "200"]);
+    expect(resolveBasecampAllowFrom(cfg({ allowFrom: [100, 200] }))).toEqual(["100", "200"]);
   });
 
   it("handles mixed string and number entries", () => {
-    expect(
-      resolveBasecampAllowFrom(cfg({ allowFrom: ["abc", 42, "def"] })),
-    ).toEqual(["abc", "42", "def"]);
+    expect(resolveBasecampAllowFrom(cfg({ allowFrom: ["abc", 42, "def"] }))).toEqual(["abc", "42", "def"]);
   });
 });
 
@@ -553,30 +510,21 @@ describe("resolveBasecampBucketAllowFrom", () => {
   });
 
   it("returns string array from exact bucket match", () => {
-    expect(
-      resolveBasecampBucketAllowFrom(
-        cfg({ buckets: { "456": { allowFrom: ["100", "200"] } } }),
-        "456",
-      ),
-    ).toEqual(["100", "200"]);
+    expect(resolveBasecampBucketAllowFrom(cfg({ buckets: { "456": { allowFrom: ["100", "200"] } } }), "456")).toEqual([
+      "100",
+      "200",
+    ]);
   });
 
   it("falls back to wildcard", () => {
-    expect(
-      resolveBasecampBucketAllowFrom(
-        cfg({ buckets: { "*": { allowFrom: ["111"] } } }),
-        "456",
-      ),
-    ).toEqual(["111"]);
+    expect(resolveBasecampBucketAllowFrom(cfg({ buckets: { "*": { allowFrom: ["111"] } } }), "456")).toEqual(["111"]);
   });
 
   it("coerces numbers to strings", () => {
-    expect(
-      resolveBasecampBucketAllowFrom(
-        cfg({ buckets: { "456": { allowFrom: [100, 200] } } }),
-        "456",
-      ),
-    ).toEqual(["100", "200"]);
+    expect(resolveBasecampBucketAllowFrom(cfg({ buckets: { "456": { allowFrom: [100, 200] } } }), "456")).toEqual([
+      "100",
+      "200",
+    ]);
   });
 
   it("exact match takes precedence over wildcard", () => {
@@ -621,7 +569,7 @@ describe("resolveAccountForBucket", () => {
   });
 
   it("returns undefined when no virtualAccounts configured", () => {
-    const config = cfg({ accounts: { "default": { personId: "1" } } });
+    const config = cfg({ accounts: { default: { personId: "1" } } });
     expect(resolveAccountForBucket(config, "456")).toBeUndefined();
   });
 
@@ -631,7 +579,7 @@ describe("resolveAccountForBucket", () => {
 
   it("resolves first matching virtualAccount when multiple exist", () => {
     const config = cfg({
-      accounts: { "a1": { personId: "1" }, "a2": { personId: "2" } },
+      accounts: { a1: { personId: "1" }, a2: { personId: "2" } },
       virtualAccounts: {
         "proj-a": { accountId: "a1", bucketId: "100" },
         "proj-b": { accountId: "a2", bucketId: "200" },

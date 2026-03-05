@@ -2,45 +2,45 @@ import type { ChannelPlugin } from "openclaw/plugin-sdk";
 import {
   buildChannelConfigSchema,
   DEFAULT_ACCOUNT_ID,
-  setAccountEnabledInConfigSection,
   deleteAccountFromConfigSection,
+  setAccountEnabledInConfigSection,
 } from "openclaw/plugin-sdk";
-import type { ResolvedBasecampAccount, BasecampInboundMessage } from "./types.js";
-import type { BasecampProbe, BasecampAudit } from "./adapters/status.js";
-import type { BasecampChannelConfig } from "./types.js";
+import { basecampActionsAdapter } from "./adapters/actions.js";
+import { basecampAgentPromptAdapter } from "./adapters/agent-prompt.js";
+import { basecampAgentTools } from "./adapters/agent-tools.js";
+import { basecampDirectoryAdapter } from "./adapters/directory.js";
+import { basecampGroupAdapter } from "./adapters/groups.js";
+import { basecampHeartbeatAdapter } from "./adapters/heartbeat.js";
+import { basecampMentionAdapter } from "./adapters/mentions.js";
+import { basecampMessagingAdapter } from "./adapters/messaging.js";
+import { basecampOnboardingAdapter } from "./adapters/onboarding.js";
+import { BASECAMP_TEXT_CHUNK_LIMIT, chunkMarkdownText, resolveOutboundTarget } from "./adapters/outbound.js";
+import { basecampPairingAdapter } from "./adapters/pairing.js";
+import { basecampResolverAdapter } from "./adapters/resolver.js";
+import { basecampSecurityAdapter } from "./adapters/security.js";
+import { basecampSetupAdapter } from "./adapters/setup.js";
+import type { BasecampAudit, BasecampProbe } from "./adapters/status.js";
+import { basecampStatusAdapter } from "./adapters/status.js";
+import { clearClient } from "./basecamp-client.js";
 import {
   BasecampConfigSchema,
   listBasecampAccountIds,
+  resolveAccountForBucket,
   resolveBasecampAccount,
   resolveBasecampAccountAsync,
-  resolveDefaultBasecampAccountId,
   resolveBasecampAllowFrom,
+  resolveDefaultBasecampAccountId,
   resolveWebhooksConfig,
-  resolveAccountForBucket,
   scopeWebhookProjects,
 } from "./config.js";
-import { getBasecampRuntime } from "./runtime.js";
-import { sendBasecampText, sendBasecampMedia } from "./outbound/send.js";
 import { dispatchBasecampEvent } from "./dispatch.js";
-import { basecampOnboardingAdapter } from "./adapters/onboarding.js";
-import { basecampSetupAdapter } from "./adapters/setup.js";
-import { basecampStatusAdapter } from "./adapters/status.js";
-import { basecampPairingAdapter } from "./adapters/pairing.js";
-import { basecampDirectoryAdapter } from "./adapters/directory.js";
-import { basecampMessagingAdapter } from "./adapters/messaging.js";
-import { basecampResolverAdapter } from "./adapters/resolver.js";
-import { basecampHeartbeatAdapter } from "./adapters/heartbeat.js";
-import { basecampGroupAdapter } from "./adapters/groups.js";
-import { basecampAgentPromptAdapter } from "./adapters/agent-prompt.js";
-import { basecampSecurityAdapter } from "./adapters/security.js";
-import { resolveOutboundTarget, chunkMarkdownText, BASECAMP_TEXT_CHUNK_LIMIT } from "./adapters/outbound.js";
-import { basecampMentionAdapter } from "./adapters/mentions.js";
-import { basecampActionsAdapter } from "./adapters/actions.js";
-import { basecampAgentTools } from "./adapters/agent-tools.js";
-import { flushWebhookSecrets, getWebhookSecretRegistry } from "./inbound/webhooks.js";
 import { closeAccountDedup } from "./inbound/dedup-registry.js";
 import { resolvePluginStateDir } from "./inbound/state-dir.js";
-import { reconcileWebhooks, deactivateWebhooks } from "./inbound/webhook-lifecycle.js";
+import { deactivateWebhooks, reconcileWebhooks } from "./inbound/webhook-lifecycle.js";
+import { flushWebhookSecrets, getWebhookSecretRegistry } from "./inbound/webhooks.js";
+import { sendBasecampMedia, sendBasecampText } from "./outbound/send.js";
+import { getBasecampRuntime } from "./runtime.js";
+import type { BasecampChannelConfig, BasecampInboundMessage, ResolvedBasecampAccount } from "./types.js";
 import { withTimeout } from "./util.js";
 
 /** JSON snapshot of config sections relevant to persona/virtualAccount validation.
@@ -61,7 +61,8 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
     selectionLabel: "Basecamp (Campfire, Cards, Todos, Check-ins, Pings)",
     docsPath: "/channels/basecamp",
     docsLabel: "basecamp",
-    blurb: "Campfire chats, card tables, to-do lists, check-ins, pings — every Basecamp surface as a live agent interaction point.",
+    blurb:
+      "Campfire chats, card tables, to-do lists, check-ins, pings — every Basecamp surface as a live agent interaction point.",
     systemImage: "building.2",
   },
 
@@ -115,11 +116,13 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
         case "config":
           throw new Error("Account uses an inline token — no login needed. Update the token in config directly.");
         case "tokenFile":
-          throw new Error(`Account uses a token file (${account.config.tokenFile}). Update the file contents directly.`);
+          throw new Error(
+            `Account uses a token file (${account.config.tokenFile}). Update the file contents directly.`,
+          );
         case "none":
           throw new Error(
             "No authentication configured for this account. " +
-            "Run `openclaw channels add` and select Basecamp to set up credentials.",
+              "Run `openclaw channels add` and select Basecamp to set up credentials.",
           );
       }
     },
@@ -136,22 +139,63 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
   configSchema: {
     ...buildChannelConfigSchema(BasecampConfigSchema),
     uiHints: {
-      "accounts.*.tokenFile": { label: "Token file path", help: "Path to file containing OAuth token", sensitive: true },
-      "accounts.*.token": { label: "Token", help: "Inline OAuth token (prefer tokenFile)", sensitive: true, advanced: true },
-      "accounts.*.cliProfile": { label: "Basecamp CLI profile", help: "CLI profile for identity discovery during setup (not used at runtime)" },
+      "accounts.*.tokenFile": {
+        label: "Token file path",
+        help: "Path to file containing OAuth token",
+        sensitive: true,
+      },
+      "accounts.*.token": {
+        label: "Token",
+        help: "Inline OAuth token (prefer tokenFile)",
+        sensitive: true,
+        advanced: true,
+      },
+      "accounts.*.cliProfile": {
+        label: "Basecamp CLI profile",
+        help: "CLI profile for identity discovery during setup (not used at runtime)",
+      },
       "accounts.*.personId": { label: "Person ID", help: "Your Basecamp person ID (numeric)" },
-      "accounts.*.basecampAccountId": { label: "Basecamp Account ID", help: "Numeric Basecamp account ID (auto-set during onboarding)" },
-      "accounts.*.oauthTokenFile": { label: "OAuth token file", help: "Path to OAuth token JSON (auto-managed)", sensitive: true },
-      "accounts.*.oauthClientId": { label: "OAuth Client ID (override)", help: "Override channel-level OAuth client ID for this account" },
-      "accounts.*.oauthClientSecret": { label: "OAuth Client Secret (override)", help: "Override channel-level OAuth secret", sensitive: true },
+      "accounts.*.basecampAccountId": {
+        label: "Basecamp Account ID",
+        help: "Numeric Basecamp account ID (auto-set during onboarding)",
+      },
+      "accounts.*.oauthTokenFile": {
+        label: "OAuth token file",
+        help: "Path to OAuth token JSON (auto-managed)",
+        sensitive: true,
+      },
+      "accounts.*.oauthClientId": {
+        label: "OAuth Client ID (override)",
+        help: "Override channel-level OAuth client ID for this account",
+      },
+      "accounts.*.oauthClientSecret": {
+        label: "OAuth Client Secret (override)",
+        help: "Override channel-level OAuth secret",
+        sensitive: true,
+      },
       "oauth.clientId": { label: "OAuth Client ID", help: "Basecamp OAuth app client ID for browser-based login" },
       "oauth.clientSecret": { label: "OAuth Client Secret", help: "Basecamp OAuth app secret", sensitive: true },
-      "personas": { label: "Agent personas", help: "Maps agent IDs to Basecamp account IDs for multi-identity outbound", advanced: true },
-      "virtualAccounts": { label: "Project scopes", help: "Maps synthetic account IDs to specific projects", advanced: true },
-      "dmPolicy": { label: "DM policy", help: "Controls who can DM agents: pairing, allowlist, open, disabled" },
-      "allowFrom": { label: "Allowed senders", help: "Basecamp person IDs allowed to message agents" },
-      "engage": { label: "Engagement policy", help: "Event types that trigger agent response: dm, mention, assignment, checkin, conversation, activity" },
-      "buckets": { label: "Per-project settings", help: "Override engage, requireMention, and tool policies per bucket", advanced: true },
+      personas: {
+        label: "Agent personas",
+        help: "Maps agent IDs to Basecamp account IDs for multi-identity outbound",
+        advanced: true,
+      },
+      virtualAccounts: {
+        label: "Project scopes",
+        help: "Maps synthetic account IDs to specific projects",
+        advanced: true,
+      },
+      dmPolicy: { label: "DM policy", help: "Controls who can DM agents: pairing, allowlist, open, disabled" },
+      allowFrom: { label: "Allowed senders", help: "Basecamp person IDs allowed to message agents" },
+      engage: {
+        label: "Engagement policy",
+        help: "Event types that trigger agent response: dm, mention, assignment, checkin, conversation, activity",
+      },
+      buckets: {
+        label: "Per-project settings",
+        help: "Override engage, requireMention, and tool policies per bucket",
+        advanced: true,
+      },
     },
   },
 
@@ -159,7 +203,8 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
     listAccountIds: (cfg) => listBasecampAccountIds(cfg),
     resolveAccount: (cfg, accountId) => resolveBasecampAccount(cfg, accountId),
     defaultAccountId: (cfg) => resolveDefaultBasecampAccountId(cfg),
-    isConfigured: (account) => Boolean(account.token?.trim() || account.config.tokenFile || account.config.oauthTokenFile),
+    isConfigured: (account) =>
+      Boolean(account.token?.trim() || account.config.tokenFile || account.config.oauthTokenFile),
     isEnabled: (account) => account.enabled,
     disabledReason: () => "Manually disabled",
     unconfiguredReason: () => "No token or OAuth token file configured",
@@ -191,8 +236,7 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
       return updated;
     },
     resolveAllowFrom: ({ cfg }) => resolveBasecampAllowFrom(cfg),
-    formatAllowFrom: ({ allowFrom }) =>
-      allowFrom.map((entry) => `Person ${entry}`),
+    formatAllowFrom: ({ allowFrom }) => allowFrom.map((entry) => `Person ${entry}`),
   },
 
   security: basecampSecurityAdapter,
@@ -224,9 +268,7 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
       // ----- Startup validation -----
       // Verify critical config is valid. Log warnings but don't block startup.
       if (!account.personId) {
-        ctx.log?.warn(
-          `[${account.accountId}] validation: personId is not set — self-message filtering will not work`,
-        );
+        ctx.log?.warn(`[${account.accountId}] validation: personId is not set — self-message filtering will not work`);
       }
 
       // Validate persona and virtualAccounts mappings when config changes.
@@ -243,12 +285,17 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
       if (configJson !== lastValidatedConfigJson) {
         lastValidatedConfigJson = configJson;
         if (startupSection?.personas) {
+          // Warn about persona limitation with agent tools
+          if (Object.keys(startupSection.personas).length > 0) {
+            ctx.log?.warn(
+              "Agent tools execute under the default account; " +
+                "persona-mapped accounts are not yet supported for tool calls",
+            );
+          }
           for (const [agentId, targetAccountId] of Object.entries(startupSection.personas)) {
             const targetAccounts = startupSection.accounts ?? {};
             if (!targetAccounts[targetAccountId]) {
-              ctx.log?.warn(
-                `validation: persona "${agentId}" references non-existent account "${targetAccountId}"`,
-              );
+              ctx.log?.warn(`validation: persona "${agentId}" references non-existent account "${targetAccountId}"`);
             }
           }
         }
@@ -256,9 +303,7 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
           for (const [key, va] of Object.entries(startupSection.virtualAccounts)) {
             const targetAccounts = startupSection.accounts ?? {};
             if (!targetAccounts[va.accountId]) {
-              ctx.log?.warn(
-                `validation: virtualAccount "${key}" references non-existent account "${va.accountId}"`,
-              );
+              ctx.log?.warn(`validation: virtualAccount "${key}" references non-existent account "${va.accountId}"`);
             }
           }
         }
@@ -271,17 +316,13 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
           const tm = createTokenManager(account);
           await tm.getToken(); // validates + refreshes if needed
         } catch (err) {
-          ctx.log?.error(
-            `[${account.accountId}] cannot start: OAuth token invalid: ${String(err)}`,
-          );
+          ctx.log?.error(`[${account.accountId}] cannot start: OAuth token invalid: ${String(err)}`);
           return;
         }
       }
 
       if (account.tokenSource === "none") {
-        ctx.log?.error(
-          `[${account.accountId}] cannot start: no authentication configured`,
-        );
+        ctx.log?.error(`[${account.accountId}] cannot start: no authentication configured`);
         return;
       }
 
@@ -295,20 +336,17 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
       // Resolve the numeric Basecamp account ID for API calls.
       // Prefers explicit basecampAccountId, then falls back to accountId if numeric.
       const basecampAccountId =
-        account.config.basecampAccountId ??
-        (/^\d+$/.test(account.accountId) ? account.accountId : undefined);
+        account.config.basecampAccountId ?? (/^\d+$/.test(account.accountId) ? account.accountId : undefined);
 
       if (!basecampAccountId) {
         ctx.log?.warn(
           `[${account.accountId}] validation: Basecamp account ID could not be resolved — ` +
-          `outbound dispatch and API tools will fail. ` +
-          `Set channels.basecamp.accounts.${account.accountId}.basecampAccountId`,
+            `outbound dispatch and API tools will fail. ` +
+            `Set channels.basecamp.accounts.${account.accountId}.basecampAccountId`,
         );
       }
 
-      ctx.log?.info(
-        `[${account.accountId}] starting Basecamp channel (person: ${account.personId})`,
-      );
+      ctx.log?.info(`[${account.accountId}] starting Basecamp channel (person: ${account.personId})`);
 
       // Import poller dynamically to avoid circular deps and allow
       // the inbound worker to complete their module independently.
@@ -317,9 +355,7 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
         const pollerMod = await import("./inbound/poller.js");
         startCompositePoller = pollerMod.startCompositePoller;
       } catch (err) {
-        ctx.log?.error(
-          `[${account.accountId}] failed to load poller module: ${String(err)}`,
-        );
+        ctx.log?.error(`[${account.accountId}] failed to load poller module: ${String(err)}`);
         return;
       }
 
@@ -353,17 +389,19 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
               account,
             },
             registry,
-            ctx.log ? {
-              info: (e, d) => ctx.log?.info?.(`[${account.accountId}] ${e} ${d ? JSON.stringify(d) : ""}`),
-              warn: (e, d) => ctx.log?.warn?.(`[${account.accountId}] ${e} ${d ? JSON.stringify(d) : ""}`),
-              error: (e, d) => ctx.log?.error?.(`[${account.accountId}] ${e} ${d ? JSON.stringify(d) : ""}`),
-              debug: (e, d) => ctx.log?.debug?.(`[${account.accountId}] ${e} ${d ? JSON.stringify(d) : ""}`),
-            } : undefined,
+            ctx.log
+              ? {
+                  info: (e, d) => ctx.log?.info?.(`[${account.accountId}] ${e} ${d ? JSON.stringify(d) : ""}`),
+                  warn: (e, d) => ctx.log?.warn?.(`[${account.accountId}] ${e} ${d ? JSON.stringify(d) : ""}`),
+                  error: (e, d) => ctx.log?.error?.(`[${account.accountId}] ${e} ${d ? JSON.stringify(d) : ""}`),
+                  debug: (e, d) => ctx.log?.debug?.(`[${account.accountId}] ${e} ${d ? JSON.stringify(d) : ""}`),
+                }
+              : undefined,
           );
           ctx.log?.info(
             `[${account.accountId}] webhook reconciliation: ` +
-            `${result.created.length} created, ${result.existing.length} existing, ` +
-            `${result.recovered.length} recovered, ${result.failed.length} failed`,
+              `${result.created.length} created, ${result.existing.length} existing, ` +
+              `${result.recovered.length} recovered, ${result.failed.length} failed`,
           );
           // Projects with active webhooks (created, already existing, or recovered)
           const active = [...result.created, ...result.existing, ...result.recovered];
@@ -371,9 +409,7 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
             webhookActiveProjects = new Set(active);
           }
         } catch (err) {
-          ctx.log?.error(
-            `[${account.accountId}] webhook reconciliation failed: ${String(err)}`,
-          );
+          ctx.log?.error(`[${account.accountId}] webhook reconciliation failed: ${String(err)}`);
         }
       }
 
@@ -432,16 +468,16 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
                 account,
               },
               registry,
-              ctx.log ? {
-                info: (e, d) => ctx.log?.info?.(`[${account.accountId}] ${e} ${d ? JSON.stringify(d) : ""}`),
-                warn: (e, d) => ctx.log?.warn?.(`[${account.accountId}] ${e} ${d ? JSON.stringify(d) : ""}`),
-                error: (e, d) => ctx.log?.error?.(`[${account.accountId}] ${e} ${d ? JSON.stringify(d) : ""}`),
-                debug: (e, d) => ctx.log?.debug?.(`[${account.accountId}] ${e} ${d ? JSON.stringify(d) : ""}`),
-              } : undefined,
+              ctx.log
+                ? {
+                    info: (e, d) => ctx.log?.info?.(`[${account.accountId}] ${e} ${d ? JSON.stringify(d) : ""}`),
+                    warn: (e, d) => ctx.log?.warn?.(`[${account.accountId}] ${e} ${d ? JSON.stringify(d) : ""}`),
+                    error: (e, d) => ctx.log?.error?.(`[${account.accountId}] ${e} ${d ? JSON.stringify(d) : ""}`),
+                    debug: (e, d) => ctx.log?.debug?.(`[${account.accountId}] ${e} ${d ? JSON.stringify(d) : ""}`),
+                  }
+                : undefined,
             ).catch((err) => {
-              ctx.log?.error(
-                `[${account.accountId}] webhook deactivation failed: ${String(err)}`,
-              );
+              ctx.log?.error(`[${account.accountId}] webhook deactivation failed: ${String(err)}`);
             }),
             5000,
             `${account.accountId} webhook deactivation`,
@@ -468,8 +504,32 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
       }
     },
     logoutAccount: async ({ accountId, cfg }) => {
-      return { cleared: false, loggedOut: false };
+      const account = resolveBasecampAccount(cfg, accountId);
+
+      // Delete OAuth token file if it exists
+      let cleared = false;
+      const tokenFilePath = account.config.oauthTokenFile;
+      if (tokenFilePath) {
+        try {
+          const { unlink } = await import("node:fs/promises");
+          await unlink(tokenFilePath);
+          cleared = true;
+        } catch (err: any) {
+          if (err?.code !== "ENOENT") throw err;
+          // File already gone — still counts as cleared
+          cleared = true;
+        }
+      }
+
+      // Evict cached TokenManager and SDK client for this account only
+      const { clearTokenManager } = await import("./oauth-credentials.js");
+      clearTokenManager(accountId);
+      clearClient(accountId);
+
+      // Close account dedup DB
+      closeAccountDedup(accountId);
+
+      return { cleared, loggedOut: cleared };
     },
   },
 };
-

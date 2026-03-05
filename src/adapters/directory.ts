@@ -6,9 +6,9 @@
  */
 
 import type { ChannelDirectoryAdapter, ChannelDirectoryEntry, OpenClawConfig } from "openclaw/plugin-sdk";
-import type { ResolvedBasecampAccount, BasecampPerson, BasecampProject, BasecampChannelConfig } from "../types.js";
-import { resolveBasecampAccount } from "../config.js";
 import { getClient, numId } from "../basecamp-client.js";
+import { resolveBasecampAccount } from "../config.js";
+import type { BasecampChannelConfig, BasecampPerson, BasecampProject, ResolvedBasecampAccount } from "../types.js";
 
 function getBasecampSection(cfg: OpenClawConfig): BasecampChannelConfig | undefined {
   return cfg.channels?.basecamp as BasecampChannelConfig | undefined;
@@ -69,7 +69,7 @@ export const basecampDirectoryAdapter: ChannelDirectoryAdapter = {
     let people: Array<{ id: number; name: string; email_address: string; avatar_url?: string }>;
     try {
       const client = getClient(account);
-      people = await client.people.list() as any;
+      people = (await client.people.list()) as any;
     } catch {
       return [];
     }
@@ -79,11 +79,7 @@ export const basecampDirectoryAdapter: ChannelDirectoryAdapter = {
     let filtered = people;
     if (query) {
       const q = query.toLowerCase();
-      filtered = people.filter(
-        (p) =>
-          p.name.toLowerCase().includes(q) ||
-          p.email_address.toLowerCase().includes(q),
-      );
+      filtered = people.filter((p) => p.name.toLowerCase().includes(q) || p.email_address.toLowerCase().includes(q));
     }
 
     return filtered.map((p) => ({
@@ -120,7 +116,7 @@ export const basecampDirectoryAdapter: ChannelDirectoryAdapter = {
     let projects: Array<{ id: number; name: string }>;
     try {
       const client = getClient(account);
-      projects = await client.projects.list() as any;
+      projects = (await client.projects.list()) as any;
     } catch {
       return [];
     }
@@ -150,7 +146,7 @@ export const basecampDirectoryAdapter: ChannelDirectoryAdapter = {
     let people: Array<{ id: number; name: string; email_address: string; avatar_url?: string }>;
     try {
       const client = getClient(account);
-      people = await client.people.listForProject(projectId) as any;
+      people = (await client.people.listForProject(projectId)) as any;
     } catch {
       return [];
     }

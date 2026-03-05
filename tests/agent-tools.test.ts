@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockClient = {
   todos: { create: vi.fn(), complete: vi.fn(), uncomplete: vi.fn() },
@@ -23,7 +23,10 @@ vi.mock("../src/basecamp-client.js", () => ({
   }),
   BasecampError: class BasecampError extends Error {
     code: string;
-    constructor(msg: string, code: string) { super(msg); this.code = code; }
+    constructor(msg: string, code: string) {
+      super(msg);
+      this.code = code;
+    }
   },
 }));
 
@@ -108,10 +111,13 @@ describe("basecamp_create_todo", () => {
       content: "Buy milk",
     });
 
-    expect(mockClient.todos.create).toHaveBeenCalledWith(
-      200,
-      { content: "Buy milk", description: undefined, assigneeIds: undefined, dueOn: undefined, startsOn: undefined },
-    );
+    expect(mockClient.todos.create).toHaveBeenCalledWith(200, {
+      content: "Buy milk",
+      description: undefined,
+      assigneeIds: undefined,
+      dueOn: undefined,
+      startsOn: undefined,
+    });
     const parsed = JSON.parse(result.content[0].text);
     expect(parsed).toEqual({ ok: true, todoId: 42, title: "Buy milk" });
     expect(result.details).toEqual({ ok: true, todoId: 42, title: "Buy milk" });
@@ -130,16 +136,13 @@ describe("basecamp_create_todo", () => {
       startsOn: "2025-02-15",
     });
 
-    expect(mockClient.todos.create).toHaveBeenCalledWith(
-      200,
-      {
-        content: "Review PR",
-        description: "<p>Check edge cases</p>",
-        assigneeIds: [10, 20],
-        dueOn: "2025-03-01",
-        startsOn: "2025-02-15",
-      },
-    );
+    expect(mockClient.todos.create).toHaveBeenCalledWith(200, {
+      content: "Review PR",
+      description: "<p>Check edge cases</p>",
+      assigneeIds: [10, 20],
+      dueOn: "2025-03-01",
+      startsOn: "2025-02-15",
+    });
   });
 
   it("omits optional fields when not provided", async () => {
@@ -267,10 +270,7 @@ describe("basecamp_read_history", () => {
       type: "campfire",
     });
 
-    expect(mockClient.raw.GET).toHaveBeenCalledWith(
-      "/buckets/100/chats/200/lines.json",
-      {},
-    );
+    expect(mockClient.raw.GET).toHaveBeenCalledWith("/buckets/100/chats/200/lines.json", {});
     const parsed = JSON.parse(result.content[0].text);
     expect(parsed.ok).toBe(true);
     expect(parsed.count).toBe(2);
@@ -283,7 +283,12 @@ describe("basecamp_read_history", () => {
   it("fetches recording comments", async () => {
     mockClient.raw.GET.mockResolvedValue({
       data: [
-        { id: 5, content: "<strong>Done</strong>", created_at: "2025-01-01T12:00:00Z", creator: { id: 30, name: "Charlie" } },
+        {
+          id: 5,
+          content: "<strong>Done</strong>",
+          created_at: "2025-01-01T12:00:00Z",
+          creator: { id: 30, name: "Charlie" },
+        },
       ],
       error: undefined,
       response: { ok: true, headers: new Headers() },
@@ -295,10 +300,7 @@ describe("basecamp_read_history", () => {
       type: "comments",
     });
 
-    expect(mockClient.raw.GET).toHaveBeenCalledWith(
-      "/buckets/100/recordings/300/comments.json",
-      {},
-    );
+    expect(mockClient.raw.GET).toHaveBeenCalledWith("/buckets/100/recordings/300/comments.json", {});
     const parsed = JSON.parse(result.content[0].text);
     expect(parsed.ok).toBe(true);
     expect(parsed.count).toBe(1);
@@ -433,9 +435,7 @@ describe("basecamp_read_history", () => {
 
   it("handles entries with missing creator", async () => {
     mockClient.raw.GET.mockResolvedValue({
-      data: [
-        { id: 1, content: "<p>No creator</p>", created_at: "2025-01-01T10:00:00Z" },
-      ],
+      data: [{ id: 1, content: "<p>No creator</p>", created_at: "2025-01-01T10:00:00Z" }],
       error: undefined,
       response: { ok: true, headers: new Headers() },
     });
@@ -467,10 +467,7 @@ describe("basecamp_add_boost", () => {
       recordingId: "500",
     });
 
-    expect(mockClient.boosts.createForRecording).toHaveBeenCalledWith(
-      500,
-      { content: "👍" },
-    );
+    expect(mockClient.boosts.createForRecording).toHaveBeenCalledWith(500, { content: "👍" });
     const parsed = JSON.parse(result.content[0].text);
     expect(parsed).toEqual({ ok: true, boostId: 99 });
     expect(result.details).toEqual({ ok: true, boostId: 99 });
@@ -485,10 +482,7 @@ describe("basecamp_add_boost", () => {
       content: "🎉",
     });
 
-    expect(mockClient.boosts.createForRecording).toHaveBeenCalledWith(
-      500,
-      { content: "🎉" },
-    );
+    expect(mockClient.boosts.createForRecording).toHaveBeenCalledWith(500, { content: "🎉" });
     const parsed = JSON.parse(result.content[0].text);
     expect(parsed).toEqual({ ok: true, boostId: 101 });
   });
@@ -524,10 +518,7 @@ describe("basecamp_move_card", () => {
       columnId: 700,
     });
 
-    expect(mockClient.cards.move).toHaveBeenCalledWith(
-      600,
-      { columnId: 700 },
-    );
+    expect(mockClient.cards.move).toHaveBeenCalledWith(600, { columnId: 700 });
     const parsed = JSON.parse(result.content[0].text);
     expect(parsed).toEqual({ ok: true, cardId: "600", columnId: 700 });
     expect(result.details).toEqual({ ok: true, cardId: "600", columnId: 700 });
@@ -565,10 +556,11 @@ describe("basecamp_post_message", () => {
       subject: "Weekly Update",
     });
 
-    expect(mockClient.messages.create).toHaveBeenCalledWith(
-      200,
-      { subject: "Weekly Update", content: undefined, categoryId: undefined },
-    );
+    expect(mockClient.messages.create).toHaveBeenCalledWith(200, {
+      subject: "Weekly Update",
+      content: undefined,
+      categoryId: undefined,
+    });
     const parsed = JSON.parse(result.content[0].text);
     expect(parsed).toEqual({ ok: true, messageId: 800, subject: "Weekly Update" });
     expect(result.details).toEqual({ ok: true, messageId: 800, subject: "Weekly Update" });
@@ -585,10 +577,11 @@ describe("basecamp_post_message", () => {
       categoryId: 5,
     });
 
-    expect(mockClient.messages.create).toHaveBeenCalledWith(
-      200,
-      { subject: "Announcement", content: "<p>Big news!</p>", categoryId: 5 },
-    );
+    expect(mockClient.messages.create).toHaveBeenCalledWith(200, {
+      subject: "Announcement",
+      content: "<p>Big news!</p>",
+      categoryId: 5,
+    });
   });
 
   it("omits optional fields when not provided", async () => {
@@ -639,10 +632,7 @@ describe("basecamp_answer_checkin", () => {
       content: "Everything is on track!",
     });
 
-    expect(mockClient.checkins.createAnswer).toHaveBeenCalledWith(
-      300,
-      { content: "Everything is on track!" },
-    );
+    expect(mockClient.checkins.createAnswer).toHaveBeenCalledWith(300, { content: "Everything is on track!" });
     const parsed = JSON.parse(result.content[0].text);
     expect(parsed).toEqual({ ok: true, answerId: 900 });
     expect(result.details).toEqual({ ok: true, answerId: 900 });
@@ -708,7 +698,10 @@ describe("basecamp_api_read", () => {
   });
 
   it("reads project list", async () => {
-    const projects = [{ id: 1, name: "Project A" }, { id: 2, name: "Project B" }];
+    const projects = [
+      { id: 1, name: "Project A" },
+      { id: 2, name: "Project B" },
+    ];
     mockClient.raw.GET.mockResolvedValue({
       data: projects,
       error: undefined,
@@ -812,10 +805,9 @@ describe("basecamp_api_write", () => {
       body: { content: "New todo" },
     });
 
-    expect(mockClient.raw.POST).toHaveBeenCalledWith(
-      "/buckets/100/todolists/200/todos.json",
-      { body: { content: "New todo" } },
-    );
+    expect(mockClient.raw.POST).toHaveBeenCalledWith("/buckets/100/todolists/200/todos.json", {
+      body: { content: "New todo" },
+    });
     const parsed = JSON.parse(result.content[0].text);
     expect(parsed).toEqual({ ok: true, data: { id: 50, content: "New todo" } });
   });
@@ -833,10 +825,9 @@ describe("basecamp_api_write", () => {
       body: { content: "Updated", due_on: "2025-12-31" },
     });
 
-    expect(mockClient.raw.PUT).toHaveBeenCalledWith(
-      "/buckets/100/todos/42.json",
-      { body: { content: "Updated", due_on: "2025-12-31" } },
-    );
+    expect(mockClient.raw.PUT).toHaveBeenCalledWith("/buckets/100/todos/42.json", {
+      body: { content: "Updated", due_on: "2025-12-31" },
+    });
     const parsed = JSON.parse(result.content[0].text);
     expect(parsed.ok).toBe(true);
   });
@@ -870,10 +861,7 @@ describe("basecamp_api_write", () => {
       path: "/buckets/100/todos/42/completion.json",
     });
 
-    expect(mockClient.raw.POST).toHaveBeenCalledWith(
-      "/buckets/100/todos/42/completion.json",
-      { body: undefined },
-    );
+    expect(mockClient.raw.POST).toHaveBeenCalledWith("/buckets/100/todos/42/completion.json", { body: undefined });
     const parsed = JSON.parse(result.content[0].text);
     expect(parsed.ok).toBe(true);
   });
@@ -890,10 +878,7 @@ describe("basecamp_api_write", () => {
       path: "/buckets/100/some/path.json",
     });
 
-    expect(mockClient.raw.PUT).toHaveBeenCalledWith(
-      "/buckets/100/some/path.json",
-      { body: undefined },
-    );
+    expect(mockClient.raw.PUT).toHaveBeenCalledWith("/buckets/100/some/path.json", { body: undefined });
   });
 
   it("returns error on POST failure", async () => {

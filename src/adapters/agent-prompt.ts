@@ -8,7 +8,7 @@
  */
 
 import type { ChannelPlugin, OpenClawConfig } from "openclaw/plugin-sdk";
-import type { ResolvedBasecampAccount, BasecampChannelConfig } from "../types.js";
+import type { BasecampChannelConfig, ResolvedBasecampAccount } from "../types.js";
 
 // ChannelAgentPromptAdapter is not exported from the SDK, so extract it from ChannelPlugin.
 type AgentPromptAdapter = NonNullable<ChannelPlugin<ResolvedBasecampAccount>["agentPrompt"]>;
@@ -40,15 +40,14 @@ export const basecampAgentPromptAdapter: AgentPromptAdapter = {
       const va = section.virtualAccounts[accountId];
       hints.push(
         `This account is project-scoped to bucket ${va.bucketId}. ` +
-        `Messages are limited to this specific Basecamp project.`,
+          `Messages are limited to this specific Basecamp project.`,
       );
     }
 
     // Persona mapping context
     if (section.personas && Object.keys(section.personas).length > 0) {
       hints.push(
-        "This channel uses persona mappings — different agents may send " +
-        "as different Basecamp identities.",
+        "This channel uses persona mappings — different agents may send " + "as different Basecamp identities.",
       );
     }
 
@@ -58,9 +57,7 @@ export const basecampAgentPromptAdapter: AgentPromptAdapter = {
         .filter(([, v]) => v?.requireMention === true)
         .map(([k]) => k);
       if (mentionBuckets.length > 0) {
-        hints.push(
-          `Some projects require @mention to trigger the agent: bucket(s) ${mentionBuckets.join(", ")}.`,
-        );
+        hints.push(`Some projects require @mention to trigger the agent: bucket(s) ${mentionBuckets.join(", ")}.`);
       }
     }
 

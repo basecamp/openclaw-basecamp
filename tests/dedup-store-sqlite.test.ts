@@ -1,12 +1,11 @@
-import { describe, it, expect, afterEach } from "vitest";
-import { DatabaseSync } from "node:sqlite";
-import { mkdtempSync, writeFileSync, rmSync, existsSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-
-import { DedupDb, SqliteDedupStore, openDedupDb } from "../src/inbound/dedup-store-sqlite.js";
+import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
+import { afterEach, describe, expect, it } from "vitest";
 import { EventDedup } from "../src/inbound/dedup.js";
 import type { DedupSnapshot } from "../src/inbound/dedup-store.js";
+import { DedupDb, openDedupDb, SqliteDedupStore } from "../src/inbound/dedup-store-sqlite.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -26,7 +25,11 @@ function freshDbPath(): string {
 
 afterEach(() => {
   for (const dir of tmpDirs) {
-    try { rmSync(dir, { recursive: true, force: true }); } catch { /* ignore */ }
+    try {
+      rmSync(dir, { recursive: true, force: true });
+    } catch {
+      /* ignore */
+    }
   }
   tmpDirs = [];
 });
@@ -38,7 +41,7 @@ afterEach(() => {
 const SNAPSHOT: DedupSnapshot = {
   primary: {
     "activity:1": { seenAt: 1000, source: "activity" },
-    "reading:2":  { seenAt: 2000, source: "reading" },
+    "reading:2": { seenAt: 2000, source: "reading" },
   },
   secondary: {
     "100:created:2025-01-01": "activity:1",
@@ -55,9 +58,9 @@ describe("SqliteDedupStore", () => {
     const dedupDb = openDedupDb(dbPath);
     try {
       const raw = new DatabaseSync(dbPath, { open: true });
-      const rows = raw.prepare(
-        "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name",
-      ).all() as Array<{ name: string }>;
+      const rows = raw.prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").all() as Array<{
+        name: string;
+      }>;
       const names = rows.map((r) => r.name);
       expect(names).toContain("dedup_primary");
       expect(names).toContain("dedup_secondary");
@@ -159,9 +162,9 @@ describe("SqliteDedupStore", () => {
 
       // Meta flag set
       const raw = new DatabaseSync(dbPath, { open: true });
-      const flagRow = raw.prepare(
-        "SELECT value FROM dedup_meta WHERE key = 'migrated_json'",
-      ).get() as { value: string } | undefined;
+      const flagRow = raw.prepare("SELECT value FROM dedup_meta WHERE key = 'migrated_json'").get() as
+        | { value: string }
+        | undefined;
       raw.close();
       expect(flagRow?.value).toBe("1");
     } finally {
@@ -176,18 +179,13 @@ describe("SqliteDedupStore", () => {
     const dedupDb = openDedupDb(dbPath);
     try {
       // Paths to non-existent files — should not throw
-      expect(() =>
-        dedupDb.migrateFromJson([
-          join(dir, "nope1.json"),
-          join(dir, "nope2.json"),
-        ]),
-      ).not.toThrow();
+      expect(() => dedupDb.migrateFromJson([join(dir, "nope1.json"), join(dir, "nope2.json")])).not.toThrow();
 
       // Meta flag should still be set (no files → set flag and return)
       const raw = new DatabaseSync(dbPath, { open: true });
-      const flagRow = raw.prepare(
-        "SELECT value FROM dedup_meta WHERE key = 'migrated_json'",
-      ).get() as { value: string } | undefined;
+      const flagRow = raw.prepare("SELECT value FROM dedup_meta WHERE key = 'migrated_json'").get() as
+        | { value: string }
+        | undefined;
       raw.close();
       expect(flagRow?.value).toBe("1");
     } finally {
@@ -308,9 +306,9 @@ describe("SqliteDedupStore", () => {
 
       // Meta flag should now be set
       const raw2 = new DatabaseSync(dbPath, { open: true });
-      const flagRow = raw2.prepare(
-        "SELECT value FROM dedup_meta WHERE key = 'migrated_json'",
-      ).get() as { value: string } | undefined;
+      const flagRow = raw2.prepare("SELECT value FROM dedup_meta WHERE key = 'migrated_json'").get() as
+        | { value: string }
+        | undefined;
       raw2.close();
       expect(flagRow?.value).toBe("1");
     } finally {

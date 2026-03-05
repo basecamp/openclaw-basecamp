@@ -1,13 +1,13 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
   extractAttachmentSgids,
   extractMentionSgids,
-  personIdFromSgid,
-  parseMentions,
-  mentionsAgent,
   formatMentionTag,
-  stripAttachmentTags,
   htmlToPlainText,
+  mentionsAgent,
+  parseMentions,
+  personIdFromSgid,
+  stripAttachmentTags,
 } from "../src/mentions/parse.js";
 
 const mentionTag = (sgid: string) =>
@@ -38,15 +38,9 @@ describe("extractAttachmentSgids", () => {
 
   it("handles multiple attachments with different SGIDs", () => {
     const html =
-      mentionTag("sgid://bc3/Person/1") +
-      fileAttachment("sgid://bc3/Recording/99") +
-      mentionTag("sgid://bc3/Person/2");
+      mentionTag("sgid://bc3/Person/1") + fileAttachment("sgid://bc3/Recording/99") + mentionTag("sgid://bc3/Person/2");
     const result = extractAttachmentSgids(html);
-    expect(result).toEqual([
-      "sgid://bc3/Person/1",
-      "sgid://bc3/Recording/99",
-      "sgid://bc3/Person/2",
-    ]);
+    expect(result).toEqual(["sgid://bc3/Person/1", "sgid://bc3/Recording/99", "sgid://bc3/Person/2"]);
   });
 });
 
@@ -79,10 +73,7 @@ describe("extractMentionSgids", () => {
 
   it("extracts multiple distinct mentions", () => {
     const html = mentionTag("sgid://bc3/Person/1") + mentionTag("sgid://bc3/Person/2");
-    expect(extractMentionSgids(html)).toEqual([
-      "sgid://bc3/Person/1",
-      "sgid://bc3/Person/2",
-    ]);
+    expect(extractMentionSgids(html)).toEqual(["sgid://bc3/Person/1", "sgid://bc3/Person/2"]);
   });
 });
 
@@ -107,8 +98,7 @@ describe("personIdFromSgid", () => {
 
 describe("parseMentions", () => {
   it("returns array of {sgid, personId} for each mention", () => {
-    const html =
-      mentionTag("sgid://bc3/Person/10") + mentionTag("sgid://bc3/Person/20");
+    const html = mentionTag("sgid://bc3/Person/10") + mentionTag("sgid://bc3/Person/20");
     expect(parseMentions(html)).toEqual([
       { sgid: "sgid://bc3/Person/10", personId: "10" },
       { sgid: "sgid://bc3/Person/20", personId: "20" },
@@ -122,9 +112,7 @@ describe("parseMentions", () => {
   it("returns null personId for non-Person SGIDs in mentions", () => {
     // Contrived: a mention tag whose sgid is not a Person
     const html = mentionTag("sgid://bc3/Circle/5");
-    expect(parseMentions(html)).toEqual([
-      { sgid: "sgid://bc3/Circle/5", personId: null },
-    ]);
+    expect(parseMentions(html)).toEqual([{ sgid: "sgid://bc3/Circle/5", personId: null }]);
   });
 });
 
@@ -184,10 +172,7 @@ describe("stripAttachmentTags", () => {
   });
 
   it("strips multiple attachment tags", () => {
-    const html =
-      mentionTag("sgid://bc3/Person/1") +
-      " and " +
-      fileAttachment("sgid://bc3/Recording/2");
+    const html = mentionTag("sgid://bc3/Person/1") + " and " + fileAttachment("sgid://bc3/Recording/2");
     expect(stripAttachmentTags(html)).toBe(" and ");
   });
 });
@@ -211,7 +196,7 @@ describe("htmlToPlainText", () => {
 
   it("strips all remaining tags", () => {
     expect(htmlToPlainText("<span>text</span>")).toBe("text");
-    expect(htmlToPlainText("<a href=\"#\">link</a>")).toBe("link");
+    expect(htmlToPlainText('<a href="#">link</a>')).toBe("link");
   });
 
   it("collapses triple+ newlines to double", () => {

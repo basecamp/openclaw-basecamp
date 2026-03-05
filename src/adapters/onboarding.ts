@@ -3,27 +3,95 @@
  *
  * Supports two authentication paths:
  * - Browser-based OAuth (recommended) — uses @37signals/basecamp interactive login
- * - Basecamp CLI profile — discovers identity via CLI, then chains into OAuth for persistent token
+ * - Basecamp CLI profile — imports CLI's stored credentials for persistent token
  *
  * Both paths converge on discoverIdentity() for account/person resolution.
  */
 
-import type { OpenClawConfig, ChannelOnboardingAdapter, ChannelOnboardingDmPolicy } from "openclaw/plugin-sdk";
-import type { DmPolicy } from "openclaw/plugin-sdk";
+import type {
+  ChannelOnboardingAdapter,
+  ChannelOnboardingDmPolicy,
+  DmPolicy,
+  OpenClawConfig,
+} from "openclaw/plugin-sdk";
 import { DEFAULT_ACCOUNT_ID, normalizeAccountId } from "openclaw/plugin-sdk";
-import type { BasecampChannelConfig } from "../types.js";
 import {
-  listBasecampAccountIds,
-  resolveDefaultBasecampAccountId,
-  resolveBasecampAccount,
-} from "../config.js";
-import { cliProfileList, extractCliBootstrapToken } from "../basecamp-cli.js";
+  type CliProfile,
+  cliProfileListFull,
+  exportCliCredentials,
+  extractCliBootstrapToken,
+} from "../basecamp-cli.js";
+import { listBasecampAccountIds, resolveBasecampAccount, resolveDefaultBasecampAccountId } from "../config.js";
+import type { BasecampChannelConfig } from "../types.js";
 
 const channel = "basecamp" as const;
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Run the interactive OAuth login flow, prompting for client credentials if
+ * none are available. Used by both the primary OAuth path and the CLI
+ * fallback when credential import fails.
+ */
+async function runOAuthLogin(params: { cfg: OpenClawConfig; accountId: string; prompter: any }): Promise<{
+  accessToken: string;
+  oauthTokenFile: string;
+  promptedClientId?: string;
+  promptedClientSecret?: string;
+}> {
+  const { cfg, accountId, prompter } = params;
+  const resolved = resolveBasecampAccount(cfg, accountId);
+  let clientId = resolved.oauthClientId;
+  let clientSecret = resolved.oauthClientSecret;
+  let promptedClientId: string | undefined;
+  let promptedClientSecret: string | undefined;
+
+  if (!clientId) {
+    await prompter.note(
+      "You'll need a Basecamp OAuth app. Register one at:\n" +
+        "https://launchpad.37signals.com/integrations\n\n" +
+        "When creating the app, set the redirect URI to:\n" +
+        "http://localhost:14923/callback\n\n" +
+        "You can leave the other fields as defaults.",
+      "OAuth setup",
+    );
+    const enteredId = await prompter.text({
+      message: "Enter your Basecamp OAuth app Client ID",
+      validate: (value: string) => (value?.trim() ? undefined : "Required"),
+    });
+    clientId = String(enteredId).trim();
+    promptedClientId = clientId;
+
+    const enteredSecret = await prompter.text({
+      message: "Client Secret (leave blank to skip)",
+    });
+    const secretVal = String(enteredSecret).trim();
+    if (secretVal) {
+      clientSecret = secretVal;
+      promptedClientSecret = secretVal;
+    }
+  }
+
+  const { interactiveLogin, resolveTokenFilePath } = await import("../oauth-credentials.js");
+  const oauthTokenFile = resolveTokenFilePath(accountId);
+  const partialAccount = {
+    ...resolved,
+    accountId,
+    oauthClientId: clientId,
+    oauthClientSecret: clientSecret,
+    config: { ...resolved.config, oauthTokenFile },
+  };
+  const token = await interactiveLogin(partialAccount, { clientId, clientSecret });
+
+  return {
+    accessToken: token.accessToken,
+    oauthTokenFile,
+    promptedClientId,
+    promptedClientSecret,
+  };
+}
 
 function getBasecampSection(cfg: OpenClawConfig): BasecampChannelConfig | undefined {
   return cfg.channels?.basecamp as BasecampChannelConfig | undefined;
@@ -78,20 +146,13 @@ export const basecampOnboardingAdapter: ChannelOnboardingAdapter = {
     };
   },
 
-  configure: async ({
-    cfg,
-    prompter,
-    accountOverrides,
-    shouldPromptAccountIds,
-  }) => {
+  configure: async ({ cfg, prompter, accountOverrides, shouldPromptAccountIds }) => {
     let next = cfg;
 
     // Step 1: Resolve OpenClaw account ID
     const basecampOverride = accountOverrides.basecamp?.trim();
     const defaultAccountId = resolveDefaultBasecampAccountId(cfg);
-    let accountId = basecampOverride
-      ? normalizeAccountId(basecampOverride)
-      : defaultAccountId;
+    let accountId = basecampOverride ? normalizeAccountId(basecampOverride) : defaultAccountId;
 
     if (shouldPromptAccountIds && !basecampOverride) {
       const existingIds = listBasecampAccountIds(cfg);
@@ -120,15 +181,15 @@ export const basecampOnboardingAdapter: ChannelOnboardingAdapter = {
 
     // Step 2: Auth method choice
     // Probe for CLI availability
-    let cliProfileNames: string[] = [];
+    let cliProfiles: CliProfile[] = [];
     try {
-      const profileResult = await cliProfileList();
-      cliProfileNames = profileResult.data;
+      const profileResult = await cliProfileListFull();
+      cliProfiles = profileResult.data;
     } catch {
       // CLI not installed or profiles unavailable
     }
 
-    const cliAvailable = cliProfileNames.length > 0;
+    const cliAvailable = cliProfiles.length > 0;
 
     type AuthMethod = "oauth" | "cli";
     let authMethod: AuthMethod;
@@ -152,62 +213,39 @@ export const basecampOnboardingAdapter: ChannelOnboardingAdapter = {
     let oauthTokenFile: string | undefined;
     let promptedClientId: string | undefined;
     let promptedClientSecret: string | undefined;
+    // CLI-imported client creds go per-account (not channel-level) to avoid
+    // overwriting existing channel OAuth config that other accounts rely on.
+    let cliImportedClientId: string | undefined;
+    let cliImportedClientSecret: string | undefined;
 
     if (authMethod === "oauth") {
-      // Resolve clientId: check resolved account's oauthClientId (falls through to channel-level)
-      const resolved = resolveBasecampAccount(cfg, accountId);
-      let clientId = resolved.oauthClientId;
-      let clientSecret = resolved.oauthClientSecret;
-
-      if (!clientId) {
-        await prompter.note(
-          "You'll need a Basecamp OAuth app. Register one at:\nhttps://launchpad.37signals.com/integrations",
-          "OAuth setup",
-        );
-        const enteredId = await prompter.text({
-          message: "Enter your Basecamp OAuth app Client ID",
-          validate: (value) => (value?.trim() ? undefined : "Required"),
-        });
-        clientId = String(enteredId).trim();
-        promptedClientId = clientId;
-
-        const enteredSecret = await prompter.text({
-          message: "Client Secret (leave blank to skip)",
-        });
-        const secretVal = String(enteredSecret).trim();
-        if (secretVal) {
-          clientSecret = secretVal;
-          promptedClientSecret = secretVal;
-        }
-      }
-
-      // Run interactive login
-      const { interactiveLogin, resolveTokenFilePath } = await import("../oauth-credentials.js");
-      oauthTokenFile = resolveTokenFilePath(accountId);
-      const partialAccount = {
-        ...resolved,
-        accountId,
-        oauthClientId: clientId,
-        oauthClientSecret: clientSecret,
-        config: { ...resolved.config, oauthTokenFile },
-      };
-      const token = await interactiveLogin(partialAccount, { clientId, clientSecret });
-      accessToken = token.accessToken;
-
-      // Build a token provider for later use if needed
+      const oauthResult = await runOAuthLogin({ cfg, accountId, prompter });
+      accessToken = oauthResult.accessToken;
+      oauthTokenFile = oauthResult.oauthTokenFile;
+      promptedClientId = oauthResult.promptedClientId;
+      promptedClientSecret = oauthResult.promptedClientSecret;
     } else {
-      // CLI path — discover identity via CLI, then chain into OAuth
-      if (cliProfileNames.length > 1) {
+      // CLI path — import credentials from existing CLI profile
+      let selectedCliProfile: CliProfile | undefined;
+
+      if (cliProfiles.length > 1) {
         const choice = await prompter.select({
           message: "Basecamp CLI profile",
           options: [
-            ...cliProfileNames.map((name) => ({ value: name, label: name })),
+            ...cliProfiles.map((p) => ({ value: p.name, label: p.name })),
             { value: "__none__", label: "Use default (no profile)" },
           ],
         });
-        selectedProfile = choice === "__none__" ? undefined : choice;
-      } else if (cliProfileNames.length === 1) {
-        selectedProfile = cliProfileNames[0];
+        if (choice === "__none__") {
+          // No explicit profile flag, but resolve active/default profile for credential import
+          selectedCliProfile = cliProfiles.find((p) => p.active || p.default) ?? cliProfiles[0];
+        } else {
+          selectedCliProfile = cliProfiles.find((p) => p.name === choice);
+          selectedProfile = selectedCliProfile?.name;
+        }
+      } else if (cliProfiles.length === 1) {
+        selectedCliProfile = cliProfiles[0];
+        selectedProfile = selectedCliProfile?.name;
       }
 
       // Extract token for identity discovery
@@ -216,6 +254,37 @@ export const basecampOnboardingAdapter: ChannelOnboardingAdapter = {
       } catch {
         // Token extraction failed — will fall back to manual entry
       }
+
+      // Import CLI's stored OAuth credentials for persistent use
+      if (selectedCliProfile) {
+        const cliCreds = exportCliCredentials(selectedCliProfile.base_url);
+        if (cliCreds) {
+          const { resolveTokenFilePath } = await import("../oauth-credentials.js");
+          const { FileTokenStore } = await import("@37signals/basecamp/oauth");
+          oauthTokenFile = resolveTokenFilePath(accountId);
+          const store = new FileTokenStore(oauthTokenFile);
+          await store.save({
+            accessToken: cliCreds.accessToken,
+            refreshToken: cliCreds.refreshToken,
+            tokenType: "Bearer",
+            expiresAt: cliCreds.expiresAt ? new Date(cliCreds.expiresAt * 1000) : undefined,
+          });
+          // Store per-account so we don't overwrite channel-level OAuth
+          cliImportedClientId = cliCreds.clientId;
+          cliImportedClientSecret = cliCreds.clientSecret || undefined;
+        }
+      }
+    }
+
+    // CLI path: if credential import failed, fall back to browser OAuth.
+    // Must run before identity discovery so the OAuth token is available.
+    if (authMethod === "cli" && !oauthTokenFile) {
+      await prompter.note("Could not import CLI credentials. Falling back to browser OAuth.", "Note");
+      const oauthResult = await runOAuthLogin({ cfg, accountId, prompter });
+      accessToken = oauthResult.accessToken;
+      oauthTokenFile = oauthResult.oauthTokenFile;
+      promptedClientId = oauthResult.promptedClientId;
+      promptedClientSecret = oauthResult.promptedClientSecret;
     }
 
     // Step 4: Discover identity
@@ -249,10 +318,7 @@ export const basecampOnboardingAdapter: ChannelOnboardingAdapter = {
       basecampAccountId = choice;
     } else if (discoveredAccounts.length === 1) {
       basecampAccountId = String(discoveredAccounts[0]!.id);
-      await prompter.note(
-        `Using account: ${discoveredAccounts[0]!.name} (${basecampAccountId})`,
-        "Basecamp account",
-      );
+      await prompter.note(`Using account: ${discoveredAccounts[0]!.name} (${basecampAccountId})`, "Basecamp account");
     }
 
     // Step 6: Resolve personId
@@ -283,68 +349,20 @@ export const basecampOnboardingAdapter: ChannelOnboardingAdapter = {
       ...(basecampAccountId ? { basecampAccountId } : {}),
     };
 
-    // CLI path chains into OAuth for persistent token
-    if (authMethod === "cli" && !oauthTokenFile) {
-      const resolved = resolveBasecampAccount(cfg, accountId);
-      let clientId = resolved.oauthClientId;
-      let clientSecret = resolved.oauthClientSecret;
-
-      if (!clientId) {
-        await prompter.note(
-          "You'll need a Basecamp OAuth app. Register one at:\nhttps://launchpad.37signals.com/integrations",
-          "OAuth setup",
-        );
-        const enteredId = await prompter.text({
-          message: "Enter your Basecamp OAuth app Client ID",
-          validate: (value) => (value?.trim() ? undefined : "Required"),
-        });
-        clientId = String(enteredId).trim();
-        promptedClientId = clientId;
-
-        const enteredSecret = await prompter.text({
-          message: "Client Secret (leave blank to skip)",
-        });
-        const secretVal = String(enteredSecret).trim();
-        if (secretVal) {
-          clientSecret = secretVal;
-          promptedClientSecret = secretVal;
-        }
-      }
-
-      const { interactiveLogin, resolveTokenFilePath } = await import("../oauth-credentials.js");
-      oauthTokenFile = resolveTokenFilePath(accountId);
-      const partialAccount = {
-        ...resolved,
-        accountId,
-        oauthClientId: clientId,
-        oauthClientSecret: clientSecret,
-        config: { ...resolved.config, oauthTokenFile },
-      };
-      const oauthToken = await interactiveLogin(partialAccount, { clientId, clientSecret });
-
-      // Verify OAuth identity matches CLI-discovered identity
-      try {
-        const { discoverIdentity } = await import("@37signals/basecamp/oauth");
-        const oauthInfo = await discoverIdentity(oauthToken.accessToken);
-        const oauthPersonId = String(oauthInfo.identity.id);
-        if (oauthPersonId !== personId) {
-          personId = oauthPersonId;
-          accountPatch.personId = personId;
-        }
-      } catch {
-        // Non-fatal: proceed with CLI-discovered identity
-      }
-    }
-
-    accountPatch.oauthTokenFile = oauthTokenFile;
+    if (oauthTokenFile) accountPatch.oauthTokenFile = oauthTokenFile;
     if (selectedProfile) accountPatch.cliProfile = selectedProfile;
-    // When credentials were freshly prompted and written to channel-level oauth,
-    // remove per-account overrides so the account inherits from channel-level.
-    // Otherwise preserve per-account oauthClientId/oauthClientSecret — the
-    // TokenManager reads these for token refresh.
+    // When credentials were freshly prompted (OAuth path) and written to
+    // channel-level oauth, remove per-account overrides so the account
+    // inherits from channel-level.
     if (promptedClientId) {
       delete accountPatch.oauthClientId;
       delete accountPatch.oauthClientSecret;
+    }
+    // CLI-imported client creds go per-account to avoid overwriting
+    // channel-level OAuth that other accounts depend on.
+    if (cliImportedClientId) {
+      accountPatch.oauthClientId = cliImportedClientId;
+      accountPatch.oauthClientSecret = cliImportedClientSecret;
     }
 
     // Build channel-level OAuth config when credentials were prompted

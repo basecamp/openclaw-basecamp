@@ -1,13 +1,10 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { dispatchBasecampEvent } from "../src/dispatch.js";
-import type {
-  BasecampInboundMessage,
-  ResolvedBasecampAccount,
-} from "../src/types.js";
-import { getBasecampRuntime } from "../src/runtime.js";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resolvePersonaAccountId } from "../src/config.js";
-import { postReplyToEvent } from "../src/outbound/send.js";
+import { dispatchBasecampEvent } from "../src/dispatch.js";
 import { markdownToBasecampHtml } from "../src/outbound/format.js";
+import { postReplyToEvent } from "../src/outbound/send.js";
+import { getBasecampRuntime } from "../src/runtime.js";
+import type { BasecampInboundMessage, ResolvedBasecampAccount } from "../src/types.js";
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -95,9 +92,7 @@ beforeEach(() => {
     matchedBy: "peer",
     sessionKey: "session:abc",
   });
-  mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mockResolvedValue(
-    undefined,
-  );
+  mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mockResolvedValue(undefined);
   vi.mocked(postReplyToEvent).mockResolvedValue({ ok: true });
 });
 
@@ -109,9 +104,7 @@ describe("dispatch outbound reliability", () => {
   it("deliver callback calls postReplyToEvent with retries: 2", async () => {
     await dispatchBasecampEvent(mockMsg, { account: mockAccount });
 
-    const call =
-      mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock
-        .calls[0][0];
+    const call = mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock.calls[0][0];
     const deliver = call.dispatcherOptions.deliver;
 
     await deliver({ text: "Agent reply" }, {});
@@ -132,9 +125,7 @@ describe("dispatch outbound reliability", () => {
 
     await dispatchBasecampEvent(mockMsg, { account: mockAccount, log });
 
-    const call =
-      mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock
-        .calls[0][0];
+    const call = mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock.calls[0][0];
     const onError = call.dispatcherOptions.onError;
 
     onError(new Error("ETIMEDOUT connecting to host"));
@@ -157,9 +148,7 @@ describe("dispatch outbound reliability", () => {
 
     await dispatchBasecampEvent(mockMsg, { account: mockAccount, log });
 
-    const call =
-      mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock
-        .calls[0][0];
+    const call = mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock.calls[0][0];
     call.dispatcherOptions.onError(new Error("401 Unauthorized"));
 
     expect(logError.mock.calls[0][0]).toContain('"type":"auth"');
@@ -171,9 +160,7 @@ describe("dispatch outbound reliability", () => {
 
     await dispatchBasecampEvent(mockMsg, { account: mockAccount, log });
 
-    const call =
-      mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock
-        .calls[0][0];
+    const call = mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock.calls[0][0];
     call.dispatcherOptions.onError(new Error("something unexpected"));
 
     expect(logError.mock.calls[0][0]).toContain('"type":"unknown"');
@@ -186,9 +173,7 @@ describe("dispatch outbound reliability", () => {
     await dispatchBasecampEvent(mockMsg, { account: mockAccount, log });
 
     // The delivery log should be the last info call
-    const deliveryLog = logInfo.mock.calls.find((c: string[]) =>
-      c[0].includes("delivered"),
-    );
+    const deliveryLog = logInfo.mock.calls.find((c: string[]) => c[0].includes("delivered"));
     expect(deliveryLog).toBeDefined();
     expect(deliveryLog![0]).toContain('"agent":"agent-1"');
     expect(deliveryLog![0]).toContain('"event":"created"');
@@ -209,8 +194,8 @@ describe("dispatch outbound reliability", () => {
 
     await dispatchBasecampEvent(mockMsg, { account: mockAccount, log });
 
-    const deliveryLog = logInfo.mock.calls.find((c: string[]) =>
-      c[0].includes("delivered") && !c[0].includes("delivery_failed"),
+    const deliveryLog = logInfo.mock.calls.find(
+      (c: string[]) => c[0].includes("delivered") && !c[0].includes("delivery_failed"),
     );
     expect(deliveryLog).toBeUndefined();
     expect(logError).toHaveBeenCalled();
@@ -225,9 +210,7 @@ describe("dispatch outbound reliability", () => {
 
     await dispatchBasecampEvent(mockMsg, { account: mockAccount });
 
-    const call =
-      mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock
-        .calls[0][0];
+    const call = mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock.calls[0][0];
     const deliver = call.dispatcherOptions.deliver;
 
     await expect(deliver({ text: "Reply" }, {})).rejects.toThrow("403 Forbidden");
@@ -236,9 +219,7 @@ describe("dispatch outbound reliability", () => {
   it("chunks long text and sends multiple postReplyToEvent calls", async () => {
     await dispatchBasecampEvent(mockMsg, { account: mockAccount });
 
-    const call =
-      mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock
-        .calls[0][0];
+    const call = mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock.calls[0][0];
     const deliver = call.dispatcherOptions.deliver;
 
     // Generate text with sentence breaks that exceeds the 10K chunk limit.
@@ -263,9 +244,7 @@ describe("dispatch outbound reliability", () => {
   it("sends single postReplyToEvent call for text under chunk limit", async () => {
     await dispatchBasecampEvent(mockMsg, { account: mockAccount });
 
-    const call =
-      mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock
-        .calls[0][0];
+    const call = mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock.calls[0][0];
     const deliver = call.dispatcherOptions.deliver;
 
     await deliver({ text: "Short reply" }, {});
@@ -284,9 +263,7 @@ describe("dispatch outbound reliability", () => {
 
     await dispatchBasecampEvent(mockMsg, { account: mockAccount });
 
-    const call =
-      mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock
-        .calls[0][0];
+    const call = mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock.calls[0][0];
     const deliver = call.dispatcherOptions.deliver;
 
     // ~35K chars with sentence breaks → 3+ chunks
@@ -311,9 +288,7 @@ describe("dispatch outbound reliability", () => {
 
     await dispatchBasecampEvent(childMsg, { account: mockAccount });
 
-    const call =
-      mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock
-        .calls[0][0];
+    const call = mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock.calls[0][0];
     const deliver = call.dispatcherOptions.deliver;
     await deliver({ text: "Reply to thread" }, {});
 
@@ -330,9 +305,7 @@ describe("dispatch outbound reliability", () => {
 
     await dispatchBasecampEvent(mockMsg, { account: mockAccount });
 
-    const call =
-      mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock
-        .calls[0][0];
+    const call = mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock.calls[0][0];
     const deliver = call.dispatcherOptions.deliver;
     await deliver({ text: "CB test" }, {});
 
@@ -352,8 +325,7 @@ describe("dispatch outbound reliability", () => {
     await dispatchBasecampEvent(mockMsg, { account: mockAccount });
     await dispatchBasecampEvent(mockMsg, { account: mockAccount });
 
-    const calls =
-      mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock.calls;
+    const calls = mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock.calls;
     const deliver1 = calls[0][0].dispatcherOptions.deliver;
     const deliver2 = calls[1][0].dispatcherOptions.deliver;
     await deliver1({ text: "First" }, {});

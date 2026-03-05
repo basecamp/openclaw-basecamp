@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 vi.mock("openclaw/plugin-sdk", () => ({
   DEFAULT_ACCOUNT_ID: "default",
@@ -114,12 +114,8 @@ describe("security.collectWarnings", () => {
       }),
       account: stubAccount,
     });
-    expect(warnings).toContainEqual(
-      expect.stringContaining("agent-1"),
-    );
-    expect(warnings).toContainEqual(
-      expect.stringContaining("missing"),
-    );
+    expect(warnings).toContainEqual(expect.stringContaining("agent-1"));
+    expect(warnings).toContainEqual(expect.stringContaining("missing"));
   });
 
   it("does not warn on persona referencing existing account", async () => {
@@ -142,12 +138,8 @@ describe("security.collectWarnings", () => {
       }),
       account: stubAccount,
     });
-    expect(warnings).toContainEqual(
-      expect.stringContaining("project-x"),
-    );
-    expect(warnings).toContainEqual(
-      expect.stringContaining("ghost"),
-    );
+    expect(warnings).toContainEqual(expect.stringContaining("project-x"));
+    expect(warnings).toContainEqual(expect.stringContaining("ghost"));
   });
 
   it("warns on duplicate personId across accounts", async () => {
@@ -160,15 +152,9 @@ describe("security.collectWarnings", () => {
       }),
       account: stubAccount,
     });
-    expect(warnings).toContainEqual(
-      expect.stringContaining("Person ID 42"),
-    );
-    expect(warnings).toContainEqual(
-      expect.stringContaining("alpha"),
-    );
-    expect(warnings).toContainEqual(
-      expect.stringContaining("beta"),
-    );
+    expect(warnings).toContainEqual(expect.stringContaining("Person ID 42"));
+    expect(warnings).toContainEqual(expect.stringContaining("alpha"));
+    expect(warnings).toContainEqual(expect.stringContaining("beta"));
   });
 
   it("warns on account with no auth configured", async () => {
@@ -180,12 +166,8 @@ describe("security.collectWarnings", () => {
       }),
       account: stubAccount,
     });
-    expect(warnings).toContainEqual(
-      expect.stringContaining("broken"),
-    );
-    expect(warnings).toContainEqual(
-      expect.stringContaining("no token"),
-    );
+    expect(warnings).toContainEqual(expect.stringContaining("broken"));
+    expect(warnings).toContainEqual(expect.stringContaining("no token"));
   });
 
   it("warns on account with only cliProfile (no runtime auth)", async () => {
@@ -222,9 +204,7 @@ describe("security.collectWarnings", () => {
       }),
       account: stubAccount,
     });
-    expect(warnings).toContainEqual(
-      expect.stringContaining("not-a-number"),
-    );
+    expect(warnings).toContainEqual(expect.stringContaining("not-a-number"));
     // Only one bad entry
     const formatWarnings = warnings.filter((w) => w.includes("does not look like"));
     expect(formatWarnings).toHaveLength(1);

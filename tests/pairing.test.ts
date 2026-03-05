@@ -3,7 +3,7 @@
  *
  * Validates allowlist entry normalization and approval notification.
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("openclaw/plugin-sdk", () => ({
   DEFAULT_ACCOUNT_ID: "default",
@@ -97,9 +97,7 @@ describe("basecampPairingAdapter", () => {
       mockClient.raw.POST.mockRejectedValue(new Error("network error"));
 
       // Should not throw
-      await expect(
-        basecampPairingAdapter.notifyApproval!({ cfg: {} as any, id: "42" }),
-      ).resolves.toBeUndefined();
+      await expect(basecampPairingAdapter.notifyApproval!({ cfg: {} as any, id: "42" })).resolves.toBeUndefined();
     });
   });
 });

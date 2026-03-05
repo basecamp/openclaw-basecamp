@@ -14,9 +14,7 @@
 /** Basecamp's per-message character limit. Shared by channel config and dispatch. */
 export const BASECAMP_TEXT_CHUNK_LIMIT = 10_000;
 
-export type ResolveTargetResult =
-  | { ok: true; to: string }
-  | { ok: false; error: string };
+export type ResolveTargetResult = { ok: true; to: string } | { ok: false; error: string };
 
 /**
  * Validate an outbound target for direct sendText delivery.
@@ -36,7 +34,8 @@ export function resolveOutboundTarget(to: string): ResolveTargetResult {
   if (/^(recording|ping):\d+$/.test(to)) {
     return {
       ok: false,
-      error: `Basecamp target "${to}" requires bucket context for delivery. ` +
+      error:
+        `Basecamp target "${to}" requires bucket context for delivery. ` +
         `Direct sendText is not supported — agent replies use the dispatch bridge`,
     };
   }

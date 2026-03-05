@@ -6,14 +6,10 @@
  * account hasn't "read" yet.
  */
 
-import type {
-  BasecampInboundMessage,
-  BasecampReadingsEntry,
-  ResolvedBasecampAccount,
-} from "../types.js";
-import type { CircuitBreaker } from "../circuit-breaker.js";
 import { getClient, rawOrThrow } from "../basecamp-client.js";
+import type { CircuitBreaker } from "../circuit-breaker.js";
 import { withCircuitBreaker } from "../retry.js";
+import type { BasecampInboundMessage, BasecampReadingsEntry, ResolvedBasecampAccount } from "../types.js";
 import { normalizeReadingsEvent } from "./normalize.js";
 
 export interface ReadingsPollResult {
@@ -41,9 +37,7 @@ export interface ReadingsPollerOptions {
 /**
  * Poll Hey! Readings for unread items.
  */
-export async function pollReadings(
-  opts: ReadingsPollerOptions,
-): Promise<ReadingsPollResult> {
+export async function pollReadings(opts: ReadingsPollerOptions): Promise<ReadingsPollResult> {
   const { account, since, log } = opts;
 
   log?.debug?.(`[${account.accountId}] polling readings via SDK`);
@@ -98,9 +92,7 @@ export async function pollReadings(
       if (!normalized) continue;
       events.push(normalized);
     } catch (err) {
-      log?.warn?.(
-        `[${account.accountId}] failed to normalize reading id=${raw.id}: ${String(err)}`,
-      );
+      log?.warn?.(`[${account.accountId}] failed to normalize reading id=${raw.id}: ${String(err)}`);
     }
   }
 

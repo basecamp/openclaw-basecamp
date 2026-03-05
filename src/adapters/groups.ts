@@ -6,7 +6,7 @@
  */
 
 import type { ChannelGroupAdapter, ChannelGroupContext } from "openclaw/plugin-sdk";
-import type { BasecampChannelConfig, BasecampBucketConfig } from "../types.js";
+import type { BasecampBucketConfig, BasecampChannelConfig } from "../types.js";
 
 function getBasecampSection(cfg: Record<string, unknown>): BasecampChannelConfig | undefined {
   const channels = cfg.channels as Record<string, unknown> | undefined;

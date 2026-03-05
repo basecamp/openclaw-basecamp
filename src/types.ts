@@ -38,21 +38,10 @@ export type BasecampRecordableType =
  *   conversation — chat lines, comments in bound surfaces (not addressed)
  *   activity     — general project activity (card moves, todo completions…)
  */
-export type BasecampEngagementType =
-  | "dm"
-  | "mention"
-  | "assignment"
-  | "checkin"
-  | "conversation"
-  | "activity";
+export type BasecampEngagementType = "dm" | "mention" | "assignment" | "checkin" | "conversation" | "activity";
 
 /** Default engagement types that trigger agent response. */
-export const DEFAULT_ENGAGE: BasecampEngagementType[] = [
-  "dm",
-  "mention",
-  "assignment",
-  "checkin",
-];
+export const DEFAULT_ENGAGE: BasecampEngagementType[] = ["dm", "mention", "assignment", "checkin"];
 
 /** Event kinds emitted by the composite event fabric. */
 export type BasecampEventKind =
@@ -524,8 +513,6 @@ export type BasecampChannelConfig = {
   safetyNet?: {
     projects?: string[];
     intervalMs?: number;
-    /** @deprecated Accepted but ignored. Frequency escalation deferred. */
-    tier2?: unknown;
   };
   /** Reconciliation pass config. */
   reconciliation?: {
@@ -608,12 +595,6 @@ export type BasecampPollingCursors = {
 // Column → state mapping
 // ---------------------------------------------------------------------------
 
-export type BasecampWorkState =
-  | "INBOX"
-  | "WORKING"
-  | "PROPOSED"
-  | "APPROVED"
-  | "EXECUTED"
-  | "CLOSED";
+export type BasecampWorkState = "INBOX" | "WORKING" | "PROPOSED" | "APPROVED" | "EXECUTED" | "CLOSED";
 
 export type ColumnStateMap = Record<string, Record<string, BasecampWorkState>>;

@@ -1,9 +1,6 @@
-import { describe, it, expect, vi } from "vitest";
-import {
-  resolveOutboundTarget,
-  chunkMarkdownText,
-} from "../src/adapters/outbound.js";
-import { sendBasecampText, sendBasecampMedia } from "../src/outbound/send.js";
+import { describe, expect, it, vi } from "vitest";
+import { chunkMarkdownText, resolveOutboundTarget } from "../src/adapters/outbound.js";
+import { sendBasecampMedia, sendBasecampText } from "../src/outbound/send.js";
 
 // --- Mocks required to import channel.ts without pulling in heavy deps ---
 vi.mock("openclaw/plugin-sdk", () => ({
@@ -22,7 +19,10 @@ vi.mock("../src/basecamp-client.js", () => ({
   rawOrThrow: vi.fn(async (result: any) => result?.data),
   BasecampError: class BasecampError extends Error {
     code: string;
-    constructor(msg: string, code: string) { super(msg); this.code = code; }
+    constructor(msg: string, code: string) {
+      super(msg);
+      this.code = code;
+    }
   },
   clearClients: vi.fn(),
 }));
@@ -174,9 +174,7 @@ describe("outbound.chunkMarkdownText", () => {
 
 describe("outbound.sendBasecampText", () => {
   it("throws with diagnostic message for any target", async () => {
-    await expect(
-      sendBasecampText({ to: "recording:123", text: "hello" }),
-    ).rejects.toThrow("dispatch bridge");
+    await expect(sendBasecampText({ to: "recording:123", text: "hello" })).rejects.toThrow("dispatch bridge");
   });
 });
 

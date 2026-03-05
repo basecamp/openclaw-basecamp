@@ -19,14 +19,8 @@ export type SdkLog = {
   debug?: (msg: string) => void;
 };
 
-function formatMessage(
-  prefix: string,
-  event: string,
-  detail?: Record<string, unknown>,
-): string {
-  return detail
-    ? `${prefix} ${event} ${JSON.stringify(detail)}`
-    : `${prefix} ${event}`;
+function formatMessage(prefix: string, event: string, detail?: Record<string, unknown>): string {
+  return detail ? `${prefix} ${event} ${JSON.stringify(detail)}` : `${prefix} ${event}`;
 }
 
 /**
@@ -58,9 +52,7 @@ export function createStructuredLog(
  * Create a structured logger that delegates to console methods.
  * Useful in contexts where the SDK log object is not available (e.g. webhook handlers).
  */
-export function createConsoleStructuredLog(
-  context: { accountId: string; source: string },
-): StructuredLog {
+export function createConsoleStructuredLog(context: { accountId: string; source: string }): StructuredLog {
   const prefix = `[basecamp:${context.source}:${context.accountId}]`;
   return {
     info(event, detail) {
