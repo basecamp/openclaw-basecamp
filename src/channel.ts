@@ -37,6 +37,7 @@ import { resolveOutboundTarget, chunkMarkdownText, BASECAMP_TEXT_CHUNK_LIMIT } f
 import { basecampMentionAdapter } from "./adapters/mentions.js";
 import { basecampActionsAdapter } from "./adapters/actions.js";
 import { basecampAgentTools } from "./adapters/agent-tools.js";
+import { clearClients } from "./basecamp-client.js";
 import { flushWebhookSecrets, getWebhookSecretRegistry } from "./inbound/webhooks.js";
 import { closeAccountDedup } from "./inbound/dedup-registry.js";
 import { resolvePluginStateDir } from "./inbound/state-dir.js";
@@ -243,6 +244,13 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
       if (configJson !== lastValidatedConfigJson) {
         lastValidatedConfigJson = configJson;
         if (startupSection?.personas) {
+          // Warn about persona limitation with agent tools
+          if (Object.keys(startupSection.personas).length > 0) {
+            ctx.log?.warn(
+              "Agent tools execute under the default account; " +
+              "persona-mapped accounts are not yet supported for tool calls",
+            );
+          }
           for (const [agentId, targetAccountId] of Object.entries(startupSection.personas)) {
             const targetAccounts = startupSection.accounts ?? {};
             if (!targetAccounts[targetAccountId]) {
@@ -468,7 +476,32 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
       }
     },
     logoutAccount: async ({ accountId, cfg }) => {
-      return { cleared: false, loggedOut: false };
+      const account = resolveBasecampAccount(cfg, accountId);
+
+      // Delete OAuth token file if it exists
+      let cleared = false;
+      const tokenFilePath = account.config.oauthTokenFile;
+      if (tokenFilePath) {
+        try {
+          const { unlink } = await import("node:fs/promises");
+          await unlink(tokenFilePath);
+          cleared = true;
+        } catch (err: any) {
+          if (err?.code !== "ENOENT") throw err;
+          // File already gone — still counts as cleared
+          cleared = true;
+        }
+      }
+
+      // Evict cached TokenManagers and SDK clients
+      const { clearTokenManagers } = await import("./oauth-credentials.js");
+      clearTokenManagers();
+      clearClients();
+
+      // Close account dedup DB
+      closeAccountDedup(accountId);
+
+      return { cleared, loggedOut: cleared };
     },
   },
 };

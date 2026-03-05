@@ -29,6 +29,11 @@ vi.mock("../src/config.js", () => ({
 
 vi.mock("../src/oauth-credentials.js", () => ({
   createTokenManager: vi.fn(),
+  clearTokenManagers: vi.fn(),
+}));
+
+vi.mock("../src/basecamp-client.js", () => ({
+  clearClients: vi.fn(),
 }));
 
 vi.mock("../src/runtime.js", () => ({
@@ -96,15 +101,22 @@ vi.mock("../src/util.js", () => ({
   withTimeout: vi.fn((p) => p),
 }));
 
+const mockUnlink = vi.fn();
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs/promises")>();
+  return { ...actual, unlink: mockUnlink };
+});
+
 import { basecampChannel, _resetValidationState } from "../src/channel.js";
-import { resolveBasecampAccountAsync, resolveWebhooksConfig, scopeWebhookProjects } from "../src/config.js";
+import { resolveBasecampAccount, resolveBasecampAccountAsync, resolveWebhooksConfig, scopeWebhookProjects } from "../src/config.js";
 import { bcqAuthStatus } from "../src/bcq.js";
 import { startCompositePoller } from "../src/inbound/poller.js";
 import { reconcileWebhooks, deactivateWebhooks } from "../src/inbound/webhook-lifecycle.js";
 import { dispatchBasecampEvent } from "../src/dispatch.js";
 import { closeAccountDedup } from "../src/inbound/dedup-registry.js";
 import { flushWebhookSecrets } from "../src/inbound/webhooks.js";
-import { createTokenManager } from "../src/oauth-credentials.js";
+import { createTokenManager, clearTokenManagers } from "../src/oauth-credentials.js";
+import { clearClients } from "../src/basecamp-client.js";
 
 function makeCtx(cfg: any, accountId = "test") {
   return {
@@ -399,12 +411,53 @@ describe("phase 15: finally block", () => {
 // ---------------------------------------------------------------------------
 
 describe("logoutAccount", () => {
-  it("returns { cleared: false, loggedOut: false }", async () => {
+  it("deletes token file, evicts caches, and closes dedup", async () => {
+    mockUnlink.mockResolvedValue(undefined);
+    vi.mocked(resolveBasecampAccount).mockReturnValue(
+      makeAccount({ config: { personId: "42", oauthTokenFile: "/tmp/token.json" } }) as any,
+    );
+
+    const result = await basecampChannel.gateway!.logoutAccount!({
+      accountId: "test",
+      cfg: {},
+    } as any);
+
+    expect(result).toEqual({ cleared: true, loggedOut: true });
+    expect(mockUnlink).toHaveBeenCalledWith("/tmp/token.json");
+    expect(clearTokenManagers).toHaveBeenCalled();
+    expect(clearClients).toHaveBeenCalled();
+    expect(closeAccountDedup).toHaveBeenCalledWith("test");
+  });
+
+  it("returns cleared=true when token file already gone (ENOENT)", async () => {
+    mockUnlink.mockRejectedValue(
+      Object.assign(new Error("ENOENT"), { code: "ENOENT" }),
+    );
+    vi.mocked(resolveBasecampAccount).mockReturnValue(
+      makeAccount({ config: { personId: "42", oauthTokenFile: "/tmp/gone.json" } }) as any,
+    );
+
+    const result = await basecampChannel.gateway!.logoutAccount!({
+      accountId: "test",
+      cfg: {},
+    } as any);
+
+    expect(result).toEqual({ cleared: true, loggedOut: true });
+  });
+
+  it("returns cleared=false when no oauthTokenFile configured", async () => {
+    vi.mocked(resolveBasecampAccount).mockReturnValue(
+      makeAccount({ config: { personId: "42" } }) as any,
+    );
+
     const result = await basecampChannel.gateway!.logoutAccount!({
       accountId: "test",
       cfg: {},
     } as any);
 
     expect(result).toEqual({ cleared: false, loggedOut: false });
+    expect(clearTokenManagers).toHaveBeenCalled();
+    expect(clearClients).toHaveBeenCalled();
+    expect(closeAccountDedup).toHaveBeenCalledWith("test");
   });
 });
