@@ -30,6 +30,69 @@ const channel = "basecamp" as const;
 // Helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * Run the interactive OAuth login flow, prompting for client credentials if
+ * none are available. Used by both the primary OAuth path and the CLI
+ * fallback when credential import fails.
+ */
+async function runOAuthLogin(params: { cfg: OpenClawConfig; accountId: string; prompter: any }): Promise<{
+  accessToken: string;
+  oauthTokenFile: string;
+  promptedClientId?: string;
+  promptedClientSecret?: string;
+}> {
+  const { cfg, accountId, prompter } = params;
+  const resolved = resolveBasecampAccount(cfg, accountId);
+  let clientId = resolved.oauthClientId;
+  let clientSecret = resolved.oauthClientSecret;
+  let promptedClientId: string | undefined;
+  let promptedClientSecret: string | undefined;
+
+  if (!clientId) {
+    await prompter.note(
+      "You'll need a Basecamp OAuth app. Register one at:\n" +
+        "https://launchpad.37signals.com/integrations\n\n" +
+        "When creating the app, set the redirect URI to:\n" +
+        "http://localhost:14923/callback\n\n" +
+        "You can leave the other fields as defaults.",
+      "OAuth setup",
+    );
+    const enteredId = await prompter.text({
+      message: "Enter your Basecamp OAuth app Client ID",
+      validate: (value: string) => (value?.trim() ? undefined : "Required"),
+    });
+    clientId = String(enteredId).trim();
+    promptedClientId = clientId;
+
+    const enteredSecret = await prompter.text({
+      message: "Client Secret (leave blank to skip)",
+    });
+    const secretVal = String(enteredSecret).trim();
+    if (secretVal) {
+      clientSecret = secretVal;
+      promptedClientSecret = secretVal;
+    }
+  }
+
+  const { interactiveLogin, resolveTokenFilePath } = await import("../oauth-credentials.js");
+  const oauthTokenFile = resolveTokenFilePath(accountId);
+  const partialAccount = {
+    ...resolved,
+    accountId,
+    oauthClientId: clientId,
+    oauthClientSecret: clientSecret,
+    config: { ...resolved.config, oauthTokenFile },
+  };
+  const token = await interactiveLogin(partialAccount, { clientId, clientSecret });
+
+  return {
+    accessToken: token.accessToken,
+    oauthTokenFile,
+    promptedClientId,
+    promptedClientSecret,
+  };
+}
+
 function getBasecampSection(cfg: OpenClawConfig): BasecampChannelConfig | undefined {
   return cfg.channels?.basecamp as BasecampChannelConfig | undefined;
 }
@@ -156,51 +219,11 @@ export const basecampOnboardingAdapter: ChannelOnboardingAdapter = {
     let cliImportedClientSecret: string | undefined;
 
     if (authMethod === "oauth") {
-      // Resolve clientId: check resolved account's oauthClientId (falls through to channel-level)
-      const resolved = resolveBasecampAccount(cfg, accountId);
-      let clientId = resolved.oauthClientId;
-      let clientSecret = resolved.oauthClientSecret;
-
-      if (!clientId) {
-        await prompter.note(
-          "You'll need a Basecamp OAuth app. Register one at:\n" +
-            "https://launchpad.37signals.com/integrations\n\n" +
-            "When creating the app, set the redirect URI to:\n" +
-            "http://localhost:14923/callback\n\n" +
-            "You can leave the other fields as defaults.",
-          "OAuth setup",
-        );
-        const enteredId = await prompter.text({
-          message: "Enter your Basecamp OAuth app Client ID",
-          validate: (value) => (value?.trim() ? undefined : "Required"),
-        });
-        clientId = String(enteredId).trim();
-        promptedClientId = clientId;
-
-        const enteredSecret = await prompter.text({
-          message: "Client Secret (leave blank to skip)",
-        });
-        const secretVal = String(enteredSecret).trim();
-        if (secretVal) {
-          clientSecret = secretVal;
-          promptedClientSecret = secretVal;
-        }
-      }
-
-      // Run interactive login
-      const { interactiveLogin, resolveTokenFilePath } = await import("../oauth-credentials.js");
-      oauthTokenFile = resolveTokenFilePath(accountId);
-      const partialAccount = {
-        ...resolved,
-        accountId,
-        oauthClientId: clientId,
-        oauthClientSecret: clientSecret,
-        config: { ...resolved.config, oauthTokenFile },
-      };
-      const token = await interactiveLogin(partialAccount, { clientId, clientSecret });
-      accessToken = token.accessToken;
-
-      // Build a token provider for later use if needed
+      const oauthResult = await runOAuthLogin({ cfg, accountId, prompter });
+      accessToken = oauthResult.accessToken;
+      oauthTokenFile = oauthResult.oauthTokenFile;
+      promptedClientId = oauthResult.promptedClientId;
+      promptedClientSecret = oauthResult.promptedClientSecret;
     } else {
       // CLI path — import credentials from existing CLI profile
       let selectedCliProfile: CliProfile | undefined;
@@ -251,6 +274,17 @@ export const basecampOnboardingAdapter: ChannelOnboardingAdapter = {
           cliImportedClientSecret = cliCreds.clientSecret || undefined;
         }
       }
+    }
+
+    // CLI path: if credential import failed, fall back to browser OAuth.
+    // Must run before identity discovery so the OAuth token is available.
+    if (authMethod === "cli" && !oauthTokenFile) {
+      await prompter.note("Could not import CLI credentials. Falling back to browser OAuth.", "Note");
+      const oauthResult = await runOAuthLogin({ cfg, accountId, prompter });
+      accessToken = oauthResult.accessToken;
+      oauthTokenFile = oauthResult.oauthTokenFile;
+      promptedClientId = oauthResult.promptedClientId;
+      promptedClientSecret = oauthResult.promptedClientSecret;
     }
 
     // Step 4: Discover identity
@@ -314,15 +348,6 @@ export const basecampOnboardingAdapter: ChannelOnboardingAdapter = {
       enabled: true,
       ...(basecampAccountId ? { basecampAccountId } : {}),
     };
-
-    // CLI path: if credential import failed above, fall back to noting the gap
-    if (authMethod === "cli" && !oauthTokenFile) {
-      await prompter.note(
-        "Could not import credentials from the CLI.\n" +
-          "Token refresh will not work until you re-run onboarding with OAuth.",
-        "Warning",
-      );
-    }
 
     if (oauthTokenFile) accountPatch.oauthTokenFile = oauthTokenFile;
     if (selectedProfile) accountPatch.cliProfile = selectedProfile;

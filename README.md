@@ -6,7 +6,9 @@ OpenClaw channel plugin for Basecamp. Connects Campfire chats, card tables, to-d
 
 - [OpenClaw](https://openclaw.dev) (latest version)
 - Node.js >= 22.5 (required for `node:sqlite`)
-- A Basecamp account with OAuth app credentials (client ID + secret), registered at [launchpad.37signals.com/integrations](https://launchpad.37signals.com/integrations)
+- A Basecamp account plus either:
+  - An OAuth app you control (client ID + secret), registered at [launchpad.37signals.com/integrations](https://launchpad.37signals.com/integrations), or
+  - An authenticated Basecamp CLI profile with stored credentials that the onboarding wizard can import
 
 ## Installation
 
