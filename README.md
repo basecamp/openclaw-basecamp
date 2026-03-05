@@ -35,7 +35,7 @@ All configuration lives under `channels.basecamp` in your OpenClaw config file.
 |-----|------|-------------|
 | `enabled` | `boolean` | Enable or disable the channel |
 | `accounts` | `object` | Per-account auth config (personId, token/tokenFile, OAuth credentials) |
-| `personas` | `object` | Map agent IDs to Basecamp account IDs for multi-identity support |
+| `personas` | `object` | Map agent IDs to Basecamp account IDs for message routing (agent tools still execute under the default account) |
 | `dmPolicy` | `"pairing" \| "allowlist" \| "open" \| "disabled"` | How the agent handles Basecamp Pings (DMs). Default: `"pairing"` |
 | `allowFrom` | `string[]` | Global allowlist of Basecamp person IDs permitted to interact |
 | `engage` | `string[]` | Engagement types to respond to: `dm`, `mention`, `assignment`, `checkin`, `conversation`, `activity` |
