@@ -521,13 +521,25 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
         }
       }
 
-      // Evict cached TokenManager and SDK client for this account only
+      // Evict cached TokenManager and SDK client for this account and any
+      // virtual-account aliases that resolve to the same concrete account.
+      const resolvedId = account.accountId;
       const { clearTokenManagers } = await import("./oauth-credentials.js");
-      clearTokenManagers(accountId);
-      clearClients(accountId);
+      clearTokenManagers(resolvedId);
+      clearClients(resolvedId);
+      closeAccountDedup(resolvedId);
 
-      // Close account dedup DB
-      closeAccountDedup(accountId);
+      // Also evict virtual-account aliases pointing to this concrete account
+      const section = (cfg as any)?.channels?.basecamp as BasecampChannelConfig | undefined;
+      if (section?.virtualAccounts) {
+        for (const [alias, va] of Object.entries(section.virtualAccounts)) {
+          if (va.accountId === resolvedId) {
+            clearTokenManagers(alias);
+            clearClients(alias);
+            closeAccountDedup(alias);
+          }
+        }
+      }
 
       return { cleared, loggedOut: cleared };
     },

@@ -451,6 +451,57 @@ describe("logoutAccount", () => {
     expect(closeAccountDedup).toHaveBeenCalledWith("test");
   });
 
+  it("uses resolved account.accountId for cache eviction, not raw input", async () => {
+    vi.mocked(resolveBasecampAccount).mockReturnValue(
+      makeAccount({ accountId: "normalized", config: { personId: "42" } }) as any,
+    );
+
+    await basecampChannel.gateway!.logoutAccount!({
+      accountId: "  NORMALIZED  ",
+      cfg: {},
+    } as any);
+
+    // Should use the resolved "normalized", not the raw "  NORMALIZED  "
+    expect(clearTokenManagers).toHaveBeenCalledWith("normalized");
+    expect(clearClients).toHaveBeenCalledWith("normalized");
+    expect(closeAccountDedup).toHaveBeenCalledWith("normalized");
+  });
+
+  it("evicts virtual-account alias caches that point to the concrete account", async () => {
+    vi.mocked(resolveBasecampAccount).mockReturnValue(
+      makeAccount({ accountId: "main", config: { personId: "42" } }) as any,
+    );
+
+    const cfg = {
+      channels: {
+        basecamp: {
+          virtualAccounts: {
+            "project-a": { accountId: "main", bucketId: "111" },
+            "project-b": { accountId: "main", bucketId: "222" },
+            "project-c": { accountId: "other", bucketId: "333" },
+          },
+        },
+      },
+    };
+
+    await basecampChannel.gateway!.logoutAccount!({ accountId: "main", cfg } as any);
+
+    // Concrete account evicted
+    expect(clearTokenManagers).toHaveBeenCalledWith("main");
+    expect(clearClients).toHaveBeenCalledWith("main");
+    expect(closeAccountDedup).toHaveBeenCalledWith("main");
+    // Aliases pointing to "main" evicted
+    expect(clearTokenManagers).toHaveBeenCalledWith("project-a");
+    expect(clearClients).toHaveBeenCalledWith("project-a");
+    expect(closeAccountDedup).toHaveBeenCalledWith("project-a");
+    expect(clearTokenManagers).toHaveBeenCalledWith("project-b");
+    expect(clearClients).toHaveBeenCalledWith("project-b");
+    expect(closeAccountDedup).toHaveBeenCalledWith("project-b");
+    // Alias pointing to "other" NOT evicted
+    expect(clearTokenManagers).not.toHaveBeenCalledWith("project-c");
+    expect(clearClients).not.toHaveBeenCalledWith("project-c");
+  });
+
   it("returns cleared=true when token file already gone (ENOENT)", async () => {
     mockUnlink.mockRejectedValue(Object.assign(new Error("ENOENT"), { code: "ENOENT" }));
     vi.mocked(resolveBasecampAccount).mockReturnValue(
