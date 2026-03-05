@@ -521,10 +521,10 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
         }
       }
 
-      // Evict cached TokenManagers and SDK clients
+      // Evict cached TokenManager and SDK client for this account only
       const { clearTokenManagers } = await import("./oauth-credentials.js");
-      clearTokenManagers();
-      clearClients();
+      clearTokenManagers(accountId);
+      clearClients(accountId);
 
       // Close account dedup DB
       closeAccountDedup(accountId);

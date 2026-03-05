@@ -73,9 +73,13 @@ export function createTokenManager(account: ResolvedBasecampAccount): TokenManag
   return tm;
 }
 
-/** Clear all cached TokenManagers (for shutdown / tests). */
-export function clearTokenManagers(): void {
-  managerCache.clear();
+/** Clear cached TokenManagers. Pass accountId to evict one; omit to clear all (shutdown). */
+export function clearTokenManagers(accountId?: string): void {
+  if (accountId) {
+    managerCache.delete(accountId);
+  } else {
+    managerCache.clear();
+  }
 }
 
 // ---------------------------------------------------------------------------

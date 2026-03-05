@@ -42,9 +42,13 @@ export function getClient(account: ResolvedBasecampAccount): BasecampClient {
   return client;
 }
 
-/** Clear all cached clients (for shutdown). */
-export function clearClients(): void {
-  clientCache.clear();
+/** Clear cached clients. Pass accountId to evict one; omit to clear all (shutdown). */
+export function clearClients(accountId?: string): void {
+  if (accountId) {
+    clientCache.delete(accountId);
+  } else {
+    clientCache.clear();
+  }
 }
 
 // ---------------------------------------------------------------------------

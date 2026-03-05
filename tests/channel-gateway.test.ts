@@ -446,8 +446,8 @@ describe("logoutAccount", () => {
 
     expect(result).toEqual({ cleared: true, loggedOut: true });
     expect(mockUnlink).toHaveBeenCalledWith("/tmp/token.json");
-    expect(clearTokenManagers).toHaveBeenCalled();
-    expect(clearClients).toHaveBeenCalled();
+    expect(clearTokenManagers).toHaveBeenCalledWith("test");
+    expect(clearClients).toHaveBeenCalledWith("test");
     expect(closeAccountDedup).toHaveBeenCalledWith("test");
   });
 
@@ -474,8 +474,8 @@ describe("logoutAccount", () => {
     } as any);
 
     expect(result).toEqual({ cleared: false, loggedOut: false });
-    expect(clearTokenManagers).toHaveBeenCalled();
-    expect(clearClients).toHaveBeenCalled();
+    expect(clearTokenManagers).toHaveBeenCalledWith("test");
+    expect(clearClients).toHaveBeenCalledWith("test");
     expect(closeAccountDedup).toHaveBeenCalledWith("test");
   });
 });
