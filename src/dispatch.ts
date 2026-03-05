@@ -364,7 +364,7 @@ function classifyDispatchError(err: unknown): string {
   // SDK errors carry a structured code
   if (err instanceof BasecampError) {
     switch (err.code) {
-      case "auth":
+      case "auth_required":
       case "forbidden":
         return "auth";
       case "rate_limit":
