@@ -9,7 +9,7 @@
  *   { primary: { [key]: { seenAt, source } }, secondary: { [key]: primaryKey } }
  */
 
-import { readFileSync, writeFileSync, mkdirSync, renameSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 export interface DedupStoreEntry {
@@ -47,8 +47,12 @@ export class JsonFileDedupStore implements DedupStore {
       if (
         data &&
         typeof data === "object" &&
-        data.primary !== null && typeof data.primary === "object" && !Array.isArray(data.primary) &&
-        data.secondary !== null && typeof data.secondary === "object" && !Array.isArray(data.secondary)
+        data.primary !== null &&
+        typeof data.primary === "object" &&
+        !Array.isArray(data.primary) &&
+        data.secondary !== null &&
+        typeof data.secondary === "object" &&
+        !Array.isArray(data.secondary)
       ) {
         return data as DedupSnapshot;
       }

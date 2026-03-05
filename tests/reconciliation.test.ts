@@ -5,10 +5,11 @@
  * and promotion hysteresis logic (promote after 2 gap cycles, demote
  * after 3 clean cycles, TTL expiry, MAX_PROMOTIONS cap).
  */
-import { describe, it, expect, vi, beforeEach, afterEach, afterAll } from "vitest";
+
 import { mkdtempSync, rmSync } from "node:fs";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // State dir mock — EventDedup needs it for SQLite backend
 const testStateDir = mkdtempSync(join(tmpdir(), "rc-state-"));
@@ -16,13 +17,13 @@ vi.mock("../src/inbound/state-dir.js", () => ({
   resolvePluginStateDir: () => testStateDir,
 }));
 
+import { EventDedup } from "../src/inbound/dedup.js";
+import type { PromotionEntry, PromotionState } from "../src/inbound/reconciliation.js";
 import {
+  deserializePromotionState,
   runReconciliation,
   serializePromotionState,
-  deserializePromotionState,
 } from "../src/inbound/reconciliation.js";
-import type { PromotionState, PromotionEntry } from "../src/inbound/reconciliation.js";
-import { EventDedup } from "../src/inbound/dedup.js";
 import type { ResolvedBasecampAccount } from "../src/types.js";
 
 // ---------------------------------------------------------------------------
@@ -41,20 +42,13 @@ const account: ResolvedBasecampAccount = {
 function makeClient(events: any[] | Error = []) {
   return {
     reports: {
-      progress: events instanceof Error
-        ? vi.fn().mockRejectedValue(events)
-        : vi.fn().mockResolvedValue(events),
+      progress: events instanceof Error ? vi.fn().mockRejectedValue(events) : vi.fn().mockResolvedValue(events),
     },
   };
 }
 
 /** Build a Basecamp activity event with required fields. */
-function activityEvent(opts: {
-  id: number;
-  kind: string;
-  created_at?: string;
-  recordingId?: number;
-}) {
+function activityEvent(opts: { id: number; kind: string; created_at?: string; recordingId?: number }) {
   return {
     id: opts.id,
     kind: opts.kind,
@@ -147,9 +141,7 @@ describe("reconciliation", () => {
 
   it("events before 24h window skipped", async () => {
     const old = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString();
-    const client = makeClient([
-      activityEvent({ id: 1, kind: "todo_created", created_at: old }),
-    ]);
+    const client = makeClient([activityEvent({ id: 1, kind: "todo_created", created_at: old })]);
     const result = await runReconciliation({
       account,
       client,
@@ -161,9 +153,7 @@ describe("reconciliation", () => {
   });
 
   it("non-normalizable kinds skipped", async () => {
-    const client = makeClient([
-      activityEvent({ id: 1, kind: "unknown_weird_kind" }),
-    ]);
+    const client = makeClient([activityEvent({ id: 1, kind: "unknown_weird_kind" })]);
     const result = await runReconciliation({
       account,
       client,
@@ -206,12 +196,14 @@ describe("reconciliation", () => {
   // ---- Serialization ----
 
   it("serialization round-trip", () => {
-    const promotions: PromotionEntry[] = [{
-      type: "Todo",
-      promotedAt: Date.now(),
-      consecutiveGapCycles: 2,
-      consecutiveCleanCycles: 0,
-    }];
+    const promotions: PromotionEntry[] = [
+      {
+        type: "Todo",
+        promotedAt: Date.now(),
+        consecutiveGapCycles: 2,
+        consecutiveCleanCycles: 0,
+      },
+    ];
     const gaps = { Todo: 5 };
     const raw = serializePromotionState(promotions, gaps);
     const restored = deserializePromotionState(raw);
@@ -228,9 +220,7 @@ describe("reconciliation", () => {
 
   it("gaps below threshold → no promotion", async () => {
     // 1 gap < threshold of 3
-    const client = makeClient([
-      activityEvent({ id: 1, kind: "todo_created" }),
-    ]);
+    const client = makeClient([activityEvent({ id: 1, kind: "todo_created" })]);
     const result = await runReconciliation({
       account,
       client,
@@ -395,7 +385,7 @@ describe("reconciliation", () => {
       client,
       dedup,
       gapThreshold: 1,
-      promotionState: { promotions: existing, previousGaps: { "Kanban::Card": 5, "Todo": 5, "Question::Answer": 5 } },
+      promotionState: { promotions: existing, previousGaps: { "Kanban::Card": 5, Todo: 5, "Question::Answer": 5 } },
       log,
     });
     // All 3 retained, none added beyond 3

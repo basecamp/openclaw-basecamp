@@ -4,7 +4,7 @@
  * Validates the full dispatch gate pipeline: engagement classification,
  * per-bucket engage overrides, DM policy enforcement, and default behavior.
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { dispatchBasecampEvent } from "../../src/dispatch.js";
 import type { BasecampInboundMessage, ResolvedBasecampAccount } from "../../src/types.js";
 

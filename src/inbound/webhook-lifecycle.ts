@@ -9,10 +9,10 @@
  * so HMAC verification survives restarts.
  */
 
-import type { ResolvedBasecampAccount } from "../types.js";
 import { getClient, numId, rawOrThrow } from "../basecamp-client.js";
-import type { WebhookSecretRegistry } from "./webhook-secrets.js";
 import type { StructuredLog } from "../logging.js";
+import type { ResolvedBasecampAccount } from "../types.js";
+import type { WebhookSecretRegistry } from "./webhook-secrets.js";
 
 export interface WebhookLifecycleConfig {
   /** HTTPS URL where Basecamp sends webhook payloads. */
@@ -79,16 +79,14 @@ export async function reconcileWebhooks(
       let existing: WebhookRecord[] = [];
       try {
         const listResult = await client.webhooks.list(numId("project", projectId));
-        existing = Array.isArray(listResult) ? listResult as any : [];
+        existing = Array.isArray(listResult) ? (listResult as any) : [];
       } catch {
         // List failed — treat as empty (will attempt create)
         existing = [];
       }
 
       // Check if a webhook with our payloadUrl already exists
-      const urlMatch = existing.find(
-        (wh) => wh.payload_url === config.payloadUrl && wh.active,
-      );
+      const urlMatch = existing.find((wh) => wh.payload_url === config.payloadUrl && wh.active);
 
       if (urlMatch && typesMatch(urlMatch.types, config.types)) {
         log?.debug("webhook_exists", {
@@ -145,10 +143,7 @@ export async function reconcileWebhooks(
       }
 
       const webhook = await rawOrThrow<WebhookRecord>(
-        await client.raw.POST(
-          `/buckets/${projectId}/webhooks.json` as any,
-          { body: createBody as any },
-        ),
+        await client.raw.POST(`/buckets/${projectId}/webhooks.json` as any, { body: createBody as any }),
       );
 
       if (!webhook?.id) {

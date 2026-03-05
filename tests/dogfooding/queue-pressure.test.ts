@@ -4,8 +4,9 @@
  * Validates that the webhook handler drops events when the dispatch semaphore
  * is saturated, increments the correct metrics, and recovers after drain.
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // ---------------------------------------------------------------------------
 // Mocks — must be declared before imports that reference them
@@ -89,21 +90,22 @@ vi.mock("../../src/inbound/dedup-registry.js", () => {
       flush: vi.fn(),
       size: seen.size,
     })),
-    closeAccountDedup: vi.fn(() => { seen.clear(); }),
-    closeAllAccountDedup: vi.fn(() => { seen.clear(); }),
+    closeAccountDedup: vi.fn(() => {
+      seen.clear();
+    }),
+    closeAllAccountDedup: vi.fn(() => {
+      seen.clear();
+    }),
     flushAccountDedup: vi.fn(),
   };
 });
 
 import { mkdtempSync, rmSync } from "node:fs";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
-import {
-  Semaphore,
-  handleBasecampWebhook,
-} from "../../src/inbound/webhooks.js";
+import { join } from "node:path";
 import { closeAllAccountDedup } from "../../src/inbound/dedup-registry.js";
-import { getAccountMetrics, clearMetrics } from "../../src/metrics.js";
+import { handleBasecampWebhook, Semaphore } from "../../src/inbound/webhooks.js";
+import { clearMetrics, getAccountMetrics } from "../../src/metrics.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -127,8 +129,14 @@ function makeRes(): ServerResponse & { statusCode: number; body: string } {
   const res: any = {
     statusCode: 0,
     body: "",
-    writeHead(code: number) { res.statusCode = code; return res; },
-    end(data?: string) { res.body = data ?? ""; return res; },
+    writeHead(code: number) {
+      res.statusCode = code;
+      return res;
+    },
+    end(data?: string) {
+      res.body = data ?? "";
+      return res;
+    },
   };
   return res;
 }
@@ -165,9 +173,7 @@ describe("dogfooding — queue pressure", () => {
     // (10 active + 100 queued) before any handler finishes, then verify the
     // 111th webhook triggers queue_full. Each dispatch takes 200ms — long enough
     // for all 111 handlers to reach the semaphore before the first slot frees.
-    mockDispatch.mockImplementation(
-      () => new Promise<boolean>((r) => setTimeout(() => r(true), 200)),
-    );
+    mockDispatch.mockImplementation(() => new Promise<boolean>((r) => setTimeout(() => r(true), 200)));
 
     const handles: Promise<void>[] = [];
     for (let i = 0; i < 111; i++) {

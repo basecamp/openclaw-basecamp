@@ -1,9 +1,9 @@
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import { emptyPluginConfigSchema } from "openclaw/plugin-sdk";
 import { basecampChannel } from "./src/channel.js";
-import { setBasecampRuntime } from "./src/runtime.js";
-import { handleBasecampWebhook } from "./src/inbound/webhooks.js";
 import { getSurfacePrompt } from "./src/hooks/agent-prompt-context.js";
+import { handleBasecampWebhook } from "./src/inbound/webhooks.js";
+import { setBasecampRuntime } from "./src/runtime.js";
 
 const plugin: {
   id: string;

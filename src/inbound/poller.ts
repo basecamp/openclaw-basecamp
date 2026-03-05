@@ -17,27 +17,47 @@
  * backoff on errors (max 5 minutes).
  */
 
+import type { OpenClawConfig } from "openclaw/plugin-sdk";
+import { getClient, rawOrThrow } from "../basecamp-client.js";
+import { CircuitBreaker } from "../circuit-breaker.js";
+import {
+  listBasecampAccountIds,
+  resolveAccountForBucket,
+  resolveCircuitBreakerConfig,
+  resolvePollingIntervals,
+  resolveReconciliationConfig,
+  resolveSafetyNetConfig,
+} from "../config.js";
+import { createStructuredLog } from "../logging.js";
+import {
+  recordCircuitBreakerState,
+  recordDedupSize,
+  recordPollAttempt,
+  recordPollError,
+  recordPollSuccess,
+  recordReconciliationRun,
+} from "../metrics.js";
+import { withCircuitBreaker } from "../retry.js";
 import type { BasecampInboundMessage, ResolvedBasecampAccount } from "../types.js";
-import { resolvePollingIntervals, resolveCircuitBreakerConfig, resolveSafetyNetConfig, resolveReconciliationConfig, resolveAccountForBucket, listBasecampAccountIds } from "../config.js";
+import { withTimeout } from "../util.js";
+import { pollActivityFeed } from "./activity.js";
+import { pollAssignments } from "./assignments.js";
+import { CursorStore } from "./cursors.js";
 import { EventDedup } from "./dedup.js";
 import { getAccountDedup } from "./dedup-registry.js";
-import { resolvePluginStateDir } from "./state-dir.js";
-import { CursorStore } from "./cursors.js";
-import { pollActivityFeed } from "./activity.js";
-import { pollReadings } from "./readings.js";
-import { pollAssignments } from "./assignments.js";
-import { pollSafetyNet, deserializeSnapshot, serializeSnapshot, deserializePending, serializePending } from "./safety-net.js";
-import type { SafetyNetSnapshot, DisappearedPending } from "./safety-net.js";
-import { runReconciliation, deserializePromotionState, serializePromotionState } from "./reconciliation.js";
-import type { PromotionState } from "./reconciliation.js";
-import { CircuitBreaker } from "../circuit-breaker.js";
-import { getClient, rawOrThrow } from "../basecamp-client.js";
-import { withCircuitBreaker } from "../retry.js";
 import { isSelfMessage } from "./normalize.js";
-import { createStructuredLog } from "../logging.js";
-import { recordPollAttempt, recordPollSuccess, recordPollError, recordDedupSize, recordCircuitBreakerState, recordReconciliationRun } from "../metrics.js";
-import { withTimeout } from "../util.js";
-import type { OpenClawConfig } from "openclaw/plugin-sdk";
+import { pollReadings } from "./readings.js";
+import type { PromotionState } from "./reconciliation.js";
+import { deserializePromotionState, runReconciliation, serializePromotionState } from "./reconciliation.js";
+import type { DisappearedPending, SafetyNetSnapshot } from "./safety-net.js";
+import {
+  deserializePending,
+  deserializeSnapshot,
+  pollSafetyNet,
+  serializePending,
+  serializeSnapshot,
+} from "./safety-net.js";
+import { resolvePluginStateDir } from "./state-dir.js";
 
 export interface CompositePollerOptions {
   account: ResolvedBasecampAccount;
@@ -64,7 +84,14 @@ function abortableSleep(ms: number, signal?: AbortSignal): Promise<void> {
       return;
     }
     const timer = setTimeout(resolve, ms);
-    signal?.addEventListener("abort", () => { clearTimeout(timer); resolve(); }, { once: true });
+    signal?.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(timer);
+        resolve();
+      },
+      { once: true },
+    );
   });
 }
 
@@ -73,10 +100,7 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 /** Save cursors with one retry after 1s delay on failure. */
-async function saveCursorsWithRetry(
-  cursors: CursorStore,
-  slog: ReturnType<typeof createStructuredLog>,
-): Promise<void> {
+async function saveCursorsWithRetry(cursors: CursorStore, slog: ReturnType<typeof createStructuredLog>): Promise<void> {
   try {
     await cursors.save();
   } catch (err) {
@@ -93,9 +117,7 @@ async function saveCursorsWithRetry(
 /**
  * Start the composite poller. Long-running; resolves when abort fires.
  */
-export async function startCompositePoller(
-  opts: CompositePollerOptions,
-): Promise<void> {
+export async function startCompositePoller(opts: CompositePollerOptions): Promise<void> {
   const { account, cfg, abortSignal, onEvent, log } = opts;
   const slog = createStructuredLog(log, { accountId: account.accountId, source: "poller" });
 
@@ -189,7 +211,7 @@ export async function startCompositePoller(
 
   // Resolve safety-net projects scoped to this account
   const allSnProjects = snConfig.projects;
-  let accountSnProjects: number[] = [];
+  const accountSnProjects: number[] = [];
   if (allSnProjects.length > 0) {
     const concreteAccountIds = listBasecampAccountIds(cfg as OpenClawConfig);
     const isSingleAccount = concreteAccountIds.length <= 1;
@@ -230,7 +252,9 @@ export async function startCompositePoller(
     activityMs: activityIntervalMs,
     readingsMs: readingsIntervalMs,
     assignmentsMs: assignmentsIntervalMs,
-    ...(webhookActive ? { mode: "reconciliation", webhookProjects: opts.webhookActiveProjects!.size } : { mode: "primary" }),
+    ...(webhookActive
+      ? { mode: "reconciliation", webhookProjects: opts.webhookActiveProjects!.size }
+      : { mode: "primary" }),
   });
 
   while (!abortSignal?.aborted) {
@@ -336,9 +360,11 @@ export async function startCompositePoller(
           try {
             const markRead = async () => {
               const client = getClient(account);
-              await rawOrThrow(await client.raw.PUT("/my/unreads.json" as any, {
-                body: { readables: result.processedSgids } as any,
-              }));
+              await rawOrThrow(
+                await client.raw.PUT("/my/unreads.json" as any, {
+                  body: { readables: result.processedSgids } as any,
+                }),
+              );
             };
             await withCircuitBreaker(cb, "readings:mark-read", markRead);
             slog.debug("readings_marked_read", { count: result.processedSgids.length });
@@ -522,10 +548,7 @@ export async function startCompositePoller(
             promotions: result.promotions,
             previousGaps: result.gapsByType,
           };
-          cursors.setCustom(
-            "reconciliation:promotions",
-            serializePromotionState(result.promotions, result.gapsByType),
-          );
+          cursors.setCustom("reconciliation:promotions", serializePromotionState(result.promotions, result.gapsByType));
           await saveCursorsWithRetry(cursors, slog);
 
           recordReconciliationRun(account.accountId, {

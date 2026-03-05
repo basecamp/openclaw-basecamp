@@ -6,7 +6,7 @@
  *
  * Only auth-related functions remain in basecamp-cli.ts.
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("node:child_process", () => ({
   execFile: vi.fn(),
@@ -18,9 +18,19 @@ vi.mock("node:fs", async (importOriginal) => {
   return { ...actual, readFileSync: vi.fn() };
 });
 
-import { cliMe, cliAuthStatus, cliWhich, cliProfileList, cliProfileListFull, exportCliCredentials, execCliAuthLogin, CliError, resolveCliBinaryPath } from "../src/basecamp-cli.js";
 import { execFile, spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
+import {
+  CliError,
+  cliAuthStatus,
+  cliMe,
+  cliProfileList,
+  cliProfileListFull,
+  cliWhich,
+  execCliAuthLogin,
+  exportCliCredentials,
+  resolveCliBinaryPath,
+} from "../src/basecamp-cli.js";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -287,7 +297,7 @@ describe("cliMe error shapes", () => {
 
   it("throws CliError on JSON parse failure", async () => {
     vi.mocked(execFile).mockImplementation((_cmd: any, _args: any, _opts: any, cb: any) => {
-      cb(null, 'not json {', "");
+      cb(null, "not json {", "");
       return {} as any;
     });
 
@@ -327,7 +337,6 @@ describe("cliWhich", () => {
 
     await expect(cliWhich()).rejects.toThrow(CliError);
   });
-
 });
 
 // ---------------------------------------------------------------------------
@@ -368,10 +377,14 @@ describe("cliProfileList", () => {
 
   it("extracts names from object-shaped profile entries", async () => {
     vi.mocked(execFile).mockImplementation((_cmd: any, _args: any, _opts: any, cb: any) => {
-      cb(null, JSON.stringify([
-        { name: "prod", base_url: "https://3.basecampapi.com" },
-        { name: "dev", base_url: "http://3.basecamp.localhost:3001" },
-      ]), "");
+      cb(
+        null,
+        JSON.stringify([
+          { name: "prod", base_url: "https://3.basecampapi.com" },
+          { name: "dev", base_url: "http://3.basecamp.localhost:3001" },
+        ]),
+        "",
+      );
       return {} as any;
     });
 
@@ -381,10 +394,7 @@ describe("cliProfileList", () => {
 
   it("handles mixed string and object entries", async () => {
     vi.mocked(execFile).mockImplementation((_cmd: any, _args: any, _opts: any, cb: any) => {
-      cb(null, JSON.stringify([
-        "legacy-profile",
-        { name: "new-profile", base_url: "https://3.basecampapi.com" },
-      ]), "");
+      cb(null, JSON.stringify(["legacy-profile", { name: "new-profile", base_url: "https://3.basecampapi.com" }]), "");
       return {} as any;
     });
 
@@ -400,10 +410,14 @@ describe("cliProfileList", () => {
 describe("cliProfileListFull", () => {
   it("returns full profile objects", async () => {
     vi.mocked(execFile).mockImplementation((_cmd: any, _args: any, _opts: any, cb: any) => {
-      cb(null, JSON.stringify([
-        { name: "prod", base_url: "https://3.basecampapi.com", authenticated: true },
-        { name: "dev", base_url: "http://localhost:3001", active: true },
-      ]), "");
+      cb(
+        null,
+        JSON.stringify([
+          { name: "prod", base_url: "https://3.basecampapi.com", authenticated: true },
+          { name: "dev", base_url: "http://localhost:3001", active: true },
+        ]),
+        "",
+      );
       return {} as any;
     });
 
@@ -415,12 +429,16 @@ describe("cliProfileListFull", () => {
 
   it("filters out entries missing name or base_url", async () => {
     vi.mocked(execFile).mockImplementation((_cmd: any, _args: any, _opts: any, cb: any) => {
-      cb(null, JSON.stringify([
-        { name: "valid", base_url: "https://example.com" },
-        { name: "no-url" },
-        { base_url: "https://no-name.com" },
-        "string-entry",
-      ]), "");
+      cb(
+        null,
+        JSON.stringify([
+          { name: "valid", base_url: "https://example.com" },
+          { name: "no-url" },
+          { base_url: "https://no-name.com" },
+          "string-entry",
+        ]),
+        "",
+      );
       return {} as any;
     });
 
@@ -486,7 +504,9 @@ describe("exportCliCredentials", () => {
   });
 
   it("returns null when credentials file is missing", () => {
-    vi.mocked(readFileSync).mockImplementation(() => { throw new Error("ENOENT"); });
+    vi.mocked(readFileSync).mockImplementation(() => {
+      throw new Error("ENOENT");
+    });
     expect(exportCliCredentials("https://3.basecampapi.com")).toBeNull();
   });
 
@@ -525,8 +545,12 @@ describe("cliAuthStatus non-CliError rethrow", () => {
 function mockSpawnHandle() {
   const handlers: Record<string, Function> = {};
   return {
-    on: vi.fn((event: string, cb: Function) => { handlers[event] = cb; }),
-    _emit(event: string, ...args: any[]) { queueMicrotask(() => handlers[event]?.(...args)); },
+    on: vi.fn((event: string, cb: Function) => {
+      handlers[event] = cb;
+    }),
+    _emit(event: string, ...args: any[]) {
+      queueMicrotask(() => handlers[event]?.(...args));
+    },
   };
 }
 

@@ -83,11 +83,7 @@ export class EventDedup {
    *
    * @example secondaryKey("456", "created", "2025-01-15T10:00:00Z") → "456:created:2025-01-15T10:00:00Z"
    */
-  static secondaryKey(
-    recordingId: string | number,
-    action: string,
-    createdAt: string,
-  ): string {
+  static secondaryKey(recordingId: string | number, action: string, createdAt: string): string {
     return `${recordingId}:${action}:${createdAt}`;
   }
 
@@ -97,10 +93,7 @@ export class EventDedup {
    * Checks both the primary key and optional secondary key.
    * If not a duplicate, records the event and returns false.
    */
-  isDuplicate(
-    primaryKey: string,
-    secondaryKey?: string,
-  ): boolean {
+  isDuplicate(primaryKey: string, secondaryKey?: string): boolean {
     const now = Date.now();
 
     // Check primary key

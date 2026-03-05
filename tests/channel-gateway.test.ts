@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("openclaw/plugin-sdk", () => ({
   DEFAULT_ACCOUNT_ID: "default",
@@ -107,16 +107,21 @@ vi.mock("node:fs/promises", async (importOriginal) => {
   return { ...actual, unlink: mockUnlink };
 });
 
-import { basecampChannel, _resetValidationState } from "../src/channel.js";
-import { resolveBasecampAccount, resolveBasecampAccountAsync, resolveWebhooksConfig, scopeWebhookProjects } from "../src/config.js";
+import { clearClients } from "../src/basecamp-client.js";
 import { bcqAuthStatus } from "../src/bcq.js";
-import { startCompositePoller } from "../src/inbound/poller.js";
-import { reconcileWebhooks, deactivateWebhooks } from "../src/inbound/webhook-lifecycle.js";
+import { _resetValidationState, basecampChannel } from "../src/channel.js";
+import {
+  resolveBasecampAccount,
+  resolveBasecampAccountAsync,
+  resolveWebhooksConfig,
+  scopeWebhookProjects,
+} from "../src/config.js";
 import { dispatchBasecampEvent } from "../src/dispatch.js";
 import { closeAccountDedup } from "../src/inbound/dedup-registry.js";
+import { startCompositePoller } from "../src/inbound/poller.js";
+import { deactivateWebhooks, reconcileWebhooks } from "../src/inbound/webhook-lifecycle.js";
 import { flushWebhookSecrets } from "../src/inbound/webhooks.js";
-import { createTokenManager, clearTokenManagers } from "../src/oauth-credentials.js";
-import { clearClients } from "../src/basecamp-client.js";
+import { clearTokenManagers, createTokenManager } from "../src/oauth-credentials.js";
 
 function makeCtx(cfg: any, accountId = "test") {
   return {
@@ -147,7 +152,9 @@ beforeEach(() => {
   vi.mocked(startCompositePoller).mockResolvedValue(undefined);
   vi.mocked(resolveBasecampAccountAsync).mockResolvedValue(makeAccount() as any);
   vi.mocked(resolveWebhooksConfig).mockReturnValue({
-    autoRegister: false, projects: [], deactivateOnStop: false,
+    autoRegister: false,
+    projects: [],
+    deactivateOnStop: false,
   } as any);
   vi.mocked(scopeWebhookProjects).mockReturnValue([]);
 });
@@ -158,9 +165,7 @@ beforeEach(() => {
 
 describe("phase 4: OAuth validation", () => {
   it("validates token on startup for OAuth tokenSource", async () => {
-    vi.mocked(resolveBasecampAccountAsync).mockResolvedValue(
-      makeAccount({ tokenSource: "oauth", token: "" }) as any,
-    );
+    vi.mocked(resolveBasecampAccountAsync).mockResolvedValue(makeAccount({ tokenSource: "oauth", token: "" }) as any);
     vi.mocked(createTokenManager).mockReturnValue({
       getToken: vi.fn().mockResolvedValue("valid"),
     } as any);
@@ -172,9 +177,7 @@ describe("phase 4: OAuth validation", () => {
   });
 
   it("returns early when OAuth validation fails", async () => {
-    vi.mocked(resolveBasecampAccountAsync).mockResolvedValue(
-      makeAccount({ tokenSource: "oauth", token: "" }) as any,
-    );
+    vi.mocked(resolveBasecampAccountAsync).mockResolvedValue(makeAccount({ tokenSource: "oauth", token: "" }) as any);
     vi.mocked(createTokenManager).mockReturnValue({
       getToken: vi.fn().mockRejectedValue(new Error("expired")),
     } as any);
@@ -184,9 +187,7 @@ describe("phase 4: OAuth validation", () => {
 
     expect(ctx.log.error).toHaveBeenCalledWith(expect.stringContaining("OAuth token invalid"));
     // setStatus(running:true) should never be called
-    const runningCalls = ctx.setStatus.mock.calls.filter(
-      (c: any[]) => c[0]?.running === true,
-    );
+    const runningCalls = ctx.setStatus.mock.calls.filter((c: any[]) => c[0]?.running === true);
     expect(runningCalls).toHaveLength(0);
   });
 });
@@ -228,11 +229,17 @@ describe("phase 6-7: early return guards", () => {
 describe("phase 11: webhook reconciliation", () => {
   it("calls reconcileWebhooks when autoRegister is true", async () => {
     vi.mocked(resolveWebhooksConfig).mockReturnValue({
-      autoRegister: true, payloadUrl: "https://example.com/wh", projects: ["1"], deactivateOnStop: false,
+      autoRegister: true,
+      payloadUrl: "https://example.com/wh",
+      projects: ["1"],
+      deactivateOnStop: false,
     } as any);
     vi.mocked(scopeWebhookProjects).mockReturnValue(["1"]);
     vi.mocked(reconcileWebhooks).mockResolvedValue({
-      created: ["1"], existing: [], recovered: [], failed: [],
+      created: ["1"],
+      existing: [],
+      recovered: [],
+      failed: [],
     } as any);
 
     const ctx = makeCtx({});
@@ -243,7 +250,10 @@ describe("phase 11: webhook reconciliation", () => {
 
   it("swallows reconcileWebhooks error and continues startup", async () => {
     vi.mocked(resolveWebhooksConfig).mockReturnValue({
-      autoRegister: true, payloadUrl: "https://example.com/wh", projects: ["1"], deactivateOnStop: false,
+      autoRegister: true,
+      payloadUrl: "https://example.com/wh",
+      projects: ["1"],
+      deactivateOnStop: false,
     } as any);
     vi.mocked(scopeWebhookProjects).mockReturnValue(["1"]);
     vi.mocked(reconcileWebhooks).mockRejectedValue(new Error("network"));
@@ -257,11 +267,17 @@ describe("phase 11: webhook reconciliation", () => {
 
   it("passes webhookActiveProjects built from reconciliation result to poller", async () => {
     vi.mocked(resolveWebhooksConfig).mockReturnValue({
-      autoRegister: true, payloadUrl: "https://example.com/wh", projects: ["1", "2", "3"], deactivateOnStop: false,
+      autoRegister: true,
+      payloadUrl: "https://example.com/wh",
+      projects: ["1", "2", "3"],
+      deactivateOnStop: false,
     } as any);
     vi.mocked(scopeWebhookProjects).mockReturnValue(["1", "2", "3"]);
     vi.mocked(reconcileWebhooks).mockResolvedValue({
-      created: ["1"], existing: ["2"], recovered: ["3"], failed: [],
+      created: ["1"],
+      existing: ["2"],
+      recovered: ["3"],
+      failed: [],
     } as any);
 
     const ctx = makeCtx({});
@@ -282,12 +298,14 @@ describe("phase 12: onEvent closure", () => {
     let resolvePoller: () => void;
     vi.mocked(startCompositePoller).mockImplementation(async (opts: any) => {
       capturedOnEvent = opts.onEvent;
-      await new Promise<void>(r => { resolvePoller = r; });
+      await new Promise<void>((r) => {
+        resolvePoller = r;
+      });
     });
 
     const ctx = makeCtx({});
     const startPromise = basecampChannel.gateway!.startAccount!(ctx as any);
-    await new Promise(r => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
 
     const msg = { sender: { id: "42" } };
     const result = await capturedOnEvent!(msg);
@@ -304,13 +322,15 @@ describe("phase 12: onEvent closure", () => {
     let resolvePoller: () => void;
     vi.mocked(startCompositePoller).mockImplementation(async (opts: any) => {
       capturedOnEvent = opts.onEvent;
-      await new Promise<void>(r => { resolvePoller = r; });
+      await new Promise<void>((r) => {
+        resolvePoller = r;
+      });
     });
     vi.mocked(dispatchBasecampEvent).mockResolvedValue(true);
 
     const ctx = makeCtx({});
     const startPromise = basecampChannel.gateway!.startAccount!(ctx as any);
-    await new Promise(r => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
 
     const msg = { sender: { id: "99" } };
     const result = await capturedOnEvent!(msg);
@@ -361,7 +381,9 @@ describe("phase 15: finally block", () => {
 
   it("does not call deactivateWebhooks when deactivateOnStop is false", async () => {
     vi.mocked(resolveWebhooksConfig).mockReturnValue({
-      autoRegister: false, projects: [], deactivateOnStop: false,
+      autoRegister: false,
+      projects: [],
+      deactivateOnStop: false,
     } as any);
 
     const ctx = makeCtx({});
@@ -430,9 +452,7 @@ describe("logoutAccount", () => {
   });
 
   it("returns cleared=true when token file already gone (ENOENT)", async () => {
-    mockUnlink.mockRejectedValue(
-      Object.assign(new Error("ENOENT"), { code: "ENOENT" }),
-    );
+    mockUnlink.mockRejectedValue(Object.assign(new Error("ENOENT"), { code: "ENOENT" }));
     vi.mocked(resolveBasecampAccount).mockReturnValue(
       makeAccount({ config: { personId: "42", oauthTokenFile: "/tmp/gone.json" } }) as any,
     );
@@ -446,9 +466,7 @@ describe("logoutAccount", () => {
   });
 
   it("returns cleared=false when no oauthTokenFile configured", async () => {
-    vi.mocked(resolveBasecampAccount).mockReturnValue(
-      makeAccount({ config: { personId: "42" } }) as any,
-    );
+    vi.mocked(resolveBasecampAccount).mockReturnValue(makeAccount({ config: { personId: "42" } }) as any);
 
     const result = await basecampChannel.gateway!.logoutAccount!({
       accountId: "test",

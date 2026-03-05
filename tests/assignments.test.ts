@@ -1,9 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import type {
-  BasecampAssignmentTodo,
-  ResolvedBasecampAccount,
-} from "../src/types.js";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { normalizeAssignmentTodo } from "../src/inbound/normalize.js";
+import type { BasecampAssignmentTodo, ResolvedBasecampAccount } from "../src/types.js";
 
 // ---------------------------------------------------------------------------
 // Mock basecamp-client
@@ -24,7 +21,10 @@ vi.mock("../src/basecamp-client.js", () => ({
   }),
   BasecampError: class BasecampError extends Error {
     code: string;
-    constructor(msg: string, code: string) { super(msg); this.code = code; }
+    constructor(msg: string, code: string) {
+      super(msg);
+      this.code = code;
+    }
   },
 }));
 
@@ -166,9 +166,7 @@ describe("pollAssignments", () => {
 
     expect(result.events).toHaveLength(0);
     expect(result.knownIds).toEqual(new Set(["1", "2", "3"]));
-    expect(log.info).toHaveBeenCalledWith(
-      expect.stringContaining("bootstrap: recording 3 existing assignments"),
-    );
+    expect(log.info).toHaveBeenCalledWith(expect.stringContaining("bootstrap: recording 3 existing assignments"));
   });
 
   it("emits events for newly assigned todos", async () => {
@@ -272,9 +270,7 @@ describe("pollAssignments", () => {
     // One failed, one succeeded
     expect(result.events).toHaveLength(1);
     expect(result.events[0].meta.recordingId).toBe("2");
-    expect(log.warn).toHaveBeenCalledWith(
-      expect.stringContaining("failed to normalize assignment todo id=1"),
-    );
+    expect(log.warn).toHaveBeenCalledWith(expect.stringContaining("failed to normalize assignment todo id=1"));
   });
 
   it("all events have assignedToAgent=true", async () => {
@@ -301,10 +297,7 @@ describe("pollAssignments", () => {
       priorities: [
         makeTodo({
           id: 10,
-          children: [
-            makeTodo({ id: 11 }),
-            makeTodo({ id: 12, children: [makeTodo({ id: 13 })] }),
-          ],
+          children: [makeTodo({ id: 11 }), makeTodo({ id: 12, children: [makeTodo({ id: 13 })] })],
         }),
       ],
       non_priorities: [],

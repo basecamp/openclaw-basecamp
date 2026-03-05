@@ -18,7 +18,7 @@ const SURFACE_PROMPTS: Record<string, string> = {
     "Use short paragraphs. Match the casual chat tone.",
   ].join(" "),
 
-  "Todo": [
+  Todo: [
     "You are commenting on a Basecamp to-do.",
     "Be detailed and actionable. Reference specific tasks and steps.",
     "Structure your response clearly — use lists for action items.",
@@ -31,25 +31,25 @@ const SURFACE_PROMPTS: Record<string, string> = {
     "Be concise but thorough. Structure feedback clearly.",
   ].join(" "),
 
-  "Question": [
+  Question: [
     "You are answering a Basecamp check-in question.",
     "Be direct and structured. Match the question format.",
     "Keep your answer focused on what was asked.",
   ].join(" "),
 
-  "Message": [
+  Message: [
     "You are commenting on a Basecamp Message Board post.",
     "Be thorough and well-structured. Use headings and lists where appropriate.",
     "This is a longer-form discussion context.",
   ].join(" "),
 
-  "Circle": [
+  Circle: [
     "You are in a direct Basecamp Ping conversation.",
     "Be helpful and personal. This is a private conversation.",
     "You can be more detailed since it's a focused 1:1 or small group chat.",
   ].join(" "),
 
-  "Comment": [
+  Comment: [
     "You are responding to a comment on a Basecamp recording.",
     "Be concise and relevant to the discussion thread.",
     "Reference the parent context when appropriate.",

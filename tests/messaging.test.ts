@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import { basecampMessagingAdapter } from "../src/adapters/messaging.js";
 
 // ---------------------------------------------------------------------------
@@ -79,9 +79,7 @@ describe("messaging.targetResolver.looksLikeId", () => {
 
 describe("messaging.targetResolver.hint", () => {
   it("provides format hint", () => {
-    expect(basecampMessagingAdapter.targetResolver!.hint).toBe(
-      "recording:<id> | bucket:<id> | ping:<id>",
-    );
+    expect(basecampMessagingAdapter.targetResolver!.hint).toBe("recording:<id> | bucket:<id> | ping:<id>");
   });
 });
 

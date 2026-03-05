@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockClient = {
   projects: { list: vi.fn() },
@@ -21,7 +21,10 @@ vi.mock("../src/basecamp-client.js", () => ({
   rawOrThrow: vi.fn(async (result: any) => result?.data),
   BasecampError: class BasecampError extends Error {
     code: string;
-    constructor(msg: string, code: string) { super(msg); this.code = code; }
+    constructor(msg: string, code: string) {
+      super(msg);
+      this.code = code;
+    }
   },
   clearClients: vi.fn(),
 }));
@@ -158,9 +161,7 @@ describe("postComment", () => {
   });
 
   it("retries on retryable TypeError and succeeds", async () => {
-    mockClient.comments.create
-      .mockRejectedValueOnce(new TypeError("fetch failed"))
-      .mockResolvedValueOnce({ id: 77 });
+    mockClient.comments.create.mockRejectedValueOnce(new TypeError("fetch failed")).mockResolvedValueOnce({ id: 77 });
 
     const result = await postComment({
       bucketId: "1",

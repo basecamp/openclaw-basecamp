@@ -4,7 +4,7 @@
  * Validates SDK-based activity polling, cursor filtering,
  * normalization failure tolerance, and newest-first ordering.
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // ---------------------------------------------------------------------------
 // Module mocks
@@ -28,7 +28,10 @@ vi.mock("../src/basecamp-client.js", () => ({
   numId: (_label: string, value: string | number) => Number(value),
   BasecampError: class BasecampError extends Error {
     code: string;
-    constructor(msg: string, code: string) { super(msg); this.code = code; }
+    constructor(msg: string, code: string) {
+      super(msg);
+      this.code = code;
+    }
   },
 }));
 
@@ -173,9 +176,7 @@ describe("pollActivityFeed", () => {
 
     expect(result.events).toHaveLength(1);
     expect(result.events[0].dedupKey).toBe("activity:2");
-    expect(log.warn).toHaveBeenCalledWith(
-      expect.stringContaining("failed to normalize"),
-    );
+    expect(log.warn).toHaveBeenCalledWith(expect.stringContaining("failed to normalize"));
     // newestAt only tracks successfully processed events (tracking is inside try block)
     expect(result.newestAt).toBe("2025-06-01T11:00:00Z");
   });

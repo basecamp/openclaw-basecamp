@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import { getSurfacePrompt } from "../src/hooks/agent-prompt-context.js";
 
 describe("getSurfacePrompt", () => {
@@ -77,10 +77,7 @@ describe("getSurfacePrompt", () => {
   });
 
   it("uses first recordableType match", () => {
-    const ctx = [
-      "[basecamp] recordableType=Chat::Line",
-      "[basecamp] recordableType=Todo",
-    ];
+    const ctx = ["[basecamp] recordableType=Chat::Line", "[basecamp] recordableType=Todo"];
     const prompt = getSurfacePrompt(ctx);
     expect(prompt).toContain("Campfire");
   });

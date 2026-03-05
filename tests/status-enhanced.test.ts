@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("openclaw/plugin-sdk", () => ({
   DEFAULT_ACCOUNT_ID: "default",
@@ -35,7 +35,10 @@ vi.mock("../src/basecamp-client.js", () => ({
   rawOrThrow: vi.fn(async (r: any) => r?.data),
   BasecampError: class BasecampError extends Error {
     code: string;
-    constructor(msg: string, code: string) { super(msg); this.code = code; }
+    constructor(msg: string, code: string) {
+      super(msg);
+      this.code = code;
+    }
   },
 }));
 
@@ -43,22 +46,22 @@ vi.mock("../src/config.js", () => ({
   resolveBasecampAccount: vi.fn(),
 }));
 
+import type { BasecampAudit, BasecampProbe } from "../src/adapters/status.js";
 import { basecampStatusAdapter } from "../src/adapters/status.js";
-import type { BasecampProbe, BasecampAudit } from "../src/adapters/status.js";
 import { resolveBasecampAccount } from "../src/config.js";
-import type { ResolvedBasecampAccount } from "../src/types.js";
 import {
+  clearMetrics,
+  recordCircuitBreakerState,
+  recordDedupSize,
   recordPollAttempt,
   recordPollSuccess,
-  recordWebhookReceived,
+  recordWebhookDedupSize,
   recordWebhookDispatched,
   recordWebhookDropped,
   recordWebhookError,
-  recordDedupSize,
-  recordWebhookDedupSize,
-  recordCircuitBreakerState,
-  clearMetrics,
+  recordWebhookReceived,
 } from "../src/metrics.js";
+import type { ResolvedBasecampAccount } from "../src/types.js";
 
 function cfg(basecamp?: Record<string, unknown>) {
   if (!basecamp) return {} as any;
@@ -790,9 +793,7 @@ describe("collectStatusIssues (audit.errors)", () => {
       projectsAccessible: 1,
       personasMapped: 1,
       personasValid: 0,
-      errors: [
-        { kind: "config", message: 'Persona "agent-1" \u2192 account "missing": account does not exist' },
-      ],
+      errors: [{ kind: "config", message: 'Persona "agent-1" \u2192 account "missing": account does not exist' }],
       personIdSet: true,
     };
 
@@ -821,9 +822,7 @@ describe("collectStatusIssues (audit.errors)", () => {
       projectsAccessible: 0,
       personasMapped: 0,
       personasValid: 0,
-      errors: [
-        { kind: "runtime", message: "Failed to verify project access: Error: forbidden" },
-      ],
+      errors: [{ kind: "runtime", message: "Failed to verify project access: Error: forbidden" }],
       personIdSet: true,
     };
 

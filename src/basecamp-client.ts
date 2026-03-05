@@ -5,10 +5,10 @@
  * Handles token resolution from multiple sources (config, tokenFile, oauth).
  */
 
-import { createBasecampClient, type BasecampClient, BasecampError, errorFromResponse } from "@37signals/basecamp";
-import type { ResolvedBasecampAccount } from "./types.js";
 import { homedir } from "node:os";
 import { resolve as pathResolve } from "node:path";
+import { type BasecampClient, BasecampError, createBasecampClient, errorFromResponse } from "@37signals/basecamp";
+import type { ResolvedBasecampAccount } from "./types.js";
 
 export { BasecampError };
 export type { BasecampClient };
@@ -52,12 +52,11 @@ export function clearClients(): void {
 // ---------------------------------------------------------------------------
 
 function resolveNumericAccountId(account: ResolvedBasecampAccount): string {
-  const id = account.config.basecampAccountId
-    ?? (/^\d+$/.test(account.accountId) ? account.accountId : undefined);
+  const id = account.config.basecampAccountId ?? (/^\d+$/.test(account.accountId) ? account.accountId : undefined);
   if (!id) {
     throw new Error(
       `Cannot resolve numeric Basecamp account ID for "${account.accountId}". ` +
-      `Set channels.basecamp.accounts.${account.accountId}.basecampAccountId`,
+        `Set channels.basecamp.accounts.${account.accountId}.basecampAccountId`,
     );
   }
   return id;
@@ -67,9 +66,7 @@ function resolveNumericAccountId(account: ResolvedBasecampAccount): string {
 // Token resolution
 // ---------------------------------------------------------------------------
 
-function resolveTokenProvider(
-  account: ResolvedBasecampAccount,
-): string | (() => Promise<string>) {
+function resolveTokenProvider(account: ResolvedBasecampAccount): string | (() => Promise<string>) {
   switch (account.tokenSource) {
     case "config":
       return account.token;
@@ -91,9 +88,7 @@ function resolveTokenProvider(
       let tmPromise: Promise<{ getToken(): Promise<string> }> | null = null;
       return async () => {
         if (!tmPromise) {
-          tmPromise = import("./oauth-credentials.js").then(({ createTokenManager }) =>
-            createTokenManager(account),
-          );
+          tmPromise = import("./oauth-credentials.js").then(({ createTokenManager }) => createTokenManager(account));
         }
         const tm = await tmPromise;
         return tm.getToken();
@@ -103,7 +98,7 @@ function resolveTokenProvider(
     case "none":
       throw new Error(
         `No authentication configured for account "${account.accountId}". ` +
-        `Set token, tokenFile, or oauthTokenFile.`,
+          `Set token, tokenFile, or oauthTokenFile.`,
       );
   }
 }
@@ -146,14 +141,9 @@ export function numId(label: string, value: string | number): number {
  * Use for client.raw.GET/POST/PUT/DELETE calls that return { data, error, response }
  * instead of auto-throwing.
  */
-export async function rawOrThrow<T>(
-  result: { data?: T; error?: unknown; response: Response },
-): Promise<T> {
+export async function rawOrThrow<T>(result: { data?: T; error?: unknown; response: Response }): Promise<T> {
   if (!result.response.ok || result.error) {
-    throw await errorFromResponse(
-      result.response,
-      result.response.headers.get("X-Request-Id") ?? undefined,
-    );
+    throw await errorFromResponse(result.response, result.response.headers.get("X-Request-Id") ?? undefined);
   }
   return result.data as T;
 }

@@ -10,16 +10,16 @@
  * that PR lands.
  */
 
-import {
-  TokenManager,
-  FileTokenStore,
-  performInteractiveLogin,
-  refreshToken as sdkRefreshToken,
-  type OAuthToken,
-} from "@37signals/basecamp/oauth";
-import type { ResolvedBasecampAccount } from "./types.js";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import {
+  FileTokenStore,
+  type OAuthToken,
+  performInteractiveLogin,
+  refreshToken as sdkRefreshToken,
+  TokenManager,
+} from "@37signals/basecamp/oauth";
+import type { ResolvedBasecampAccount } from "./types.js";
 
 const LAUNCHPAD_TOKEN_ENDPOINT = "https://launchpad.37signals.com/authorization/token";
 
@@ -27,14 +27,7 @@ const LAUNCHPAD_TOKEN_ENDPOINT = "https://launchpad.37signals.com/authorization/
 // Token file path resolution
 // ---------------------------------------------------------------------------
 
-const DEFAULT_TOKEN_DIR = join(
-  homedir(),
-  ".local",
-  "share",
-  "openclaw",
-  "basecamp",
-  "tokens",
-);
+const DEFAULT_TOKEN_DIR = join(homedir(), ".local", "share", "openclaw", "basecamp", "tokens");
 
 /**
  * Resolve the path for an OAuth token file.
@@ -42,10 +35,7 @@ const DEFAULT_TOKEN_DIR = join(
  * When `stateDir` is provided: `{stateDir}/tokens/{accountId}.json`
  * Otherwise: `~/.local/share/openclaw/basecamp/tokens/{accountId}.json`
  */
-export function resolveTokenFilePath(
-  accountId: string,
-  stateDir?: string,
-): string {
+export function resolveTokenFilePath(accountId: string, stateDir?: string): string {
   const dir = stateDir ? join(stateDir, "tokens") : DEFAULT_TOKEN_DIR;
   return join(dir, `${accountId}.json`);
 }
@@ -62,15 +52,11 @@ const managerCache = new Map<string, TokenManager>();
  * Managers are cached per accountId so that repeated `getToken()` calls
  * share a single refresh mutex and file store.
  */
-export function createTokenManager(
-  account: ResolvedBasecampAccount,
-): TokenManager {
+export function createTokenManager(account: ResolvedBasecampAccount): TokenManager {
   const existing = managerCache.get(account.accountId);
   if (existing) return existing;
 
-  const tokenFilePath =
-    account.config.oauthTokenFile ??
-    resolveTokenFilePath(account.accountId);
+  const tokenFilePath = account.config.oauthTokenFile ?? resolveTokenFilePath(account.accountId);
 
   const store = new FileTokenStore(tokenFilePath);
 
@@ -112,14 +98,12 @@ export async function interactiveLogin(
   if (!clientId) {
     throw new Error(
       `No OAuth clientId available for account "${account.accountId}". ` +
-      `Set oauthClientId on the account or oauth.clientId at the channel level.`,
+        `Set oauthClientId on the account or oauth.clientId at the channel level.`,
     );
   }
   const clientSecret = overrides?.clientSecret ?? account.oauthClientSecret;
 
-  const tokenFilePath =
-    account.config.oauthTokenFile ??
-    resolveTokenFilePath(account.accountId);
+  const tokenFilePath = account.config.oauthTokenFile ?? resolveTokenFilePath(account.accountId);
 
   const store = new FileTokenStore(tokenFilePath);
 
@@ -132,12 +116,7 @@ export async function interactiveLogin(
     } catch {
       // Fallback: spawn platform-native opener
       const { exec } = await import("node:child_process");
-      const cmd =
-        process.platform === "darwin"
-          ? "open"
-          : process.platform === "win32"
-            ? "start"
-            : "xdg-open";
+      const cmd = process.platform === "darwin" ? "open" : process.platform === "win32" ? "start" : "xdg-open";
       exec(`${cmd} ${JSON.stringify(url)}`);
     }
   };

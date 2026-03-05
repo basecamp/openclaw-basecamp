@@ -10,11 +10,7 @@
 
 /** Escape HTML special characters. */
 function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
 /**
@@ -77,15 +73,15 @@ export function markdownToBasecampHtml(md: string): string {
 
     const bodyRows = rows.slice(2);
     const tbody = bodyRows.length
-      ? `<tbody>${bodyRows.map((row) => {
-          const cells = parseRow(row);
-          return `<tr>${cells.map((c) => `<td>${c}</td>`).join("")}</tr>`;
-        }).join("")}</tbody>`
+      ? `<tbody>${bodyRows
+          .map((row) => {
+            const cells = parseRow(row);
+            return `<tr>${cells.map((c) => `<td>${c}</td>`).join("")}</tr>`;
+          })
+          .join("")}</tbody>`
       : "";
 
-    return tbody
-      ? `\n<table>\n${thead}\n${tbody}\n</table>\n`
-      : `\n<table>\n${thead}\n</table>\n`;
+    return tbody ? `\n<table>\n${thead}\n${tbody}\n</table>\n` : `\n<table>\n${thead}\n</table>\n`;
   });
 
   // --- Inline code (`...`) ---

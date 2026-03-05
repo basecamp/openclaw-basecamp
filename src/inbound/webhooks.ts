@@ -10,20 +10,34 @@
  * (recording:id:kind:ts) which both sources generate for the same event.
  */
 
-import type { IncomingMessage, ServerResponse } from "node:http";
 import crypto from "node:crypto";
+import type { IncomingMessage, ServerResponse } from "node:http";
 import { join } from "node:path";
+import {
+  listBasecampAccountIds,
+  resolveAccountForBucket,
+  resolveBasecampAccount,
+  resolveDefaultBasecampAccountId,
+  resolveWebhookSecret,
+} from "../config.js";
+import { dispatchBasecampEvent } from "../dispatch.js";
+import { createConsoleStructuredLog } from "../logging.js";
+import {
+  recordQueueFullDrop,
+  recordWebhookAuthMethod,
+  recordWebhookDedupSize,
+  recordWebhookDispatched,
+  recordWebhookDropped,
+  recordWebhookError,
+  recordWebhookReceived,
+} from "../metrics.js";
+import { getBasecampRuntime } from "../runtime.js";
 import type { BasecampWebhookPayload, ResolvedBasecampAccount } from "../types.js";
-import { normalizeWebhookPayload, isSelfMessage } from "./normalize.js";
 import { EventDedup } from "./dedup.js";
 import { getAccountDedup } from "./dedup-registry.js";
+import { isSelfMessage, normalizeWebhookPayload } from "./normalize.js";
 import { resolvePluginStateDir } from "./state-dir.js";
-import { WebhookSecretRegistry, JsonFileWebhookSecretStore } from "./webhook-secrets.js";
-import { dispatchBasecampEvent } from "../dispatch.js";
-import { getBasecampRuntime } from "../runtime.js";
-import { resolveBasecampAccount, resolveDefaultBasecampAccountId, resolveWebhookSecret, resolveAccountForBucket, listBasecampAccountIds } from "../config.js";
-import { createConsoleStructuredLog } from "../logging.js";
-import { recordWebhookReceived, recordWebhookDispatched, recordWebhookDropped, recordWebhookError, recordWebhookDedupSize, recordQueueFullDrop, recordWebhookAuthMethod } from "../metrics.js";
+import { JsonFileWebhookSecretStore, WebhookSecretRegistry } from "./webhook-secrets.js";
 
 // ---------------------------------------------------------------------------
 // Concurrency limiter
@@ -135,10 +149,7 @@ export function verifyWebhookSignature(params: {
   const signedPayload = `${timestamp}.${rawBody}`;
 
   for (const secret of secrets) {
-    const expected = "sha256=" + crypto
-      .createHmac("sha256", secret)
-      .update(signedPayload)
-      .digest("hex");
+    const expected = "sha256=" + crypto.createHmac("sha256", secret).update(signedPayload).digest("hex");
 
     // Timing-safe comparison
     if (expected.length === signature.length) {
@@ -205,10 +216,7 @@ function readBody(req: IncomingMessage): Promise<string> {
  * Returns 200 immediately to acknowledge receipt, then processes
  * the event asynchronously to avoid webhook timeout.
  */
-export async function handleBasecampWebhook(
-  req: IncomingMessage,
-  res: ServerResponse,
-): Promise<void> {
+export async function handleBasecampWebhook(req: IncomingMessage, res: ServerResponse): Promise<void> {
   // Only accept POST
   if (req.method !== "POST") {
     res.writeHead(405, { "Content-Type": "application/json" });
@@ -274,7 +282,7 @@ export async function handleBasecampWebhook(
           if (bucketAccountId) {
             bucketResolved = true;
             const registry = getWebhookSecretRegistry(bucketAccountId);
-            candidateSecrets = registry.getAllSecrets().filter(s => s.length > 0);
+            candidateSecrets = registry.getAllSecrets().filter((s) => s.length > 0);
           }
         }
       } catch {
@@ -284,7 +292,7 @@ export async function handleBasecampWebhook(
       if (!bucketResolved && candidateSecrets.length === 0) {
         for (const accountId of listBasecampAccountIds(cfg)) {
           const registry = getWebhookSecretRegistry(accountId);
-          candidateSecrets.push(...registry.getAllSecrets().filter(s => s.length > 0));
+          candidateSecrets.push(...registry.getAllSecrets().filter((s) => s.length > 0));
         }
       }
 
@@ -304,12 +312,14 @@ export async function handleBasecampWebhook(
     // No valid authentication — check if webhooks are configured at all.
     // Eagerly load registries for all configured accounts to avoid false
     // negatives when secrets exist on disk but weren't loaded yet.
-    const hasAnySecrets = listBasecampAccountIds(cfg).some(
-      (id) => getWebhookSecretRegistry(id).size > 0,
-    );
+    const hasAnySecrets = listBasecampAccountIds(cfg).some((id) => getWebhookSecretRegistry(id).size > 0);
     if (!webhookSecret && !hasAnySecrets) {
       res.writeHead(403, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ error: "Webhooks not configured (set channels.basecamp.webhookSecret or configure webhooks.payloadUrl)" }));
+      res.end(
+        JSON.stringify({
+          error: "Webhooks not configured (set channels.basecamp.webhookSecret or configure webhooks.payloadUrl)",
+        }),
+      );
     } else {
       res.writeHead(403, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ error: "Invalid webhook signature or token" }));
@@ -368,7 +378,10 @@ export async function handleBasecampWebhook(
     }
   } catch (err) {
     const errlog = createConsoleStructuredLog({ accountId: "unknown", source: "webhook" });
-    errlog.error("account_resolution_failed", { error: String(err), stack: err instanceof Error ? err.stack : undefined });
+    errlog.error("account_resolution_failed", {
+      error: String(err),
+      stack: err instanceof Error ? err.stack : undefined,
+    });
     return;
   }
 

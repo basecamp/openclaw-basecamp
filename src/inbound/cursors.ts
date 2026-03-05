@@ -8,7 +8,7 @@
  * File format: cursors-<accountId>.json
  */
 
-import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 export interface PollCursors {

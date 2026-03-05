@@ -12,14 +12,10 @@
  * Subsequent polls: diff current vs stored — new IDs emit assignment events.
  */
 
-import type {
-  BasecampAssignmentTodo,
-  BasecampInboundMessage,
-  ResolvedBasecampAccount,
-} from "../types.js";
-import type { CircuitBreaker } from "../circuit-breaker.js";
 import { getClient, rawOrThrow } from "../basecamp-client.js";
+import type { CircuitBreaker } from "../circuit-breaker.js";
 import { withCircuitBreaker } from "../retry.js";
+import type { BasecampAssignmentTodo, BasecampInboundMessage, ResolvedBasecampAccount } from "../types.js";
 import { normalizeAssignmentTodo } from "./normalize.js";
 
 export interface AssignmentsPollResult {
@@ -89,9 +85,7 @@ function extractTodos(data: unknown): BasecampAssignmentTodo[] {
 /**
  * Poll assignments for newly-assigned todos.
  */
-export async function pollAssignments(
-  opts: AssignmentsPollerOptions,
-): Promise<AssignmentsPollResult> {
+export async function pollAssignments(opts: AssignmentsPollerOptions): Promise<AssignmentsPollResult> {
   const { account, knownIds, isBootstrap, log } = opts;
 
   log?.debug?.(`[${account.accountId}] polling assignments via SDK`);
@@ -108,15 +102,11 @@ export async function pollAssignments(
   const todos = extractTodos(data);
   const currentIds = new Set(todos.map((t) => String(t.id)));
 
-  log?.debug?.(
-    `[${account.accountId}] assignments: ${currentIds.size} current, ${knownIds.size} known`,
-  );
+  log?.debug?.(`[${account.accountId}] assignments: ${currentIds.size} current, ${knownIds.size} known`);
 
   // Bootstrap: record all current IDs without emitting events.
   if (isBootstrap) {
-    log?.info?.(
-      `[${account.accountId}] assignments bootstrap: recording ${currentIds.size} existing assignments`,
-    );
+    log?.info?.(`[${account.accountId}] assignments bootstrap: recording ${currentIds.size} existing assignments`);
     return { events: [], knownIds: currentIds };
   }
 
@@ -137,9 +127,7 @@ export async function pollAssignments(
       const normalized = normalizeAssignmentTodo(todo, account);
       events.push(normalized);
     } catch (err) {
-      log?.warn?.(
-        `[${account.accountId}] failed to normalize assignment todo id=${todo.id}: ${String(err)}`,
-      );
+      log?.warn?.(`[${account.accountId}] failed to normalize assignment todo id=${todo.id}: ${String(err)}`);
     }
   }
 

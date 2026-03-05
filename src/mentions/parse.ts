@@ -8,8 +8,7 @@
  */
 
 /** Matches <bc-attachment sgid="..." ...> tags with mention content-type. */
-const BC_ATTACHMENT_RE =
-  /<bc-attachment\s[^>]*sgid="([^"]+)"[^>]*>/gi;
+const BC_ATTACHMENT_RE = /<bc-attachment\s[^>]*sgid="([^"]+)"[^>]*>/gi;
 
 /** Matches specifically mention-typed attachments. */
 const BC_MENTION_RE =
@@ -90,11 +89,7 @@ export function parseMentions(html: string): ParsedMention[] {
  * Check whether any of the given SGIDs match the agent's identity.
  * Compares against both the agent's attachableSgid and personId.
  */
-export function mentionsAgent(
-  html: string,
-  agentSgid: string | undefined,
-  agentPersonId: string | undefined,
-): boolean {
+export function mentionsAgent(html: string, agentSgid: string | undefined, agentPersonId: string | undefined): boolean {
   const mentions = parseMentions(html);
   if (mentions.length === 0) return false;
 

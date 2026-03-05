@@ -8,8 +8,8 @@
 
 import type { ChannelPairingAdapter, OpenClawConfig } from "openclaw/plugin-sdk";
 import { PAIRING_APPROVED_MESSAGE } from "openclaw/plugin-sdk";
-import { resolveBasecampAccount } from "../config.js";
 import { getClient, rawOrThrow } from "../basecamp-client.js";
+import { resolveBasecampAccount } from "../config.js";
 
 export const basecampPairingAdapter: ChannelPairingAdapter = {
   idLabel: "basecampPersonId",
@@ -28,10 +28,11 @@ export const basecampPairingAdapter: ChannelPairingAdapter = {
     // This is NOT in the OpenAPI spec — use raw client.
     try {
       const client = getClient(account);
-      await rawOrThrow(await client.raw.POST(
-        `/circles/people/${id}/lines.json` as any,
-        { body: { content: `<p>${PAIRING_APPROVED_MESSAGE}</p>` } as any },
-      ));
+      await rawOrThrow(
+        await client.raw.POST(`/circles/people/${id}/lines.json` as any, {
+          body: { content: `<p>${PAIRING_APPROVED_MESSAGE}</p>` } as any,
+        }),
+      );
     } catch {
       // Ping delivery is best-effort; the person can check their status
       // via `openclaw pairing status` if they don't receive the message.

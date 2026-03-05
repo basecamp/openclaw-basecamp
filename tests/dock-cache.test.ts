@@ -4,12 +4,8 @@
  * Validates dock tool ID resolution, caching with TTL, invalidation,
  * error handling, and disabled dock item filtering.
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import {
-  resolveDockToolIds,
-  invalidateDockCache,
-  clearDockCache,
-} from "../src/inbound/dock-cache.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { clearDockCache, invalidateDockCache, resolveDockToolIds } from "../src/inbound/dock-cache.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -131,9 +127,7 @@ describe("dock-cache", () => {
   });
 
   it("missing dock items → undefined fields", async () => {
-    const client = makeClient([
-      { name: "todoset", id: 200, enabled: true },
-    ]);
+    const client = makeClient([{ name: "todoset", id: 200, enabled: true }]);
     const ids = await resolveDockToolIds(client, 42);
     expect(ids!.cardTableId).toBeUndefined();
     expect(ids!.todosetId).toBe(200);
@@ -178,9 +172,7 @@ describe("dock-cache", () => {
   });
 
   it("enabled property omitted → item included (default enabled)", async () => {
-    const client = makeClient([
-      { name: "kanban_board", id: 100 },
-    ]);
+    const client = makeClient([{ name: "kanban_board", id: 100 }]);
     const ids = await resolveDockToolIds(client, 42);
     expect(ids!.cardTableId).toBe(100);
   });

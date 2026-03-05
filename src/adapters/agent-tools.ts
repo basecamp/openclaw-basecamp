@@ -21,9 +21,9 @@
  *   basecamp_api_write    — POST/PUT/DELETE any Basecamp 3 resource
  */
 
-import type { ChannelAgentTool } from "openclaw/plugin-sdk";
-import { Type } from "@sinclair/typebox";
 import type { Static } from "@sinclair/typebox";
+import { Type } from "@sinclair/typebox";
+import type { ChannelAgentTool } from "openclaw/plugin-sdk";
 import type { BasecampClient } from "../basecamp-client.js";
 import { getClient, numId, rawOrThrow } from "../basecamp-client.js";
 import { resolveBasecampAccount } from "../config.js";
@@ -56,21 +56,29 @@ const ReopenTodoParams = Type.Object({
 const ReadHistoryParams = Type.Object({
   bucketId: Type.String({ description: "Basecamp project (bucket) ID" }),
   recordingId: Type.String({ description: "Recording ID (chat transcript, todo, card, message, etc.)" }),
-  type: Type.Union([
-    Type.Literal("comments"),
-    Type.Literal("campfire"),
-  ], { description: "Type of history: 'comments' for recording comments, 'campfire' for chat lines" }),
-  limit: Type.Optional(Type.Number({
-    description: "Maximum number of messages to return (default 20, max 50)",
-    minimum: 1,
-    maximum: 50,
-  })),
+  type: Type.Union([Type.Literal("comments"), Type.Literal("campfire")], {
+    description: "Type of history: 'comments' for recording comments, 'campfire' for chat lines",
+  }),
+  limit: Type.Optional(
+    Type.Number({
+      description: "Maximum number of messages to return (default 20, max 50)",
+      minimum: 1,
+      maximum: 50,
+    }),
+  ),
 });
 
 const AddBoostParams = Type.Object({
   bucketId: Type.String({ description: "Basecamp project (bucket) ID" }),
-  recordingId: Type.String({ description: "Recording ID to boost (any recording: comment, todo, campfire line, etc.)" }),
-  content: Type.Optional(Type.String({ description: "Boost content — an emoji or short celebratory text (e.g., '👍', '🎉', 'Congrats!'). Defaults to '👍'." })),
+  recordingId: Type.String({
+    description: "Recording ID to boost (any recording: comment, todo, campfire line, etc.)",
+  }),
+  content: Type.Optional(
+    Type.String({
+      description:
+        "Boost content — an emoji or short celebratory text (e.g., '👍', '🎉', 'Congrats!'). Defaults to '👍'.",
+    }),
+  ),
 });
 
 const MoveCardParams = Type.Object({
@@ -95,15 +103,15 @@ const AnswerCheckinParams = Type.Object({
 
 const ApiReadParams = Type.Object({
   path: Type.String({ description: "Basecamp API path (e.g., /buckets/123/todos/456.json)" }),
-  query: Type.Optional(Type.Record(Type.String(), Type.String(), { description: "URL query parameters (e.g., {completed: 'true'})" })),
+  query: Type.Optional(
+    Type.Record(Type.String(), Type.String(), { description: "URL query parameters (e.g., {completed: 'true'})" }),
+  ),
 });
 
 const ApiWriteParams = Type.Object({
-  method: Type.Union([
-    Type.Literal("POST"),
-    Type.Literal("PUT"),
-    Type.Literal("DELETE"),
-  ], { description: "HTTP method" }),
+  method: Type.Union([Type.Literal("POST"), Type.Literal("PUT"), Type.Literal("DELETE")], {
+    description: "HTTP method",
+  }),
   path: Type.String({ description: "Basecamp API path" }),
   body: Type.Optional(Type.Unknown({ description: "JSON request body" })),
 });
@@ -173,21 +181,19 @@ function buildTools(client: BasecampClient): ChannelAgentTool[] {
     {
       name: "basecamp_create_todo",
       label: "Create Basecamp To-Do",
-      description: "Create a new to-do item in a Basecamp to-do list. Requires the project (bucket) ID and to-do list ID.",
+      description:
+        "Create a new to-do item in a Basecamp to-do list. Requires the project (bucket) ID and to-do list ID.",
       parameters: CreateTodoParams,
       execute: async (_toolCallId: string, rawParams: unknown) => {
         const params = rawParams as CreateTodoInput;
         try {
-          const result = await client.todos.create(
-            numId("todolist", params.todolistId),
-            {
-              content: params.content,
-              description: params.description,
-              assigneeIds: params.assigneeIds,
-              dueOn: params.dueOn,
-              startsOn: params.startsOn,
-            },
-          );
+          const result = await client.todos.create(numId("todolist", params.todolistId), {
+            content: params.content,
+            description: params.description,
+            assigneeIds: params.assigneeIds,
+            dueOn: params.dueOn,
+            startsOn: params.startsOn,
+          });
           return toolOk({ todoId: (result as any)?.id, title: (result as any)?.title });
         } catch (err) {
           return toolErr(String(err));
@@ -212,7 +218,8 @@ function buildTools(client: BasecampClient): ChannelAgentTool[] {
     {
       name: "basecamp_reopen_todo",
       label: "Reopen Basecamp To-Do",
-      description: "Reopen a completed Basecamp to-do (mark as incomplete). Requires the project (bucket) ID and to-do ID.",
+      description:
+        "Reopen a completed Basecamp to-do (mark as incomplete). Requires the project (bucket) ID and to-do ID.",
       parameters: ReopenTodoParams,
       execute: async (_toolCallId: string, rawParams: unknown) => {
         const { bucketId, todoId } = rawParams as ReopenTodoInput;
@@ -236,14 +243,13 @@ function buildTools(client: BasecampClient): ChannelAgentTool[] {
         const { bucketId, recordingId, type, limit } = rawParams as ReadHistoryInput;
         const effectiveLimit = Math.min(limit ?? DEFAULT_HISTORY_LIMIT, 50);
 
-        const path = type === "campfire"
-          ? `/buckets/${bucketId}/chats/${recordingId}/lines.json`
-          : `/buckets/${bucketId}/recordings/${recordingId}/comments.json`;
+        const path =
+          type === "campfire"
+            ? `/buckets/${bucketId}/chats/${recordingId}/lines.json`
+            : `/buckets/${bucketId}/recordings/${recordingId}/comments.json`;
 
         try {
-          const entries = await rawOrThrow<BasecampCommentOrLine[]>(
-            await client.raw.GET(path as any, {}),
-          );
+          const entries = await rawOrThrow<BasecampCommentOrLine[]>(await client.raw.GET(path as any, {}));
           const items = Array.isArray(entries) ? entries : [];
           const recent = items.slice(-effectiveLimit);
 
@@ -272,10 +278,7 @@ function buildTools(client: BasecampClient): ChannelAgentTool[] {
         const params = rawParams as AddBoostInput;
         const content = params.content || "👍";
         try {
-          const result = await client.boosts.createForRecording(
-            numId("recording", params.recordingId),
-            { content },
-          );
+          const result = await client.boosts.createForRecording(numId("recording", params.recordingId), { content });
           return toolOk({ boostId: (result as any)?.id });
         } catch (err) {
           return toolErr(String(err));
@@ -310,10 +313,7 @@ function buildTools(client: BasecampClient): ChannelAgentTool[] {
       execute: async (_toolCallId: string, rawParams: unknown) => {
         const { bucketId, messageBoardId, subject, content, categoryId } = rawParams as PostMessageInput;
         try {
-          const result = await client.messages.create(
-            numId("board", messageBoardId),
-            { subject, content, categoryId },
-          );
+          const result = await client.messages.create(numId("board", messageBoardId), { subject, content, categoryId });
           return toolOk({ messageId: (result as any)?.id, subject: (result as any)?.subject });
         } catch (err) {
           return toolErr(String(err));
@@ -324,16 +324,12 @@ function buildTools(client: BasecampClient): ChannelAgentTool[] {
       name: "basecamp_answer_checkin",
       label: "Answer Basecamp Check-in",
       description:
-        "Answer a Basecamp check-in question. " +
-        "Requires the project (bucket) ID, question ID, and answer content.",
+        "Answer a Basecamp check-in question. " + "Requires the project (bucket) ID, question ID, and answer content.",
       parameters: AnswerCheckinParams,
       execute: async (_toolCallId: string, rawParams: unknown) => {
         const { bucketId, questionId, content } = rawParams as AnswerCheckinInput;
         try {
-          const result = await client.checkins.createAnswer(
-            numId("question", questionId),
-            { content },
-          );
+          const result = await client.checkins.createAnswer(numId("question", questionId), { content });
           return toolOk({ answerId: (result as any)?.id });
         } catch (err) {
           return toolErr(String(err));

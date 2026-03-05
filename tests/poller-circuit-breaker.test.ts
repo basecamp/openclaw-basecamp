@@ -5,11 +5,12 @@
  * instance, failures update its internal state, and syncCircuitBreakerMetrics
  * propagates that state to the metrics registry (read by the status adapter).
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+
 import { mkdtemp, rm } from "node:fs/promises";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { getAccountMetrics, clearMetrics } from "../src/metrics.js";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { clearMetrics, getAccountMetrics } from "../src/metrics.js";
 
 // ---------------------------------------------------------------------------
 // Module mocks -- intercept poll functions and config at the module boundary
@@ -91,7 +92,10 @@ vi.mock("../src/basecamp-client.js", () => ({
   rawOrThrow: vi.fn(async (result: any) => result?.data),
   BasecampError: class BasecampError extends Error {
     code: string;
-    constructor(msg: string, code: string) { super(msg); this.code = code; }
+    constructor(msg: string, code: string) {
+      super(msg);
+      this.code = code;
+    }
   },
   clearClients: vi.fn(),
 }));

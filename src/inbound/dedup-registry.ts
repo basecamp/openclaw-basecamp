@@ -12,8 +12,8 @@
 
 import { join } from "node:path";
 import { EventDedup } from "./dedup.js";
-import { openDedupDb } from "./dedup-store-sqlite.js";
 import type { DedupDb } from "./dedup-store-sqlite.js";
+import { openDedupDb } from "./dedup-store-sqlite.js";
 import { resolvePluginStateDir } from "./state-dir.js";
 
 const registry = new Map<string, { dedup: EventDedup; db?: DedupDb; stateDir: string }>();

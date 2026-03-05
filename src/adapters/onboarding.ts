@@ -8,21 +8,21 @@
  * Both paths converge on discoverIdentity() for account/person resolution.
  */
 
-import type { OpenClawConfig, ChannelOnboardingAdapter, ChannelOnboardingDmPolicy } from "openclaw/plugin-sdk";
-import type { DmPolicy } from "openclaw/plugin-sdk";
+import type {
+  ChannelOnboardingAdapter,
+  ChannelOnboardingDmPolicy,
+  DmPolicy,
+  OpenClawConfig,
+} from "openclaw/plugin-sdk";
 import { DEFAULT_ACCOUNT_ID, normalizeAccountId } from "openclaw/plugin-sdk";
-import type { BasecampChannelConfig } from "../types.js";
 import {
-  listBasecampAccountIds,
-  resolveDefaultBasecampAccountId,
-  resolveBasecampAccount,
-} from "../config.js";
-import {
-  cliProfileListFull,
-  extractCliBootstrapToken,
-  exportCliCredentials,
   type CliProfile,
+  cliProfileListFull,
+  exportCliCredentials,
+  extractCliBootstrapToken,
 } from "../basecamp-cli.js";
+import { listBasecampAccountIds, resolveBasecampAccount, resolveDefaultBasecampAccountId } from "../config.js";
+import type { BasecampChannelConfig } from "../types.js";
 
 const channel = "basecamp" as const;
 
@@ -83,20 +83,13 @@ export const basecampOnboardingAdapter: ChannelOnboardingAdapter = {
     };
   },
 
-  configure: async ({
-    cfg,
-    prompter,
-    accountOverrides,
-    shouldPromptAccountIds,
-  }) => {
+  configure: async ({ cfg, prompter, accountOverrides, shouldPromptAccountIds }) => {
     let next = cfg;
 
     // Step 1: Resolve OpenClaw account ID
     const basecampOverride = accountOverrides.basecamp?.trim();
     const defaultAccountId = resolveDefaultBasecampAccountId(cfg);
-    let accountId = basecampOverride
-      ? normalizeAccountId(basecampOverride)
-      : defaultAccountId;
+    let accountId = basecampOverride ? normalizeAccountId(basecampOverride) : defaultAccountId;
 
     if (shouldPromptAccountIds && !basecampOverride) {
       const existingIds = listBasecampAccountIds(cfg);
@@ -171,10 +164,10 @@ export const basecampOnboardingAdapter: ChannelOnboardingAdapter = {
       if (!clientId) {
         await prompter.note(
           "You'll need a Basecamp OAuth app. Register one at:\n" +
-          "https://launchpad.37signals.com/integrations\n\n" +
-          "When creating the app, set the redirect URI to:\n" +
-          "http://localhost:14923/callback\n\n" +
-          "You can leave the other fields as defaults.",
+            "https://launchpad.37signals.com/integrations\n\n" +
+            "When creating the app, set the redirect URI to:\n" +
+            "http://localhost:14923/callback\n\n" +
+            "You can leave the other fields as defaults.",
           "OAuth setup",
         );
         const enteredId = await prompter.text({
@@ -291,10 +284,7 @@ export const basecampOnboardingAdapter: ChannelOnboardingAdapter = {
       basecampAccountId = choice;
     } else if (discoveredAccounts.length === 1) {
       basecampAccountId = String(discoveredAccounts[0]!.id);
-      await prompter.note(
-        `Using account: ${discoveredAccounts[0]!.name} (${basecampAccountId})`,
-        "Basecamp account",
-      );
+      await prompter.note(`Using account: ${discoveredAccounts[0]!.name} (${basecampAccountId})`, "Basecamp account");
     }
 
     // Step 6: Resolve personId
@@ -329,7 +319,7 @@ export const basecampOnboardingAdapter: ChannelOnboardingAdapter = {
     if (authMethod === "cli" && !oauthTokenFile) {
       await prompter.note(
         "Could not import credentials from the CLI.\n" +
-        "Token refresh will not work until you re-run onboarding with OAuth.",
+          "Token refresh will not work until you re-run onboarding with OAuth.",
         "Warning",
       );
     }

@@ -1,6 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { join } from "node:path";
 import { homedir } from "node:os";
+import { join } from "node:path";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // Mock @37signals/basecamp OAuth exports (these are being built in parallel)
 vi.mock("@37signals/basecamp/oauth", () => {
@@ -32,13 +32,13 @@ vi.mock("openclaw/plugin-sdk", () => ({
   },
 }));
 
+import { FileTokenStore, performInteractiveLogin, refreshToken, TokenManager } from "@37signals/basecamp/oauth";
 import {
-  resolveTokenFilePath,
-  createTokenManager,
   clearTokenManagers,
+  createTokenManager,
   interactiveLogin,
+  resolveTokenFilePath,
 } from "../src/oauth-credentials.js";
-import { TokenManager, FileTokenStore, performInteractiveLogin, refreshToken } from "@37signals/basecamp/oauth";
 import type { ResolvedBasecampAccount } from "../src/types.js";
 
 function makeAccount(overrides?: Partial<ResolvedBasecampAccount>): ResolvedBasecampAccount {
@@ -70,15 +70,7 @@ describe("resolveTokenFilePath", () => {
 
   it("uses default path when stateDir is omitted", () => {
     const result = resolveTokenFilePath("acme");
-    const expected = join(
-      homedir(),
-      ".local",
-      "share",
-      "openclaw",
-      "basecamp",
-      "tokens",
-      "acme.json",
-    );
+    const expected = join(homedir(), ".local", "share", "openclaw", "basecamp", "tokens", "acme.json");
     expect(result).toBe(expected);
   });
 });
@@ -132,15 +124,7 @@ describe("createTokenManager", () => {
       config: { personId: "42" },
     });
     createTokenManager(account);
-    const expectedPath = join(
-      homedir(),
-      ".local",
-      "share",
-      "openclaw",
-      "basecamp",
-      "tokens",
-      "work.json",
-    );
+    const expectedPath = join(homedir(), ".local", "share", "openclaw", "basecamp", "tokens", "work.json");
     expect(FileTokenStore).toHaveBeenCalledWith(expectedPath);
   });
 });

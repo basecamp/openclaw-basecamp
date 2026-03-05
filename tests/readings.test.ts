@@ -1,8 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import type {
-  BasecampReadingsEntry,
-  ResolvedBasecampAccount,
-} from "../src/types.js";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { BasecampReadingsEntry, ResolvedBasecampAccount } from "../src/types.js";
 
 const mockClient = {
   raw: {
@@ -19,7 +16,10 @@ vi.mock("../src/basecamp-client.js", () => ({
   }),
   BasecampError: class BasecampError extends Error {
     code: string;
-    constructor(msg: string, code: string) { super(msg); this.code = code; }
+    constructor(msg: string, code: string) {
+      super(msg);
+      this.code = code;
+    }
   },
 }));
 
@@ -30,8 +30,8 @@ vi.mock("../src/outbound/send.js", () => ({
   resolveCircleInfoCached: vi.fn(() => undefined),
 }));
 
-import { recordUnknownKind } from "../src/metrics.js";
 import { pollReadings } from "../src/inbound/readings.js";
+import { recordUnknownKind } from "../src/metrics.js";
 
 const mockAccount: ResolvedBasecampAccount = {
   accountId: "test-acct",

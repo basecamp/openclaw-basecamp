@@ -1,6 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { basecampGroupAdapter } from "../src/adapters/groups.js";
-import { resolveBasecampBucketConfig } from "../src/adapters/groups.js";
+import { describe, expect, it } from "vitest";
+import { basecampGroupAdapter, resolveBasecampBucketConfig } from "../src/adapters/groups.js";
 
 function cfg(basecamp?: Record<string, unknown>) {
   if (!basecamp) return {} as any;
@@ -13,18 +12,12 @@ function cfg(basecamp?: Record<string, unknown>) {
 
 describe("resolveBasecampBucketConfig", () => {
   it("returns exact match", () => {
-    const result = resolveBasecampBucketConfig(
-      cfg({ buckets: { "123": { requireMention: true } } }),
-      "123",
-    );
+    const result = resolveBasecampBucketConfig(cfg({ buckets: { "123": { requireMention: true } } }), "123");
     expect(result).toEqual({ requireMention: true });
   });
 
   it("falls back to wildcard", () => {
-    const result = resolveBasecampBucketConfig(
-      cfg({ buckets: { "*": { requireMention: false } } }),
-      "999",
-    );
+    const result = resolveBasecampBucketConfig(cfg({ buckets: { "*": { requireMention: false } } }), "999");
     expect(result).toEqual({ requireMention: false });
   });
 
@@ -47,10 +40,7 @@ describe("resolveBasecampBucketConfig", () => {
   });
 
   it("returns undefined when bucketId not found and no wildcard", () => {
-    const result = resolveBasecampBucketConfig(
-      cfg({ buckets: { "456": { requireMention: true } } }),
-      "123",
-    );
+    const result = resolveBasecampBucketConfig(cfg({ buckets: { "456": { requireMention: true } } }), "123");
     expect(result).toBeUndefined();
   });
 });

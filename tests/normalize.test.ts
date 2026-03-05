@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 // Mock external deps used by normalize.ts
 vi.mock("../src/metrics.js", () => ({
@@ -9,6 +9,7 @@ vi.mock("../src/outbound/send.js", () => ({
 }));
 
 import {
+  isSelfMessage,
   normalizeActivityEvent,
   normalizeReadingsEvent,
   normalizeWebhookPayload,
@@ -16,14 +17,13 @@ import {
   parseRecordingIdFromIdentifier,
   resolveBasecampPeer,
   resolveParentPeer,
-  isSelfMessage,
 } from "../src/inbound/normalize.js";
 import type {
   BasecampActivityEvent,
+  BasecampPeer,
   BasecampReadingsEntry,
   BasecampWebhookPayload,
   ResolvedBasecampAccount,
-  BasecampPeer,
 } from "../src/types.js";
 
 // ---------------------------------------------------------------------------
@@ -377,7 +377,8 @@ describe("normalizeActivityEvent", () => {
   });
 
   it("extracts mentions from HTML content", async () => {
-    const html = '<bc-attachment sgid="sgid://bc3/Person/42" content-type="application/vnd.basecamp.mention"></bc-attachment> hello';
+    const html =
+      '<bc-attachment sgid="sgid://bc3/Person/42" content-type="application/vnd.basecamp.mention"></bc-attachment> hello';
     const raw = makeActivityEvent({
       recording: { id: 207, type: "Comment", content: html },
     });
@@ -387,7 +388,8 @@ describe("normalizeActivityEvent", () => {
   });
 
   it("sets mentionsAgent true when content has bc-attachment matching agent SGID", async () => {
-    const html = '<bc-attachment sgid="sgid://bc3/Person/999" content-type="application/vnd.basecamp.mention"></bc-attachment> hey';
+    const html =
+      '<bc-attachment sgid="sgid://bc3/Person/999" content-type="application/vnd.basecamp.mention"></bc-attachment> hey';
     const raw = makeActivityEvent({
       recording: { id: 208, type: "Comment", content: html },
     });
@@ -768,7 +770,8 @@ describe("normalizeWebhookPayload", () => {
       recording: {
         id: 302,
         type: "Comment",
-        content: '<bc-attachment sgid="sgid://bc3/Person/999" content-type="application/vnd.basecamp.mention"></bc-attachment> ping',
+        content:
+          '<bc-attachment sgid="sgid://bc3/Person/999" content-type="application/vnd.basecamp.mention"></bc-attachment> ping',
         bucket: { id: 100, name: "Test Project" },
       },
     });
@@ -797,8 +800,8 @@ describe("normalizeWebhookPayload", () => {
 // Step 4: Ping enrichment via Circle API
 // ---------------------------------------------------------------------------
 
-import { resolveCircleInfoCached } from "../src/outbound/send.js";
 import { recordUnknownKind } from "../src/metrics.js";
+import { resolveCircleInfoCached } from "../src/outbound/send.js";
 
 describe("Ping participant enrichment", () => {
   it("activity Ping with Circle lookup returning 2 participants → dm", async () => {

@@ -8,10 +8,10 @@
  * - ChannelOutboundAdapter.sendText for the OpenClaw outbound pipeline
  */
 
-import type { BasecampRecordableType, ResolvedBasecampAccount } from "../types.js";
-import { getClient, numId, rawOrThrow, type BasecampClient } from "../basecamp-client.js";
+import { type BasecampClient, getClient, numId, rawOrThrow } from "../basecamp-client.js";
 import type { CircuitBreaker } from "../circuit-breaker.js";
-import { withRetry, withCircuitBreaker, isRetryableError } from "../retry.js";
+import { isRetryableError, withCircuitBreaker, withRetry } from "../retry.js";
+import type { BasecampRecordableType, ResolvedBasecampAccount } from "../types.js";
 
 // ---------------------------------------------------------------------------
 // Circle info cache — LRU-bounded to avoid unbounded growth.
@@ -133,10 +133,7 @@ export async function postCampfireLine(params: {
 
   const doPost = async () => {
     const client = getClient(account);
-    return client.campfires.createLine(
-      numId("campfire", transcriptId),
-      { content },
-    );
+    return client.campfires.createLine(numId("campfire", transcriptId), { content });
   };
 
   const wrappedPost = circuitBreaker
@@ -144,20 +141,19 @@ export async function postCampfireLine(params: {
     : doPost;
 
   try {
-    const result = retries && retries > 0
-      ? await withRetry(wrappedPost, { maxAttempts: retries + 1 })
-      : await wrappedPost();
+    const result =
+      retries && retries > 0 ? await withRetry(wrappedPost, { maxAttempts: retries + 1 }) : await wrappedPost();
     console.log(
       `[basecamp:outbound] sent ok — ` +
-      `type=campfire recording=${transcriptId} account=${account.accountId} correlation=${correlationId ?? "none"}`,
+        `type=campfire recording=${transcriptId} account=${account.accountId} correlation=${correlationId ?? "none"}`,
     );
     return { ok: true, recordingId: String((result as any)?.id ?? "") };
   } catch (err) {
     const retryable = isRetryableError(err);
     console.warn(
       `[basecamp:outbound] failed — ` +
-      `type=campfire recording=${transcriptId} account=${account.accountId} ` +
-      `correlation=${correlationId ?? "none"} retryable=${retryable} error=${String(err)}`,
+        `type=campfire recording=${transcriptId} account=${account.accountId} ` +
+        `correlation=${correlationId ?? "none"} retryable=${retryable} error=${String(err)}`,
     );
     return { ok: false, error: err, message: String(err), retryable };
   }
@@ -180,10 +176,7 @@ export async function postComment(params: {
 
   const doPost = async () => {
     const client = getClient(account);
-    return client.comments.create(
-      numId("recording", recordingId),
-      { content },
-    );
+    return client.comments.create(numId("recording", recordingId), { content });
   };
 
   const wrappedPost = circuitBreaker
@@ -191,20 +184,19 @@ export async function postComment(params: {
     : doPost;
 
   try {
-    const result = retries && retries > 0
-      ? await withRetry(wrappedPost, { maxAttempts: retries + 1 })
-      : await wrappedPost();
+    const result =
+      retries && retries > 0 ? await withRetry(wrappedPost, { maxAttempts: retries + 1 }) : await wrappedPost();
     console.log(
       `[basecamp:outbound] sent ok — ` +
-      `type=comment recording=${recordingId} account=${account.accountId} correlation=${correlationId ?? "none"}`,
+        `type=comment recording=${recordingId} account=${account.accountId} correlation=${correlationId ?? "none"}`,
     );
     return { ok: true, commentId: String((result as any)?.id ?? "") };
   } catch (err) {
     const retryable = isRetryableError(err);
     console.warn(
       `[basecamp:outbound] failed — ` +
-      `type=comment recording=${recordingId} account=${account.accountId} ` +
-      `correlation=${correlationId ?? "none"} retryable=${retryable} error=${String(err)}`,
+        `type=comment recording=${recordingId} account=${account.accountId} ` +
+        `correlation=${correlationId ?? "none"} retryable=${retryable} error=${String(err)}`,
     );
     return { ok: false, error: err, message: String(err), retryable };
   }
@@ -241,7 +233,8 @@ export async function postReplyToEvent(params: {
   circuitBreaker?: { instance: CircuitBreaker; key: string };
   correlationId?: string;
 }): Promise<{ ok: boolean; messageId?: string; retryable?: boolean; error?: unknown; message?: string }> {
-  const { bucketId, recordingId, recordableType, peerId, content, account, retries, circuitBreaker, correlationId } = params;
+  const { bucketId, recordingId, recordableType, peerId, content, account, retries, circuitBreaker, correlationId } =
+    params;
   const parsed = parsePeerId(peerId);
 
   // Pings: resolve the transcript ID from the circle's bucket ID
@@ -270,10 +263,7 @@ export async function postReplyToEvent(params: {
   const parentId = peerTarget.prefix === "recording" ? peerTarget.id : undefined;
 
   // Chat lines go to the transcript
-  if (
-    recordableType === "Chat::Transcript" ||
-    recordableType === "Chat::Line"
-  ) {
+  if (recordableType === "Chat::Transcript" || recordableType === "Chat::Line") {
     const transcriptId = parentId ?? recordingId;
     const result = await postCampfireLine({
       bucketId,
@@ -320,7 +310,7 @@ export async function sendBasecampText(params: {
 }): Promise<{ channel: "basecamp"; messageId: string }> {
   throw new Error(
     `Basecamp does not support direct outbound delivery to "${params.to}". ` +
-    `Agent replies flow through the dispatch bridge (dispatchBasecampEvent → postReplyToEvent).`,
+      `Agent replies flow through the dispatch bridge (dispatchBasecampEvent → postReplyToEvent).`,
   );
 }
 
@@ -332,6 +322,6 @@ export async function sendBasecampMedia(params: {
 }): Promise<{ channel: "basecamp"; messageId: string }> {
   throw new Error(
     `Basecamp does not support direct media delivery to "${params.to}". ` +
-    `Media sharing is available via agent tools (basecamp_api_write).`,
+      `Media sharing is available via agent tools (basecamp_api_write).`,
   );
 }

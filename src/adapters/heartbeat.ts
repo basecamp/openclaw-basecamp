@@ -9,8 +9,8 @@
  */
 
 import type { ChannelHeartbeatAdapter } from "openclaw/plugin-sdk";
-import { resolveBasecampAccount } from "../config.js";
 import { getClient } from "../basecamp-client.js";
+import { resolveBasecampAccount } from "../config.js";
 
 export const basecampHeartbeatAdapter: ChannelHeartbeatAdapter = {
   checkReady: async ({ cfg, accountId }) => {

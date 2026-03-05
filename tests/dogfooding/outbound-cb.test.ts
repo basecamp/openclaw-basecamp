@@ -9,11 +9,16 @@
  *   - Direct CB state machine + metrics sync (DF-018, DF-019, DF-020)
  *   - Full dispatch pipeline with failure attribution (DF-021)
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { dispatchBasecampEvent } from "../../src/dispatch.js";
-import type { BasecampInboundMessage, ResolvedBasecampAccount } from "../../src/types.js";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { CircuitBreaker } from "../../src/circuit-breaker.js";
-import { getAccountMetrics, clearMetrics, recordCircuitBreakerState, recordDispatchFailure } from "../../src/metrics.js";
+import { dispatchBasecampEvent } from "../../src/dispatch.js";
+import {
+  clearMetrics,
+  getAccountMetrics,
+  recordCircuitBreakerState,
+  recordDispatchFailure,
+} from "../../src/metrics.js";
+import type { BasecampInboundMessage, ResolvedBasecampAccount } from "../../src/types.js";
 
 // ---------------------------------------------------------------------------
 // Mocks — only needed for DF-021 (full dispatch pipeline)

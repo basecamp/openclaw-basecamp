@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { EventDedup } from "../src/inbound/dedup.js";
 
 // Mock external deps used by normalize.ts
@@ -9,15 +9,8 @@ vi.mock("../src/outbound/send.js", () => ({
   resolveCircleInfoCached: vi.fn(() => undefined),
 }));
 
-import {
-  normalizeActivityEvent,
-  normalizeWebhookPayload,
-} from "../src/inbound/normalize.js";
-import type {
-  BasecampActivityEvent,
-  BasecampWebhookPayload,
-  ResolvedBasecampAccount,
-} from "../src/types.js";
+import { normalizeActivityEvent, normalizeWebhookPayload } from "../src/inbound/normalize.js";
+import type { BasecampActivityEvent, BasecampWebhookPayload, ResolvedBasecampAccount } from "../src/types.js";
 
 const account: ResolvedBasecampAccount = {
   accountId: "test",
@@ -81,10 +74,14 @@ describe("cross-source dedup key parity", () => {
 
     // Therefore, the secondary keys are identical:
     const activitySecondary = EventDedup.secondaryKey(
-      activityMsg!.meta.recordingId!, activityMsg!.meta.eventKind, activityMsg!.createdAt,
+      activityMsg!.meta.recordingId!,
+      activityMsg!.meta.eventKind,
+      activityMsg!.createdAt,
     );
     const webhookSecondary = EventDedup.secondaryKey(
-      webhookMsg!.meta.recordingId!, webhookMsg!.meta.eventKind, webhookMsg!.createdAt,
+      webhookMsg!.meta.recordingId!,
+      webhookMsg!.meta.eventKind,
+      webhookMsg!.createdAt,
     );
     expect(activitySecondary).toBe(webhookSecondary);
 
@@ -101,7 +98,7 @@ describe("cross-source dedup key parity", () => {
     const recordingId = "456";
     const eventKind = "created";
     const readingsCreatedAt = "2025-06-15T15:00:00Z"; // unread_at, shifted
-    const webhookCreatedAt = "2025-06-15T14:30:00Z";  // created_at, original
+    const webhookCreatedAt = "2025-06-15T14:30:00Z"; // created_at, original
 
     const readingsSecondary = EventDedup.secondaryKey(recordingId, eventKind, readingsCreatedAt);
     const webhookSecondary = EventDedup.secondaryKey(recordingId, eventKind, webhookCreatedAt);

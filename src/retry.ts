@@ -33,9 +33,14 @@ function sleep(ms: number): Promise<void> {
 export function isRetryableError(err: unknown): boolean {
   if (!(err instanceof TypeError)) return false;
   const msg = err.message.toLowerCase();
-  return msg.includes("fetch") || msg.includes("failed to fetch") ||
-    msg.includes("network") || msg.includes("econnrefused") ||
-    msg.includes("econnreset") || msg.includes("etimedout");
+  return (
+    msg.includes("fetch") ||
+    msg.includes("failed to fetch") ||
+    msg.includes("network") ||
+    msg.includes("econnrefused") ||
+    msg.includes("econnreset") ||
+    msg.includes("etimedout")
+  );
 }
 
 /**
@@ -71,11 +76,7 @@ export async function withRetry<T>(fn: () => Promise<T>, opts?: RetryOptions): P
  * Wrap a function with circuit breaker checks.
  * Records success/failure on the breaker; throws if the circuit is open.
  */
-export async function withCircuitBreaker<T>(
-  cb: CircuitBreaker,
-  key: string,
-  fn: () => Promise<T>,
-): Promise<T> {
+export async function withCircuitBreaker<T>(cb: CircuitBreaker, key: string, fn: () => Promise<T>): Promise<T> {
   if (cb.isOpen(key)) {
     throw new Error(`Circuit breaker open for ${key}`);
   }

@@ -5,8 +5,8 @@
  * and config application for Basecamp accounts.
  */
 
-import type { OpenClawConfig, ChannelSetupAdapter, ChannelSetupInput } from "openclaw/plugin-sdk";
-import { DEFAULT_ACCOUNT_ID, normalizeAccountId, applyAccountNameToChannelSection } from "openclaw/plugin-sdk";
+import type { ChannelSetupAdapter, ChannelSetupInput, OpenClawConfig } from "openclaw/plugin-sdk";
+import { applyAccountNameToChannelSection, DEFAULT_ACCOUNT_ID, normalizeAccountId } from "openclaw/plugin-sdk";
 import type { BasecampChannelConfig } from "../types.js";
 
 function getBasecampSection(cfg: OpenClawConfig): BasecampChannelConfig | undefined {
@@ -42,11 +42,7 @@ export const basecampSetupAdapter: ChannelSetupAdapter = {
     const accounts = (section.accounts ?? {}) as Record<string, Record<string, unknown>>;
     const existingAccount = accounts[accountId] ?? {};
 
-    const tokenConfig = input.tokenFile
-      ? { tokenFile: input.tokenFile }
-      : input.token
-        ? { token: input.token }
-        : {};
+    const tokenConfig = input.tokenFile ? { tokenFile: input.tokenFile } : input.token ? { token: input.token } : {};
 
     return {
       ...namedConfig,

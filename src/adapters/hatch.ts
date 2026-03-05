@@ -13,21 +13,21 @@
  * it's a standalone wizard function called from the onboarding adapter.
  */
 
+import type { AuthorizationInfo } from "@37signals/basecamp";
+import { discoverIdentity } from "@37signals/basecamp/oauth";
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import { normalizeAccountId } from "openclaw/plugin-sdk";
-import type { AuthorizationInfo } from "@37signals/basecamp";
-import type { BasecampChannelConfig } from "../types.js";
-import type { ResolvedBasecampAccount } from "../types.js";
 import { cliMe, cliProfileList } from "../basecamp-cli.js";
 import { listBasecampAccountIds } from "../config.js";
-import {
-  interactiveLogin,
-  resolveTokenFilePath,
-} from "../oauth-credentials.js";
-import { discoverIdentity } from "@37signals/basecamp/oauth";
+import { interactiveLogin, resolveTokenFilePath } from "../oauth-credentials.js";
+import type { BasecampChannelConfig, ResolvedBasecampAccount } from "../types.js";
 
 type WizardPrompter = {
-  select: (opts: { message: string; options: Array<{ value: string; label: string }>; initialValue?: string }) => Promise<string>;
+  select: (opts: {
+    message: string;
+    options: Array<{ value: string; label: string }>;
+    initialValue?: string;
+  }) => Promise<string>;
   text: (opts: { message: string; validate?: (value: string | undefined) => string | undefined }) => Promise<string>;
   note: (message: string, title?: string) => Promise<void>;
 };
@@ -49,19 +49,16 @@ type AuthMethod = "browser" | "cli";
 // Step 1: Auth method choice
 // ---------------------------------------------------------------------------
 
-async function chooseAuthMethod(
-  prompter: WizardPrompter,
-  cliAvailable: boolean,
-): Promise<AuthMethod> {
+async function chooseAuthMethod(prompter: WizardPrompter, cliAvailable: boolean): Promise<AuthMethod> {
   if (!cliAvailable) return "browser";
 
-  return await prompter.select({
+  return (await prompter.select({
     message: "How do you want to authenticate this identity?",
     options: [
       { value: "browser", label: "Authenticate with browser (recommended)" },
       { value: "cli", label: "Use existing Basecamp CLI profile" },
     ],
-  }) as AuthMethod;
+  })) as AuthMethod;
 }
 
 // ---------------------------------------------------------------------------
@@ -195,10 +192,7 @@ async function selectBasecampAccount(
   if (bc3.length === 0) return undefined;
 
   if (bc3.length === 1) {
-    await prompter.note(
-      `Using account: ${bc3[0]!.name} (${bc3[0]!.id})`,
-      "Basecamp account",
-    );
+    await prompter.note(`Using account: ${bc3[0]!.name} (${bc3[0]!.id})`, "Basecamp account");
     return String(bc3[0]!.id);
   }
 
@@ -227,10 +221,7 @@ async function selectBasecampAccount(
  * 6. Optional persona mapping
  * 7. Apply config (with auth-method conflict cleanup)
  */
-export async function hatchIdentity(
-  cfg: OpenClawConfig,
-  prompter: WizardPrompter,
-): Promise<HatchResult> {
+export async function hatchIdentity(cfg: OpenClawConfig, prompter: WizardPrompter): Promise<HatchResult> {
   // Probe CLI availability
   let profileNames: string[] = [];
   try {
@@ -462,13 +453,14 @@ export async function hatchIdentity(
   if (cliProfile) accountEntry.cliProfile = cliProfile;
 
   // Build updated channel-level oauth if credentials were prompted
-  const oauthSection = promptedClientId && oauthClientId
-    ? {
-        ...(section.oauth ?? {}),
-        clientId: oauthClientId,
-        ...(promptedClientSecret && oauthClientSecret ? { clientSecret: oauthClientSecret } : {}),
-      }
-    : section.oauth;
+  const oauthSection =
+    promptedClientId && oauthClientId
+      ? {
+          ...(section.oauth ?? {}),
+          clientId: oauthClientId,
+          ...(promptedClientSecret && oauthClientSecret ? { clientSecret: oauthClientSecret } : {}),
+        }
+      : section.oauth;
 
   const next: OpenClawConfig = {
     ...cfg,

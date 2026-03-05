@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockClient = {
   webhooks: { list: vi.fn(), delete: vi.fn() },
@@ -16,13 +16,16 @@ vi.mock("../src/basecamp-client.js", () => ({
   }),
   BasecampError: class BasecampError extends Error {
     code: string;
-    constructor(msg: string, code: string) { super(msg); this.code = code; }
+    constructor(msg: string, code: string) {
+      super(msg);
+      this.code = code;
+    }
   },
 }));
 
-import { WebhookSecretRegistry } from "../src/inbound/webhook-secrets.js";
-import { reconcileWebhooks, deactivateWebhooks } from "../src/inbound/webhook-lifecycle.js";
 import type { WebhookLifecycleConfig } from "../src/inbound/webhook-lifecycle.js";
+import { deactivateWebhooks, reconcileWebhooks } from "../src/inbound/webhook-lifecycle.js";
+import { WebhookSecretRegistry } from "../src/inbound/webhook-secrets.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -146,10 +149,7 @@ describe("reconcileWebhooks", () => {
       types: ["Comment", "Todo"],
     });
 
-    const result = await reconcileWebhooks(
-      makeConfig({ projects: ["100"] }),
-      registry,
-    );
+    const result = await reconcileWebhooks(makeConfig({ projects: ["100"] }), registry);
 
     expect(result.existing).toEqual(["100"]);
     // Secret should be preserved
@@ -180,11 +180,7 @@ describe("reconcileWebhooks", () => {
 
     const registry = new WebhookSecretRegistry();
     const log = mockLog();
-    const result = await reconcileWebhooks(
-      makeConfig({ projects: ["100"] }),
-      registry,
-      log,
-    );
+    const result = await reconcileWebhooks(makeConfig({ projects: ["100"] }), registry, log);
 
     // Old webhook should be deleted, new one created
     expect(mockClient.webhooks.delete).toHaveBeenCalledWith(42);
@@ -211,19 +207,18 @@ describe("reconcileWebhooks", () => {
 
     const registry = new WebhookSecretRegistry();
     const log = mockLog();
-    const result = await reconcileWebhooks(
-      makeConfig({ projects: ["100"] }),
-      registry,
-      log,
-    );
+    const result = await reconcileWebhooks(makeConfig({ projects: ["100"] }), registry, log);
 
     // No-secret is not a failure — BC3 never returns secrets
     expect(result.created).toEqual(["100"]);
     expect(result.failed).toEqual([]);
     expect(registry.get("100")!.secret).toBe("");
-    expect(log.info).toHaveBeenCalledWith("webhook_create_no_secret", expect.objectContaining({
-      project: "100",
-    }));
+    expect(log.info).toHaveBeenCalledWith(
+      "webhook_create_no_secret",
+      expect.objectContaining({
+        project: "100",
+      }),
+    );
   });
 
   it("records failed projects when create returns no ID", async () => {
@@ -270,10 +265,7 @@ describe("reconcileWebhooks", () => {
     });
 
     const registry = new WebhookSecretRegistry();
-    const result = await reconcileWebhooks(
-      makeConfig({ projects: ["100"] }),
-      registry,
-    );
+    const result = await reconcileWebhooks(makeConfig({ projects: ["100"] }), registry);
 
     expect(result.created).toEqual(["100"]);
     expect(mockClient.raw.POST).toHaveBeenCalledTimes(1);
@@ -302,10 +294,7 @@ describe("reconcileWebhooks", () => {
     });
 
     const registry = new WebhookSecretRegistry();
-    const result = await reconcileWebhooks(
-      makeConfig({ projects: ["100"] }),
-      registry,
-    );
+    const result = await reconcileWebhooks(makeConfig({ projects: ["100"] }), registry);
 
     // Inactive match should not count — should create new
     expect(result.created).toEqual(["100"]);
@@ -327,10 +316,7 @@ describe("reconcileWebhooks", () => {
 
     const registry = new WebhookSecretRegistry();
     const { getClient } = await import("../src/basecamp-client.js");
-    await reconcileWebhooks(
-      makeConfig({ projects: ["100"] }),
-      registry,
-    );
+    await reconcileWebhooks(makeConfig({ projects: ["100"] }), registry);
 
     expect(getClient).toHaveBeenCalledWith(TEST_ACCOUNT);
   });
@@ -354,10 +340,7 @@ describe("reconcileWebhooks", () => {
       types: ["Todo", "Comment"],
     });
 
-    const result = await reconcileWebhooks(
-      makeConfig({ projects: ["100"] }),
-      registry,
-    );
+    const result = await reconcileWebhooks(makeConfig({ projects: ["100"] }), registry);
 
     expect(result.existing).toEqual(["100"]);
     expect(result.recovered).toEqual([]);
@@ -386,11 +369,7 @@ describe("reconcileWebhooks", () => {
     });
 
     const log = mockLog();
-    const result = await reconcileWebhooks(
-      makeConfig({ projects: ["100"] }),
-      registry,
-      log,
-    );
+    const result = await reconcileWebhooks(makeConfig({ projects: ["100"] }), registry, log);
 
     // Should be existing — no delete/recreate
     expect(result.existing).toEqual(["100"]);
@@ -414,11 +393,7 @@ describe("reconcileWebhooks", () => {
     const registry = new WebhookSecretRegistry();
     const log = mockLog();
 
-    const result1 = await reconcileWebhooks(
-      makeConfig({ projects: ["100"] }),
-      registry,
-      log,
-    );
+    const result1 = await reconcileWebhooks(makeConfig({ projects: ["100"] }), registry, log);
     expect(result1.existing).toEqual(["100"]);
 
     // Second call: same state
@@ -432,11 +407,7 @@ describe("reconcileWebhooks", () => {
       },
     ]);
 
-    const result2 = await reconcileWebhooks(
-      makeConfig({ projects: ["100"] }),
-      registry,
-      log,
-    );
+    const result2 = await reconcileWebhooks(makeConfig({ projects: ["100"] }), registry, log);
 
     expect(result2.existing).toEqual(["100"]);
     expect(mockClient.webhooks.delete).not.toHaveBeenCalled();
@@ -457,10 +428,7 @@ describe("reconcileWebhooks", () => {
     });
 
     const registry = new WebhookSecretRegistry();
-    await reconcileWebhooks(
-      makeConfig({ projects: ["100"], types: [] }),
-      registry,
-    );
+    await reconcileWebhooks(makeConfig({ projects: ["100"], types: [] }), registry);
 
     // raw.POST should be called with body that doesn't include types
     const postCallArgs = mockClient.raw.POST.mock.calls[0]!;

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("openclaw/plugin-sdk", () => ({
   DEFAULT_ACCOUNT_ID: "default",
@@ -234,9 +234,7 @@ describe("hatchIdentity — CLI path (chains into OAuth)", () => {
     expect(result.accountId).toBe("new-one");
 
     // Verify the validator was set up correctly
-    const textCall = prompter.text.mock.calls.find(
-      (c: any) => c[0].message.includes("Account ID key"),
-    );
+    const textCall = prompter.text.mock.calls.find((c: any) => c[0].message.includes("Account ID key"));
     expect(textCall).toBeDefined();
     const validate = textCall![0].validate;
     expect(validate!("existing")).toContain("already in use");
@@ -309,9 +307,7 @@ describe("hatchIdentity — Browser/OAuth path", () => {
 
     expect(result.accountId).toBe("new-acct");
     // Check clientId and clientSecret were prompted
-    expect(prompter.text).toHaveBeenCalledWith(
-      expect.objectContaining({ message: "OAuth client ID" }),
-    );
+    expect(prompter.text).toHaveBeenCalledWith(expect.objectContaining({ message: "OAuth client ID" }));
     expect(prompter.text).toHaveBeenCalledWith(
       expect.objectContaining({ message: "Client Secret (leave blank to skip)" }),
     );
@@ -378,9 +374,7 @@ describe("hatchIdentity — browser auth failure", () => {
       "OAuth client ID": "cid",
     });
 
-    await expect(
-      hatchIdentity(cfg({ oauth: { clientId: "cid" } }), prompter),
-    ).rejects.toThrow("login failed");
+    await expect(hatchIdentity(cfg({ oauth: { clientId: "cid" } }), prompter)).rejects.toThrow("login failed");
   });
 
   it("throws when discoverIdentity fails — no silent broken account", async () => {
@@ -396,9 +390,7 @@ describe("hatchIdentity — browser auth failure", () => {
       "OAuth client ID": "cid",
     });
 
-    await expect(
-      hatchIdentity(cfg({ oauth: { clientId: "cid" } }), prompter),
-    ).rejects.toThrow("network error");
+    await expect(hatchIdentity(cfg({ oauth: { clientId: "cid" } }), prompter)).rejects.toThrow("network error");
   });
 });
 

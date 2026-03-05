@@ -1,6 +1,6 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import crypto from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../src/dispatch.js", () => ({
   dispatchBasecampEvent: vi.fn().mockResolvedValue(true),
@@ -66,34 +66,22 @@ vi.mock("../src/inbound/normalize.js", () => ({
 }));
 
 import { mkdtempSync, rmSync } from "node:fs";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
-import {
-  verifyWebhookSignature,
-  handleBasecampWebhook,
-  getWebhookSecretRegistry,
-} from "../src/inbound/webhooks.js";
-import { closeAllAccountDedup } from "../src/inbound/dedup-registry.js";
-import { WebhookSecretRegistry, JsonFileWebhookSecretStore } from "../src/inbound/webhook-secrets.js";
+import { join } from "node:path";
 import { resolveAccountForBucket } from "../src/config.js";
+import { closeAllAccountDedup } from "../src/inbound/dedup-registry.js";
+import { JsonFileWebhookSecretStore, WebhookSecretRegistry } from "../src/inbound/webhook-secrets.js";
+import { getWebhookSecretRegistry, handleBasecampWebhook, verifyWebhookSignature } from "../src/inbound/webhooks.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 function signPayload(secret: string, timestamp: string, body: string): string {
-  return (
-    "sha256=" +
-    crypto.createHmac("sha256", secret).update(`${timestamp}.${body}`).digest("hex")
-  );
+  return "sha256=" + crypto.createHmac("sha256", secret).update(`${timestamp}.${body}`).digest("hex");
 }
 
-function mockReq(
-  method: string,
-  url: string,
-  body?: string,
-  headers?: Record<string, string>,
-): IncomingMessage {
+function mockReq(method: string, url: string, body?: string, headers?: Record<string, string>): IncomingMessage {
   const { Readable } = require("node:stream");
   const req = new Readable({
     read() {

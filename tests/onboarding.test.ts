@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // ---------------------------------------------------------------------------
 // Mock openclaw/plugin-sdk
@@ -10,12 +10,7 @@ vi.mock("openclaw/plugin-sdk", () => ({
     const trimmed = (value ?? "").trim();
     return trimmed || "default";
   },
-  applyAccountNameToChannelSection: (params: {
-    cfg: any;
-    channelKey: string;
-    accountId: string;
-    name?: string;
-  }) => {
+  applyAccountNameToChannelSection: (params: { cfg: any; channelKey: string; accountId: string; name?: string }) => {
     if (!params.name?.trim()) return params.cfg;
     const section = params.cfg.channels?.[params.channelKey] ?? {};
     const accounts = section.accounts ?? {};
@@ -37,8 +32,7 @@ vi.mock("openclaw/plugin-sdk", () => ({
     };
   },
   buildChannelConfigSchema: (schema: any) => schema,
-  PAIRING_APPROVED_MESSAGE:
-    "You have been approved to message this agent.",
+  PAIRING_APPROVED_MESSAGE: "You have been approved to message this agent.",
   createDefaultChannelRuntimeState: (accountId: string) => ({
     accountId,
     running: false,
@@ -169,9 +163,9 @@ vi.mock("../src/config.js", () => ({
 // ---------------------------------------------------------------------------
 
 import { basecampOnboardingAdapter } from "../src/adapters/onboarding.js";
+import { basecampPairingAdapter } from "../src/adapters/pairing.js";
 import { basecampSetupAdapter } from "../src/adapters/setup.js";
 import { basecampStatusAdapter } from "../src/adapters/status.js";
-import { basecampPairingAdapter } from "../src/adapters/pairing.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -187,11 +181,7 @@ function cfgWithAccounts(accounts: Record<string, Record<string, unknown>>) {
 }
 
 /** Creates a minimal WizardPrompter mock. */
-function createPrompter(overrides?: {
-  selectAnswers?: string[];
-  textAnswers?: string[];
-  confirmAnswer?: boolean;
-}) {
+function createPrompter(overrides?: { selectAnswers?: string[]; textAnswers?: string[]; confirmAnswer?: boolean }) {
   let selectIdx = 0;
   let textIdx = 0;
   const selectAnswers = overrides?.selectAnswers ?? [];
@@ -351,10 +341,7 @@ describe("basecampOnboardingAdapter", () => {
       expect(account.personId).toBe("42");
       expect(account.oauthTokenFile).toBe("/tmp/tokens/default.json");
       // Should NOT have prompted for clientId — no text calls for it
-      expect(prompter.note).not.toHaveBeenCalledWith(
-        expect.stringContaining("OAuth app"),
-        expect.any(String),
-      );
+      expect(prompter.note).not.toHaveBeenCalledWith(expect.stringContaining("OAuth app"), expect.any(String));
     });
 
     it("preserves per-account oauthClientId when not prompting for new credentials", async () => {
@@ -688,15 +675,11 @@ describe("basecampOnboardingAdapter", () => {
 describe("basecampSetupAdapter", () => {
   describe("resolveAccountId", () => {
     it("normalizes account ID", () => {
-      expect(basecampSetupAdapter.resolveAccountId!({ cfg: {} as any, accountId: "  foo  " })).toBe(
-        "foo",
-      );
+      expect(basecampSetupAdapter.resolveAccountId!({ cfg: {} as any, accountId: "  foo  " })).toBe("foo");
     });
 
     it("returns 'default' for empty input", () => {
-      expect(basecampSetupAdapter.resolveAccountId!({ cfg: {} as any, accountId: "" })).toBe(
-        "default",
-      );
+      expect(basecampSetupAdapter.resolveAccountId!({ cfg: {} as any, accountId: "" })).toBe("default");
     });
   });
 
@@ -1003,9 +986,7 @@ describe("basecampPairingAdapter", () => {
       const testCfg = cfgWithAccounts({
         default: { personId: "1", token: "tok" },
       });
-      await expect(
-        basecampPairingAdapter.notifyApproval!({ cfg: testCfg, id: "42" }),
-      ).resolves.toBeUndefined();
+      await expect(basecampPairingAdapter.notifyApproval!({ cfg: testCfg, id: "42" })).resolves.toBeUndefined();
     });
   });
 });

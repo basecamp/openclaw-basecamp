@@ -11,7 +11,7 @@
  * Run with: OPENCLAW_INTEGRATION=1 npx vitest run tests/smoke.test.ts
  */
 
-import { describe, it, expect, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 vi.mock("../src/metrics.js", () => ({
   recordUnknownKind: vi.fn(),
@@ -23,8 +23,8 @@ vi.mock("../src/outbound/send.js", () => ({
 import { cliMe } from "../src/basecamp-cli.js";
 import { getClient, rawOrThrow } from "../src/basecamp-client.js";
 import { pollActivityFeed } from "../src/inbound/activity.js";
-import { pollReadings } from "../src/inbound/readings.js";
 import { EventDedup } from "../src/inbound/dedup.js";
+import { pollReadings } from "../src/inbound/readings.js";
 import type { ResolvedBasecampAccount } from "../src/types.js";
 
 // ---------------------------------------------------------------------------
@@ -69,7 +69,7 @@ describeIntegration("smoke: SDK client", () => {
 
   it("client.reports.progress() returns activity events", async () => {
     const client = getClient(testAccount);
-    const events = await client.reports.progress() as any[];
+    const events = (await client.reports.progress()) as any[];
     expect(Array.isArray(events)).toBe(true);
     expect(events.length).toBeGreaterThan(0);
     const first = events[0];
@@ -104,9 +104,7 @@ describeIntegration("smoke: pollActivityFeed", () => {
       log,
     });
 
-    console.log(
-      `pollActivityFeed: ${result.events.length} events, newestAt=${result.newestAt}`,
-    );
+    console.log(`pollActivityFeed: ${result.events.length} events, newestAt=${result.newestAt}`);
 
     // Should get events from a real active account
     expect(result.events.length).toBeGreaterThan(0);
@@ -144,21 +142,28 @@ describeIntegration("smoke: pollActivityFeed", () => {
     // Log first event for manual inspection
     if (result.events.length > 0) {
       const first = result.events[0];
-      console.log("First event:", JSON.stringify({
-        dedupKey: first.dedupKey,
-        peer: first.peer,
-        parentPeer: first.parentPeer,
-        sender: { id: first.sender.id, name: first.sender.name },
-        text: first.text?.slice(0, 80),
-        meta: {
-          bucketId: first.meta.bucketId,
-          recordingId: first.meta.recordingId,
-          recordableType: first.meta.recordableType,
-          eventKind: first.meta.eventKind,
-          mentionsAgent: first.meta.mentionsAgent,
-          matchedPatterns: first.meta.matchedPatterns,
-        },
-      }, null, 2));
+      console.log(
+        "First event:",
+        JSON.stringify(
+          {
+            dedupKey: first.dedupKey,
+            peer: first.peer,
+            parentPeer: first.parentPeer,
+            sender: { id: first.sender.id, name: first.sender.name },
+            text: first.text?.slice(0, 80),
+            meta: {
+              bucketId: first.meta.bucketId,
+              recordingId: first.meta.recordingId,
+              recordableType: first.meta.recordableType,
+              eventKind: first.meta.eventKind,
+              mentionsAgent: first.meta.mentionsAgent,
+              matchedPatterns: first.meta.matchedPatterns,
+            },
+          },
+          null,
+          2,
+        ),
+      );
     }
   });
 
@@ -189,9 +194,7 @@ describeIntegration("smoke: pollReadings", () => {
   it("pollReadings handles empty and populated responses", async () => {
     const result = await pollReadings({ account: testAccount, log });
 
-    console.log(
-      `pollReadings: ${result.events.length} events, newestAt=${result.newestAt}`,
-    );
+    console.log(`pollReadings: ${result.events.length} events, newestAt=${result.newestAt}`);
 
     // Whether 0 or N events, the shape contract holds
     for (const msg of result.events) {
@@ -266,7 +269,7 @@ describeIntegration("smoke: URL parsing with real data", () => {
 describeIntegration("smoke: directory integration", () => {
   it("client.people.list returns people array", async () => {
     const client = getClient(testAccount);
-    const people = await client.people.list(Number(testAccount.accountId)) as any[];
+    const people = (await client.people.list(Number(testAccount.accountId))) as any[];
     expect(Array.isArray(people)).toBe(true);
     expect(people.length).toBeGreaterThan(0);
     expect(people[0]).toHaveProperty("id");

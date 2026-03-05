@@ -1,11 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { dispatchBasecampEvent } from "../src/dispatch.js";
-import type {
-  BasecampInboundMessage,
-  ResolvedBasecampAccount,
-} from "../src/types.js";
-import { getBasecampRuntime } from "../src/runtime.js";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resolvePersonaAccountId } from "../src/config.js";
+import { dispatchBasecampEvent } from "../src/dispatch.js";
+import { getBasecampRuntime } from "../src/runtime.js";
+import type { BasecampInboundMessage, ResolvedBasecampAccount } from "../src/types.js";
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -91,9 +88,7 @@ beforeEach(() => {
     matchedBy: "peer",
     sessionKey: "session:abc",
   });
-  mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mockResolvedValue(
-    undefined,
-  );
+  mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mockResolvedValue(undefined);
 });
 
 // ---------------------------------------------------------------------------
@@ -112,9 +107,7 @@ describe("dispatchBasecampEvent enhanced onError logging", () => {
     await dispatchBasecampEvent(mockMsg, { account: mockAccount, log });
 
     // Get the onError callback from the dispatch call
-    const call =
-      mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock
-        .calls[0][0];
+    const call = mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock.calls[0][0];
     const onError = call.dispatcherOptions.onError;
 
     // Simulate an error
@@ -140,9 +133,7 @@ describe("dispatchBasecampEvent enhanced onError logging", () => {
 
     await dispatchBasecampEvent(mockMsg, { account: mockAccount, log });
 
-    const call =
-      mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock
-        .calls[0][0];
+    const call = mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock.calls[0][0];
     const onError = call.dispatcherOptions.onError;
 
     onError(new Error("401 Unauthorized"));
@@ -161,9 +152,7 @@ describe("dispatchBasecampEvent enhanced onError logging", () => {
 
     await dispatchBasecampEvent(mockMsg, { account: mockAccount, log });
 
-    const call =
-      mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock
-        .calls[0][0];
+    const call = mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock.calls[0][0];
     const onError = call.dispatcherOptions.onError;
 
     onError(new Error("no route matched"));
@@ -182,9 +171,7 @@ describe("dispatchBasecampEvent enhanced onError logging", () => {
 
     await dispatchBasecampEvent(mockMsg, { account: mockAccount, log });
 
-    const call =
-      mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock
-        .calls[0][0];
+    const call = mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock.calls[0][0];
     const onError = call.dispatcherOptions.onError;
 
     onError(new Error("something unexpected happened"));

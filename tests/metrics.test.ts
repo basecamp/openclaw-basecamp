@@ -1,19 +1,19 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import {
+  clearMetrics,
+  getAccountMetrics,
+  recordCircuitBreakerState,
+  recordDedupSize,
+  recordDispatchFailure,
   recordPollAttempt,
-  recordPollSuccess,
   recordPollError,
-  recordWebhookReceived,
+  recordPollSuccess,
+  recordQueueFullDrop,
+  recordWebhookDedupSize,
   recordWebhookDispatched,
   recordWebhookDropped,
   recordWebhookError,
-  recordDedupSize,
-  recordWebhookDedupSize,
-  recordCircuitBreakerState,
-  recordDispatchFailure,
-  recordQueueFullDrop,
-  getAccountMetrics,
-  clearMetrics,
+  recordWebhookReceived,
 } from "../src/metrics.js";
 
 beforeEach(() => {

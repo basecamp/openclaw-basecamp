@@ -11,18 +11,30 @@
  *    to send the agent's response back to the correct Basecamp surface
  */
 
-import type { BasecampInboundMessage, BasecampChannelConfig, BasecampEngagementType, ResolvedBasecampAccount } from "./types.js";
-import { DEFAULT_ENGAGE } from "./types.js";
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
-import { getBasecampRuntime } from "./runtime.js";
-import { resolvePersonaAccountId, resolveBasecampAccount, resolveBasecampDmPolicy, resolveBasecampAllowFrom, resolveBasecampBucketAllowFrom, resolveCircuitBreakerConfig } from "./config.js";
-import { postReplyToEvent } from "./outbound/send.js";
-import { markdownToBasecampHtml } from "./outbound/format.js";
-import { chunkMarkdownText, BASECAMP_TEXT_CHUNK_LIMIT } from "./adapters/outbound.js";
-import { createStructuredLog } from "./logging.js";
-import { CircuitBreaker } from "./circuit-breaker.js";
+import { BASECAMP_TEXT_CHUNK_LIMIT, chunkMarkdownText } from "./adapters/outbound.js";
 import { BasecampError } from "./basecamp-client.js";
+import { CircuitBreaker } from "./circuit-breaker.js";
+import {
+  resolveBasecampAccount,
+  resolveBasecampAllowFrom,
+  resolveBasecampBucketAllowFrom,
+  resolveBasecampDmPolicy,
+  resolveCircuitBreakerConfig,
+  resolvePersonaAccountId,
+} from "./config.js";
+import { createStructuredLog } from "./logging.js";
 import { recordCircuitBreakerState, recordDispatchFailure } from "./metrics.js";
+import { markdownToBasecampHtml } from "./outbound/format.js";
+import { postReplyToEvent } from "./outbound/send.js";
+import { getBasecampRuntime } from "./runtime.js";
+import type {
+  BasecampChannelConfig,
+  BasecampEngagementType,
+  BasecampInboundMessage,
+  ResolvedBasecampAccount,
+} from "./types.js";
+import { DEFAULT_ENGAGE } from "./types.js";
 
 /** Per-account outbound circuit breakers. Separate from poller CBs. */
 const outboundCircuitBreakers = new Map<string, CircuitBreaker>();
@@ -41,7 +53,12 @@ export type DispatchOptions = {
   /** The resolved account that received this event. */
   account: ResolvedBasecampAccount;
   /** Optional logger. */
-  log?: { info: (msg: string) => void; warn: (msg: string) => void; debug?: (msg: string) => void; error: (msg: string) => void };
+  log?: {
+    info: (msg: string) => void;
+    warn: (msg: string) => void;
+    debug?: (msg: string) => void;
+    error: (msg: string) => void;
+  };
 };
 
 /**
@@ -50,10 +67,7 @@ export type DispatchOptions = {
  * Returns true if the message was dispatched, false if it was dropped
  * (e.g., no matching agent route, self-message, etc.).
  */
-export async function dispatchBasecampEvent(
-  msg: BasecampInboundMessage,
-  options: DispatchOptions,
-): Promise<boolean> {
+export async function dispatchBasecampEvent(msg: BasecampInboundMessage, options: DispatchOptions): Promise<boolean> {
   const runtime = getBasecampRuntime();
   const cfg = runtime.config.loadConfig();
   const { account, log } = options;
@@ -159,9 +173,7 @@ export async function dispatchBasecampEvent(
   // ----- Resolve persona for outbound -----
   // The agent may have a dedicated Basecamp persona (service account).
   const personaAccountId = resolvePersonaAccountId(cfg, route.agentId);
-  const outboundAccount = personaAccountId
-    ? resolveBasecampAccount(cfg, personaAccountId)
-    : account;
+  const outboundAccount = personaAccountId ? resolveBasecampAccount(cfg, personaAccountId) : account;
   // Resolve the numeric account ID for circuit breaker keying and logging.
   const outboundBasecampAccountId =
     outboundAccount.config.basecampAccountId ??
@@ -311,10 +323,7 @@ function classifyEngagement(msg: BasecampInboundMessage): BasecampEngagementType
   if (msg.meta.assignedToAgent) return "assignment";
 
   // Check-in reminders: Question in Hey! inbox = you're a respondent
-  if (
-    msg.meta.recordableType === "Question" &&
-    msg.meta.sources.includes("readings")
-  ) {
+  if (msg.meta.recordableType === "Question" && msg.meta.sources.includes("readings")) {
     return "checkin";
   }
 
@@ -334,10 +343,7 @@ function classifyEngagement(msg: BasecampInboundMessage): BasecampEngagementType
  * Resolve the engagement policy for a given bucket.
  * Per-bucket `engage` overrides channel-level; falls back to DEFAULT_ENGAGE.
  */
-function resolveEngagePolicy(
-  cfg: OpenClawConfig,
-  bucketId: string,
-): BasecampEngagementType[] {
+function resolveEngagePolicy(cfg: OpenClawConfig, bucketId: string): BasecampEngagementType[] {
   const section = cfg.channels?.basecamp as BasecampChannelConfig | undefined;
 
   // Per-bucket override (exact match → wildcard fallback)
@@ -394,7 +400,8 @@ function classifyDispatchError(err: unknown): string {
     lowerMessage.includes("econnreset") ||
     lowerMessage.includes("timeout") ||
     lowerMessage.includes("fetch")
-  ) return "network";
+  )
+    return "network";
 
   if (/\bno route\b/.test(lowerMessage)) return "routing";
 
@@ -405,10 +412,7 @@ function classifyDispatchError(err: unknown): string {
  * Check if an inbound message's bucketId matches a virtualAccounts entry.
  * Returns the virtual account key (scope alias) if matched, undefined otherwise.
  */
-function resolveProjectScopeAccountId(
-  cfg: OpenClawConfig,
-  msg: BasecampInboundMessage,
-): string | undefined {
+function resolveProjectScopeAccountId(cfg: OpenClawConfig, msg: BasecampInboundMessage): string | undefined {
   const section = cfg.channels?.basecamp as BasecampChannelConfig | undefined;
   const virtualAccounts = section?.virtualAccounts;
   if (!virtualAccounts) return undefined;
@@ -486,4 +490,3 @@ function syncOutboundCircuitBreakerMetrics(
     trippedAt: state.trippedAt,
   });
 }
-

@@ -10,6 +10,9 @@
  */
 
 import crypto from "node:crypto";
+import { extractAttachmentSgids, htmlToPlainText, mentionsAgent } from "../mentions/parse.js";
+import { recordUnknownKind } from "../metrics.js";
+import { resolveCircleInfoCached } from "../outbound/send.js";
 import type {
   BasecampActivityEvent,
   BasecampAssignmentTodo,
@@ -20,13 +23,10 @@ import type {
   BasecampRecordableType,
   BasecampSender,
   BasecampWebhookPayload,
-  WebhookEventDetails,
   ResolvedBasecampAccount,
+  WebhookEventDetails,
 } from "../types.js";
-import { mentionsAgent, extractAttachmentSgids, htmlToPlainText } from "../mentions/parse.js";
 import { EventDedup } from "./dedup.js";
-import { recordUnknownKind } from "../metrics.js";
-import { resolveCircleInfoCached } from "../outbound/send.js";
 
 // ---------------------------------------------------------------------------
 // event.kind → recordableType mapping (expanded from TimelinesApiHelper)
@@ -121,10 +121,7 @@ export function resolveEventKind(kind: string): string {
 }
 
 /** Resolve recordable type from event kind, falling back to recording.type. */
-function resolveRecordableType(
-  kind: string,
-  recordingType?: string,
-): BasecampRecordableType | undefined {
+function resolveRecordableType(kind: string, recordingType?: string): BasecampRecordableType | undefined {
   const mapped = KIND_TO_RECORDABLE_TYPE[kind];
   if (mapped) return mapped;
 
@@ -161,9 +158,20 @@ function normalizeRecordingType(type: string): BasecampRecordableType | undefine
 
   if (type.includes("::")) {
     const known: string[] = [
-      "Chat::Transcript", "Chat::Line", "Kanban::Card", "Kanban::Column",
-      "Comment", "Message", "Todo", "Todolist", "Question", "Question::Answer",
-      "Document", "Upload", "Vault", "Schedule::Entry",
+      "Chat::Transcript",
+      "Chat::Line",
+      "Kanban::Card",
+      "Kanban::Column",
+      "Comment",
+      "Message",
+      "Todo",
+      "Todolist",
+      "Question",
+      "Question::Answer",
+      "Document",
+      "Upload",
+      "Vault",
+      "Schedule::Entry",
     ];
     if (known.includes(type)) return type as BasecampRecordableType;
   }
@@ -193,7 +201,10 @@ export function parseBucketIdFromUrl(url: string): string | undefined {
  */
 export function parseRecordingIdFromUrl(url: string): string | undefined {
   // Match the last /<resource-type>/<numeric-id> in the URL
-  const match = /\/(?:messages|todos|todolists|cards|chats|recordings|comments|documents|uploads|vaults|questions|question_answers|schedule_entries|lines|forwards|replies)\/(\d+)/.exec(url);
+  const match =
+    /\/(?:messages|todos|todolists|cards|chats|recordings|comments|documents|uploads|vaults|questions|question_answers|schedule_entries|lines|forwards|replies)\/(\d+)/.exec(
+      url,
+    );
   return match ? match[1] : undefined;
 }
 
@@ -223,17 +234,14 @@ export function resolveBasecampPeer(params: {
   isPing?: boolean;
   participantCount?: number;
 }): BasecampPeer {
-  const { recordableType, recordingId, parentRecordingId, bucketId, isPing, participantCount } =
-    params;
+  const { recordableType, recordingId, parentRecordingId, bucketId, isPing, participantCount } = params;
 
   if (isPing) {
     // Fail closed: when participant count is unknown (Circle API failure),
     // default to "dm" so DM policy applies. This prevents API outages from
     // relaxing DM gating on actual 1:1 Pings by misclassifying them as group.
     // When count is known: ≤2 = dm, >2 = group.
-    const kind = participantCount != null && participantCount > 2
-      ? "group"
-      : "dm";
+    const kind = participantCount != null && participantCount > 2 ? "group" : "dm";
     return { kind, id: `ping:${bucketId}` };
   }
 
@@ -256,10 +264,7 @@ export function resolveBasecampPeer(params: {
  * Resolve parent peer for project-level routing.
  * bucket:<bucketId> for non-Pings, undefined for Pings.
  */
-export function resolveParentPeer(
-  bucketId: string,
-  isPing: boolean,
-): BasecampPeer | undefined {
+export function resolveParentPeer(bucketId: string, isPing: boolean): BasecampPeer | undefined {
   if (isPing) return undefined;
   return { kind: "group", id: `bucket:${bucketId}` };
 }
@@ -268,10 +273,7 @@ export function resolveParentPeer(
 // Self-message detection
 // ---------------------------------------------------------------------------
 
-export function isSelfMessage(
-  creatorId: string | number,
-  account: ResolvedBasecampAccount,
-): boolean {
+export function isSelfMessage(creatorId: string | number, account: ResolvedBasecampAccount): boolean {
   return String(creatorId) === String(account.personId);
 }
 
@@ -317,10 +319,7 @@ export async function normalizeActivityEvent(
   raw: BasecampActivityEvent,
   account: ResolvedBasecampAccount,
 ): Promise<BasecampInboundMessage | null> {
-  const recordableType = resolveRecordableType(
-    raw.kind,
-    raw.recording?.recordable_type ?? raw.recording?.type,
-  );
+  const recordableType = resolveRecordableType(raw.kind, raw.recording?.recordable_type ?? raw.recording?.type);
 
   // Unknown kind → drop with metric rather than misclassifying as Document
   if (!recordableType) {
@@ -348,9 +347,7 @@ export async function normalizeActivityEvent(
     recordingId = String(raw.id);
   }
 
-  const parentRecordingId = raw.parent_recording_id
-    ? String(raw.parent_recording_id)
-    : undefined;
+  const parentRecordingId = raw.parent_recording_id ? String(raw.parent_recording_id) : undefined;
 
   const content = raw.recording?.content ?? raw.summary_excerpt ?? raw.title ?? "";
   const text = content ? htmlToPlainText(content) : (raw.title ?? "");
@@ -477,9 +474,7 @@ export function normalizeReadingsEvent(
   const html = raw.content_excerpt ?? "";
 
   const sgids = extractAttachmentSgids(html);
-  const isAgentMentioned =
-    mentionsAgent(html, account.attachableSgid, account.personId) ||
-    raw.section === "mentions";
+  const isAgentMentioned = mentionsAgent(html, account.attachableSgid, account.personId) || raw.section === "mentions";
 
   const sender: BasecampSender = raw.creator
     ? {
@@ -563,8 +558,7 @@ export function normalizeAssignmentTodo(
 
   // Use the actual type from the API response when available (e.g. "Todo",
   // "Schedule"). Fall back to "Todo" for legacy/untyped payloads.
-  const recordableType: BasecampRecordableType =
-    (raw.type && normalizeRecordingType(raw.type)) || "Todo";
+  const recordableType: BasecampRecordableType = (raw.type && normalizeRecordingType(raw.type)) || "Todo";
 
   const peer = resolveBasecampPeer({
     recordableType,
@@ -625,9 +619,7 @@ export async function normalizeWebhookPayload(
   }
 
   const recordingId = String(raw.recording.id);
-  const parentRecordingId = raw.recording.parent
-    ? String(raw.recording.parent.id)
-    : undefined;
+  const parentRecordingId = raw.recording.parent ? String(raw.recording.parent.id) : undefined;
   const bucketId = String(raw.recording.bucket.id);
 
   const content = raw.recording.content ?? raw.recording.title ?? "";

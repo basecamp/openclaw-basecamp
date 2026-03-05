@@ -1,10 +1,10 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { EventDedup } from "../src/inbound/dedup.js";
-import type { DedupStore, DedupSnapshot } from "../src/inbound/dedup-store.js";
-import { JsonFileDedupStore } from "../src/inbound/dedup-store.js";
-import { writeFileSync, mkdirSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { EventDedup } from "../src/inbound/dedup.js";
+import type { DedupSnapshot, DedupStore } from "../src/inbound/dedup-store.js";
+import { JsonFileDedupStore } from "../src/inbound/dedup-store.js";
 
 // ---------------------------------------------------------------------------
 // In-memory mock store for unit tests
