@@ -4,7 +4,7 @@
   "description": "OpenClaw Basecamp channel plugin — Campfire, cards, todos, check-ins, pings",
   "type": "module",
   "engines": {
-    "node": ">=20"
+    "node": ">=22.5"
   },
   "scripts": {
     "test": "vitest run",
@@ -37,7 +37,7 @@
     }
   },
   "dependencies": {
-    "@37signals/basecamp": "github:basecamp/basecamp-sdk#63388edfc75e41fdeaf1449013c224330b7b055b",
+    "@37signals/basecamp": "git+https://github.com/basecamp/basecamp-sdk.git#63388edfc75e41fdeaf1449013c224330b7b055b",
     "typescript": "^5.0.0",
     "zod": "^4.3.6"
   }
