@@ -22,6 +22,7 @@ import {
   extractCliBootstrapToken,
 } from "../basecamp-cli.js";
 import { listBasecampAccountIds, resolveBasecampAccount, resolveDefaultBasecampAccountId } from "../config.js";
+import { isValidLaunchpadClientId } from "../oauth-credentials.js";
 import type { BasecampChannelConfig } from "../types.js";
 
 const channel = "basecamp" as const;
@@ -48,7 +49,10 @@ async function runOAuthLogin(params: { cfg: OpenClawConfig; accountId: string; p
   let promptedClientId: string | undefined;
   let promptedClientSecret: string | undefined;
 
-  if (!clientId) {
+  if (!isValidLaunchpadClientId(clientId)) {
+    // Discard paired secret when client ID is invalid (e.g. DCR placeholder)
+    clientId = undefined;
+    clientSecret = undefined;
     await prompter.note(
       "You'll need a Basecamp OAuth app. Register one at:\n" +
         "https://launchpad.37signals.com/integrations\n\n" +
@@ -59,7 +63,8 @@ async function runOAuthLogin(params: { cfg: OpenClawConfig; accountId: string; p
     );
     const enteredId = await prompter.text({
       message: "Enter your Basecamp OAuth app Client ID",
-      validate: (value: string) => (value?.trim() ? undefined : "Required"),
+      validate: (value: string) =>
+        isValidLaunchpadClientId(value?.trim()) ? undefined : "Must be a 40-character hex string",
     });
     clientId = String(enteredId).trim();
     promptedClientId = clientId;

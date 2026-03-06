@@ -40,6 +40,7 @@ vi.mock("../src/oauth-credentials.js", () => ({
   interactiveLogin: (...args: any[]) => mockInteractiveLogin(...args),
   resolveTokenFilePath: (...args: any[]) => mockResolveTokenFilePath(...args),
   createTokenManager: (...args: any[]) => mockCreateTokenManager(...args),
+  isValidLaunchpadClientId: (id: string | undefined) => !!id && /^[0-9a-f]{40}$/.test(id),
 }));
 
 // ---------------------------------------------------------------------------
@@ -146,7 +147,7 @@ describe("hatchIdentity — CLI path (chains into OAuth)", () => {
       "How do you want to authenticate this identity?": "cli",
       "Account ID key for this identity (e.g. 'security', 'design-bot')": "security",
       "Map this identity to an agent?": "__skip__",
-      "OAuth client ID": "test-cid",
+      "OAuth client ID": "aabbccddee00112233445566778899aabbccddee",
       "Client Secret (leave blank to skip)": "",
     });
 
@@ -190,7 +191,7 @@ describe("hatchIdentity — CLI path (chains into OAuth)", () => {
       "Account ID key for this identity (e.g. 'security', 'design-bot')": "bot-acct",
       "Map this identity to an agent?": "__enter__",
       "Agent ID to use this identity": "security-agent",
-      "OAuth client ID": "cid",
+      "OAuth client ID": "aabbccddee00112233445566778899aabbccddee",
       "Client Secret (leave blank to skip)": "",
     });
 
@@ -226,7 +227,7 @@ describe("hatchIdentity — CLI path (chains into OAuth)", () => {
       "How do you want to authenticate this identity?": "cli",
       "Account ID key for this identity (e.g. 'security', 'design-bot')": "new-one",
       "Map this identity to an agent?": "__skip__",
-      "OAuth client ID": "cid",
+      "OAuth client ID": "aabbccddee00112233445566778899aabbccddee",
       "Client Secret (leave blank to skip)": "",
     });
 
@@ -239,6 +240,56 @@ describe("hatchIdentity — CLI path (chains into OAuth)", () => {
     const validate = textCall![0].validate;
     expect(validate!("existing")).toContain("already in use");
     expect(validate!("new-one")).toBeUndefined();
+
+    // Verify the OAuth client ID prompt rejects invalid values
+    const oauthPrompt = prompter.text.mock.calls.find((c: any) => c[0].message.includes("OAuth client ID"));
+    expect(oauthPrompt).toBeDefined();
+    const oauthValidate = oauthPrompt![0].validate;
+    expect(oauthValidate!("dcr-id")).toBe("Must be a 40-character hex string");
+    expect(oauthValidate!("")).toBe("Must be a 40-character hex string");
+    expect(oauthValidate!(undefined)).toBe("Must be a 40-character hex string");
+    expect(oauthValidate!("aabbccdd00112233445566778899aabbccddeeff")).toBeUndefined();
+  });
+
+  it("persists only valid prompted client ID into config", async () => {
+    const validPromptedId = "ff00112233445566778899aabbccddeeff001122";
+    mockCliProfileList.mockResolvedValue({ data: ["default"], raw: "" });
+    mockCliMe.mockResolvedValue({
+      data: {
+        identity: { id: 42, name: "Test", email_address: "t@t.com" },
+        accounts: [{ id: 1, name: "Co" }],
+      } as any,
+      raw: "",
+    });
+    mockInteractiveLogin.mockResolvedValue({
+      accessToken: "tok",
+      refreshToken: "ref",
+      tokenType: "Bearer",
+    });
+    mockDiscoverIdentity.mockResolvedValue({
+      identity: { id: 42, firstName: "Test", lastName: "", emailAddress: "t@t.com" },
+      accounts: [{ id: 1, name: "Co", product: "bc3" }],
+    });
+    mockResolveTokenFilePath.mockImplementation((id: string) => `/tmp/tokens/${id}.json`);
+
+    const { prompter } = createMockPrompter({
+      "How do you want to authenticate this identity?": "cli",
+      "Account ID key for this identity (e.g. 'security', 'design-bot')": "test-acct",
+      "Map this identity to an agent?": "__skip__",
+      "OAuth client ID": validPromptedId,
+      "Client Secret (leave blank to skip)": "",
+    });
+
+    const result = await hatchIdentity(cfg({}), prompter);
+
+    // The valid prompted ID should appear in channel-level oauth config
+    const section = (result.cfg.channels as any).basecamp;
+    expect(section.oauth?.clientId).toBe(validPromptedId);
+    // The prompted ID was passed to interactiveLogin as an override
+    expect(mockInteractiveLogin).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ clientId: validPromptedId }),
+    );
   });
 });
 
@@ -261,12 +312,12 @@ describe("hatchIdentity — Browser/OAuth path", () => {
     mockResolveTokenFilePath.mockImplementation((id: string) => `/tmp/tokens/${id}.json`);
 
     const { prompter } = createMockPrompter({
-      "OAuth client ID": "test-cid",
+      "OAuth client ID": "aabbccddee00112233445566778899aabbccddee",
       "Account ID key for this identity (e.g. 'security', 'design-bot')": "oauth-acct",
       "Map this identity to an agent?": "__skip__",
     });
 
-    const baseCfg = cfg({ oauth: { clientId: "existing-cid" } });
+    const baseCfg = cfg({ oauth: { clientId: "aabbccdd00112233445566778899aabbccddeeff" } });
     const result = await hatchIdentity(baseCfg, prompter);
 
     expect(result.accountId).toBe("oauth-acct");
@@ -336,7 +387,7 @@ describe("hatchIdentity — Browser/OAuth path", () => {
       "Account ID key for this identity (e.g. 'security', 'design-bot')": "acct-one",
       "Map this identity to an agent?": "__skip__",
     });
-    const baseCfg = cfg({ oauth: { clientId: "cid" } });
+    const baseCfg = cfg({ oauth: { clientId: "1122334455667788990011223344556677889900" } });
     const r1 = await hatchIdentity(baseCfg, p1);
 
     // Second hatch run
@@ -371,10 +422,12 @@ describe("hatchIdentity — browser auth failure", () => {
     mockInteractiveLogin.mockRejectedValue(new Error("login failed"));
 
     const { prompter } = createMockPrompter({
-      "OAuth client ID": "cid",
+      "OAuth client ID": "aabbccddee00112233445566778899aabbccddee",
     });
 
-    await expect(hatchIdentity(cfg({ oauth: { clientId: "cid" } }), prompter)).rejects.toThrow("login failed");
+    await expect(
+      hatchIdentity(cfg({ oauth: { clientId: "1122334455667788990011223344556677889900" } }), prompter),
+    ).rejects.toThrow("login failed");
   });
 
   it("throws when discoverIdentity fails — no silent broken account", async () => {
@@ -387,10 +440,12 @@ describe("hatchIdentity — browser auth failure", () => {
     mockDiscoverIdentity.mockRejectedValue(new Error("network error"));
 
     const { prompter } = createMockPrompter({
-      "OAuth client ID": "cid",
+      "OAuth client ID": "aabbccddee00112233445566778899aabbccddee",
     });
 
-    await expect(hatchIdentity(cfg({ oauth: { clientId: "cid" } }), prompter)).rejects.toThrow("network error");
+    await expect(
+      hatchIdentity(cfg({ oauth: { clientId: "1122334455667788990011223344556677889900" } }), prompter),
+    ).rejects.toThrow("network error");
   });
 });
 
@@ -419,7 +474,7 @@ describe("hatchIdentity — token file relocation", () => {
       "Account ID key for this identity (e.g. 'security', 'design-bot')": "my-acct",
       "Map this identity to an agent?": "__skip__",
     });
-    const baseCfg = cfg({ oauth: { clientId: "cid" } });
+    const baseCfg = cfg({ oauth: { clientId: "1122334455667788990011223344556677889900" } });
 
     const result = await hatchIdentity(baseCfg, prompter);
 
@@ -449,7 +504,7 @@ describe("hatchIdentity — token file relocation", () => {
       "Account ID key for this identity (e.g. 'security', 'design-bot')": "my-acct",
       "Map this identity to an agent?": "__skip__",
     });
-    const baseCfg = cfg({ oauth: { clientId: "cid" } });
+    const baseCfg = cfg({ oauth: { clientId: "1122334455667788990011223344556677889900" } });
 
     const result = await hatchIdentity(baseCfg, prompter);
 

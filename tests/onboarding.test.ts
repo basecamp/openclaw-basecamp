@@ -75,6 +75,7 @@ const mockResolveTokenFilePath = vi.fn();
 vi.mock("../src/oauth-credentials.js", () => ({
   interactiveLogin: (...args: any[]) => mockInteractiveLogin(...args),
   resolveTokenFilePath: (...args: any[]) => mockResolveTokenFilePath(...args),
+  isValidLaunchpadClientId: (id: string | undefined) => !!id && /^[0-9a-f]{40}$/.test(id),
 }));
 
 // ---------------------------------------------------------------------------
@@ -325,7 +326,7 @@ describe("basecampOnboardingAdapter", () => {
       });
 
       const existingCfg = cfg({
-        oauth: { clientId: "existing-client", clientSecret: "existing-secret" },
+        oauth: { clientId: "aabbccdd00112233445566778899aabbccddeeff", clientSecret: "existing-secret" },
       });
 
       const result = await basecampOnboardingAdapter.configure({
@@ -368,7 +369,7 @@ describe("basecampOnboardingAdapter", () => {
           work: {
             personId: "42",
             oauthTokenFile: "/tmp/tokens/work.json",
-            oauthClientId: "per-account-client",
+            oauthClientId: "1122334455667788990011223344556677889900",
             oauthClientSecret: "per-account-secret",
           },
         },
@@ -385,7 +386,7 @@ describe("basecampOnboardingAdapter", () => {
 
       const account = result.cfg.channels.basecamp.accounts.work;
       // Per-account credentials must survive — TokenManager needs them for refresh
-      expect(account.oauthClientId).toBe("per-account-client");
+      expect(account.oauthClientId).toBe("1122334455667788990011223344556677889900");
       expect(account.oauthClientSecret).toBe("per-account-secret");
     });
   });
@@ -408,7 +409,7 @@ describe("basecampOnboardingAdapter", () => {
         accessToken: "cli-access-token",
         refreshToken: "cli-refresh-token",
         expiresAt: 1770188269,
-        clientId: "cli-client-id",
+        clientId: "aabbccddee00112233445566778899aabbccddee",
         clientSecret: "",
       });
 
@@ -436,7 +437,7 @@ describe("basecampOnboardingAdapter", () => {
       expect(account.basecampAccountId).toBe("100");
       expect(account.oauthTokenFile).toBe("/tmp/tokens/default.json");
       // CLI-imported client creds go per-account, not channel-level
-      expect(account.oauthClientId).toBe("cli-client-id");
+      expect(account.oauthClientId).toBe("aabbccddee00112233445566778899aabbccddee");
       // Should import CLI credentials, not run interactiveLogin
       expect(mockInteractiveLogin).not.toHaveBeenCalled();
       expect(mockFileTokenStoreSave).toHaveBeenCalledWith(
@@ -544,7 +545,7 @@ describe("basecampOnboardingAdapter", () => {
         accessToken: "cli-token",
         refreshToken: "cli-refresh",
         expiresAt: 1770188269,
-        clientId: "cli-client-id",
+        clientId: "aabbccddee00112233445566778899aabbccddee",
         clientSecret: "",
       });
 
@@ -625,13 +626,13 @@ describe("basecampOnboardingAdapter", () => {
         accessToken: "cli-token",
         refreshToken: "cli-refresh",
         expiresAt: 1770188269,
-        clientId: "cli-client-id",
+        clientId: "aabbccddee00112233445566778899aabbccddee",
         clientSecret: "",
       });
 
       // Start with OAuth-configured account
       const existingCfg = cfg({
-        oauth: { clientId: "existing-client", clientSecret: "existing-secret" },
+        oauth: { clientId: "aabbccdd00112233445566778899aabbccddeeff", clientSecret: "existing-secret" },
       });
 
       // Select: auth method → "cli", profile → "dev" (auto-selected for single), "done"
@@ -652,10 +653,10 @@ describe("basecampOnboardingAdapter", () => {
       expect(account.cliProfile).toBe("dev");
       expect(account.oauthTokenFile).toBe("/tmp/tokens/default.json");
       // CLI-imported creds are per-account, not channel-level
-      expect(account.oauthClientId).toBe("cli-client-id");
+      expect(account.oauthClientId).toBe("aabbccddee00112233445566778899aabbccddee");
       // Existing channel-level OAuth must be preserved
       expect(result.cfg.channels.basecamp.oauth).toEqual({
-        clientId: "existing-client",
+        clientId: "aabbccdd00112233445566778899aabbccddeeff",
         clientSecret: "existing-secret",
       });
       expect(mockInteractiveLogin).not.toHaveBeenCalled();

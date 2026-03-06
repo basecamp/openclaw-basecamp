@@ -19,7 +19,7 @@ import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import { normalizeAccountId } from "openclaw/plugin-sdk";
 import { cliMe, cliProfileList } from "../basecamp-cli.js";
 import { listBasecampAccountIds } from "../config.js";
-import { interactiveLogin, resolveTokenFilePath } from "../oauth-credentials.js";
+import { interactiveLogin, isValidLaunchpadClientId, resolveTokenFilePath } from "../oauth-credentials.js";
 import type { BasecampChannelConfig, ResolvedBasecampAccount } from "../types.js";
 
 type WizardPrompter = {
@@ -80,20 +80,20 @@ async function discoverViaBrowser(
 ): Promise<OAuthDiscoveryResult & { info: AuthorizationInfo }> {
   const section = getBasecampSection(cfg);
 
-  // Resolve or prompt for clientId
-  let clientId = section?.oauth?.clientId;
+  // Resolve or prompt for clientId — validate before use
+  let clientId = isValidLaunchpadClientId(section?.oauth?.clientId) ? section!.oauth!.clientId : undefined;
   let promptedClientId = false;
   if (!clientId) {
     clientId = await prompter.text({
       message: "OAuth client ID",
-      validate: (v) => (v?.trim() ? undefined : "Required"),
+      validate: (v) => (isValidLaunchpadClientId(v?.trim()) ? undefined : "Must be a 40-character hex string"),
     });
     clientId = clientId.trim();
     promptedClientId = true;
   }
 
   // Resolve or prompt for clientSecret
-  let clientSecret = section?.oauth?.clientSecret;
+  let clientSecret = clientId === section?.oauth?.clientId ? section?.oauth?.clientSecret : undefined;
   let promptedClientSecret = false;
   if (!clientSecret && promptedClientId) {
     const entered = await prompter.text({
@@ -318,20 +318,20 @@ export async function hatchIdentity(cfg: OpenClawConfig, prompter: WizardPrompte
   if (authMethod === "cli" && !oauthResult) {
     const cliSection = getBasecampSection(cfg);
 
-    // Resolve or prompt for clientId
-    let cliClientId = cliSection?.oauth?.clientId;
+    // Resolve or prompt for clientId — validate before use
+    let cliClientId = isValidLaunchpadClientId(cliSection?.oauth?.clientId) ? cliSection!.oauth!.clientId : undefined;
     let cliPromptedClientId = false;
     if (!cliClientId) {
       cliClientId = await prompter.text({
         message: "OAuth client ID",
-        validate: (v) => (v?.trim() ? undefined : "Required"),
+        validate: (v) => (isValidLaunchpadClientId(v?.trim()) ? undefined : "Must be a 40-character hex string"),
       });
       cliClientId = cliClientId.trim();
       cliPromptedClientId = true;
     }
 
     // Resolve or prompt for clientSecret
-    let cliClientSecret = cliSection?.oauth?.clientSecret;
+    let cliClientSecret = cliClientId === cliSection?.oauth?.clientId ? cliSection?.oauth?.clientSecret : undefined;
     let cliPromptedClientSecret = false;
     if (!cliClientSecret && cliPromptedClientId) {
       const entered = await prompter.text({

@@ -1,6 +1,7 @@
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import { DEFAULT_ACCOUNT_ID, normalizeAccountId } from "openclaw/plugin-sdk";
 import { z } from "zod";
+import { isValidLaunchpadClientId } from "./oauth-credentials.js";
 import type {
   BasecampAccountConfig,
   BasecampChannelConfig,
@@ -272,8 +273,12 @@ export function resolveBasecampAccount(
     token,
     tokenSource,
     cliProfile: accountCfg.cliProfile,
-    oauthClientId: accountCfg.oauthClientId ?? section?.oauth?.clientId,
-    oauthClientSecret: accountCfg.oauthClientSecret ?? section?.oauth?.clientSecret,
+    oauthClientId: isValidLaunchpadClientId(accountCfg.oauthClientId)
+      ? accountCfg.oauthClientId
+      : section?.oauth?.clientId,
+    oauthClientSecret: isValidLaunchpadClientId(accountCfg.oauthClientId)
+      ? accountCfg.oauthClientSecret
+      : section?.oauth?.clientSecret,
     config: accountCfg,
   };
 }

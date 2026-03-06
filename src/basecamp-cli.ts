@@ -312,6 +312,8 @@ export function exportCliCredentials(baseUrl: string): CliCredentials | null {
     const clientRaw = readFileSync(join(CLI_CONFIG_DIR, "client.json"), "utf-8");
     const client = JSON.parse(clientRaw) as Record<string, unknown>;
     if (!client.client_id) return null;
+    const clientId = String(client.client_id);
+    if (!/^[0-9a-f]{40}$/.test(clientId)) return null;
 
     return {
       accessToken: String(entry.access_token),
