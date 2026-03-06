@@ -1,3 +1,4 @@
+import { BasecampError } from "@37signals/basecamp";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resolvePersonaAccountId } from "../src/config.js";
 import { dispatchBasecampEvent } from "../src/dispatch.js";
@@ -212,5 +213,29 @@ describe("dispatchBasecampEvent enhanced onError logging", () => {
     const call = mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock.calls[0][0];
     call.dispatcherOptions.onError(new Error("HTTP 404 Not Found"));
     expect(log.error.mock.calls[0][0]).toContain('"type":"unknown"');
+  });
+
+  it("classifies BasecampError auth_required as auth", async () => {
+    const log = { info: vi.fn(), warn: vi.fn(), debug: vi.fn(), error: vi.fn() };
+    await dispatchBasecampEvent(mockMsg, { account: mockAccount, log });
+    const call = mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock.calls[0][0];
+    call.dispatcherOptions.onError(new BasecampError("auth_required", "Token expired"));
+    expect(log.error.mock.calls[0][0]).toContain('"type":"auth"');
+  });
+
+  it("classifies BasecampError forbidden as auth", async () => {
+    const log = { info: vi.fn(), warn: vi.fn(), debug: vi.fn(), error: vi.fn() };
+    await dispatchBasecampEvent(mockMsg, { account: mockAccount, log });
+    const call = mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock.calls[0][0];
+    call.dispatcherOptions.onError(new BasecampError("forbidden", "Access denied"));
+    expect(log.error.mock.calls[0][0]).toContain('"type":"auth"');
+  });
+
+  it("classifies BasecampError rate_limit correctly", async () => {
+    const log = { info: vi.fn(), warn: vi.fn(), debug: vi.fn(), error: vi.fn() };
+    await dispatchBasecampEvent(mockMsg, { account: mockAccount, log });
+    const call = mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock.calls[0][0];
+    call.dispatcherOptions.onError(new BasecampError("rate_limit", "Too many requests"));
+    expect(log.error.mock.calls[0][0]).toContain('"type":"rate_limit"');
   });
 });
