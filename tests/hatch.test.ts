@@ -291,6 +291,47 @@ describe("hatchIdentity — CLI path (chains into OAuth)", () => {
       expect.objectContaining({ clientId: validPromptedId }),
     );
   });
+
+  it("drops stale secret when replacing invalid client ID without entering new secret", async () => {
+    const newClientId = "ff00112233445566778899aabbccddeeff001122";
+    mockCliProfileList.mockResolvedValue({ data: ["default"], raw: "" });
+    mockCliMe.mockResolvedValue({
+      data: {
+        identity: { id: 42, name: "Test", email_address: "t@t.com" },
+        accounts: [{ id: 1, name: "Co" }],
+      } as any,
+      raw: "",
+    });
+    mockInteractiveLogin.mockResolvedValue({
+      accessToken: "tok",
+      refreshToken: "ref",
+      tokenType: "Bearer",
+    });
+    mockDiscoverIdentity.mockResolvedValue({
+      identity: { id: 42, firstName: "Test", lastName: "", emailAddress: "t@t.com" },
+      accounts: [{ id: 1, name: "Co", product: "bc3" }],
+    });
+    mockResolveTokenFilePath.mockImplementation((id: string) => `/tmp/tokens/${id}.json`);
+
+    // Config has an invalid client ID with a stale secret
+    const { prompter } = createMockPrompter({
+      "How do you want to authenticate this identity?": "cli",
+      "Account ID key for this identity (e.g. 'security', 'design-bot')": "test-acct",
+      "Map this identity to an agent?": "__skip__",
+      "OAuth client ID": newClientId,
+      "Client Secret (leave blank to skip)": "",
+    });
+
+    const result = await hatchIdentity(
+      cfg({ oauth: { clientId: "dcr-id", clientSecret: "stale-secret" } }),
+      prompter,
+    );
+
+    const section = (result.cfg.channels as any).basecamp;
+    expect(section.oauth?.clientId).toBe(newClientId);
+    // Stale secret from old invalid client must NOT survive
+    expect(section.oauth?.clientSecret).toBeUndefined();
+  });
 });
 
 // ---------------------------------------------------------------------------

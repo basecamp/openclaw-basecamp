@@ -458,7 +458,9 @@ export async function hatchIdentity(cfg: OpenClawConfig, prompter: WizardPrompte
       ? {
           ...(section.oauth ?? {}),
           clientId: oauthClientId,
-          ...(promptedClientSecret && oauthClientSecret ? { clientSecret: oauthClientSecret } : {}),
+          // Always set clientSecret explicitly when replacing the client ID —
+          // a stale secret from the old (invalid) client must not survive the spread.
+          clientSecret: promptedClientSecret && oauthClientSecret ? oauthClientSecret : undefined,
         }
       : section.oauth;
 
