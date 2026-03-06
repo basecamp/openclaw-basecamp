@@ -322,10 +322,7 @@ describe("hatchIdentity — CLI path (chains into OAuth)", () => {
       "Client Secret (leave blank to skip)": "",
     });
 
-    const result = await hatchIdentity(
-      cfg({ oauth: { clientId: "dcr-id", clientSecret: "stale-secret" } }),
-      prompter,
-    );
+    const result = await hatchIdentity(cfg({ oauth: { clientId: "dcr-id", clientSecret: "stale-secret" } }), prompter);
 
     const section = (result.cfg.channels as any).basecamp;
     expect(section.oauth?.clientId).toBe(newClientId);

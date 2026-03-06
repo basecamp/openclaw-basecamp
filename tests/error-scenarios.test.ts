@@ -6,7 +6,7 @@
  *
  * Only auth-related functions remain in basecamp-cli.ts.
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("node:child_process", () => ({
   execFile: vi.fn(),

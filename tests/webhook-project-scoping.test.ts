@@ -8,7 +8,7 @@ vi.mock("openclaw/plugin-sdk", () => ({
   },
 }));
 
-import { listBasecampAccountIds, resolveAccountForBucket, scopeWebhookProjects } from "../src/config.js";
+import { scopeWebhookProjects } from "../src/config.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
