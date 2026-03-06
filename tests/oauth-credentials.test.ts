@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // Mock @37signals/basecamp OAuth exports (these are being built in parallel)
 vi.mock("@37signals/basecamp/oauth", () => {

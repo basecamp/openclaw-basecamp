@@ -319,7 +319,7 @@ export function exportCliCredentials(baseUrl: string): CliCredentials | null {
       accessToken: String(entry.access_token),
       refreshToken: String(entry.refresh_token),
       expiresAt: typeof entry.expires_at === "number" ? entry.expires_at : 0,
-      clientId: String(client.client_id),
+      clientId,
       clientSecret: String(client.client_secret ?? ""),
     };
   } catch {
