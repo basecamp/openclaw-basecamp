@@ -76,6 +76,7 @@ vi.mock("../src/oauth-credentials.js", () => ({
   interactiveLogin: (...args: any[]) => mockInteractiveLogin(...args),
   resolveTokenFilePath: (...args: any[]) => mockResolveTokenFilePath(...args),
   isValidLaunchpadClientId: (id: string | undefined) => !!id && /^[0-9a-f]{40}$/.test(id),
+  OAUTH_SETUP_GUIDANCE: "test guidance",
 }));
 
 // ---------------------------------------------------------------------------

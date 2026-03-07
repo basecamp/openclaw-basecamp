@@ -19,7 +19,12 @@ import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import { normalizeAccountId } from "openclaw/plugin-sdk";
 import { cliMe, cliProfileList } from "../basecamp-cli.js";
 import { listBasecampAccountIds } from "../config.js";
-import { interactiveLogin, isValidLaunchpadClientId, resolveTokenFilePath } from "../oauth-credentials.js";
+import {
+  interactiveLogin,
+  isValidLaunchpadClientId,
+  OAUTH_SETUP_GUIDANCE,
+  resolveTokenFilePath,
+} from "../oauth-credentials.js";
 import type { BasecampChannelConfig, ResolvedBasecampAccount } from "../types.js";
 
 type WizardPrompter = {
@@ -84,6 +89,7 @@ async function discoverViaBrowser(
   let clientId = isValidLaunchpadClientId(section?.oauth?.clientId) ? section!.oauth!.clientId : undefined;
   let promptedClientId = false;
   if (!clientId) {
+    await prompter.note(OAUTH_SETUP_GUIDANCE, "OAuth setup");
     clientId = await prompter.text({
       message: "OAuth client ID",
       validate: (v) => (isValidLaunchpadClientId(v?.trim()) ? undefined : "Must be a 40-character hex string"),
@@ -322,6 +328,7 @@ export async function hatchIdentity(cfg: OpenClawConfig, prompter: WizardPrompte
     let cliClientId = isValidLaunchpadClientId(cliSection?.oauth?.clientId) ? cliSection!.oauth!.clientId : undefined;
     let cliPromptedClientId = false;
     if (!cliClientId) {
+      await prompter.note(OAUTH_SETUP_GUIDANCE, "OAuth setup");
       cliClientId = await prompter.text({
         message: "OAuth client ID",
         validate: (v) => (isValidLaunchpadClientId(v?.trim()) ? undefined : "Must be a 40-character hex string"),
