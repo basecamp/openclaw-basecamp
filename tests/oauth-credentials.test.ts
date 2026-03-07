@@ -181,32 +181,20 @@ describe("interactiveLogin", () => {
     );
   });
 
-  it("uses built-in default when clientId is missing", async () => {
+  it("throws when no client configured", async () => {
     const account = makeAccount({
       oauthClientId: undefined,
       oauthClientSecret: undefined,
     });
-    await interactiveLogin(account);
-    expect(performInteractiveLogin).toHaveBeenCalledWith(
-      expect.objectContaining({
-        clientId: "37275cfbf73bb6a1140c9f255eefd9f6ac9be2ef",
-        clientSecret: undefined,
-      }),
-    );
+    await expect(interactiveLogin(account)).rejects.toThrow(/No OAuth client configured/);
   });
 
-  it("uses built-in default when clientId is invalid (DCR placeholder), discards stale secret", async () => {
+  it("throws when clientId is invalid (DCR placeholder)", async () => {
     const account = makeAccount({
       oauthClientId: "dcr-id",
       oauthClientSecret: "stale-secret",
     });
-    await interactiveLogin(account);
-    expect(performInteractiveLogin).toHaveBeenCalledWith(
-      expect.objectContaining({
-        clientId: "37275cfbf73bb6a1140c9f255eefd9f6ac9be2ef",
-        clientSecret: undefined,
-      }),
-    );
+    await expect(interactiveLogin(account)).rejects.toThrow(/No OAuth client configured/);
   });
 
   it("validates override clientId — invalid override falls through to account", async () => {
@@ -220,7 +208,7 @@ describe("interactiveLogin", () => {
     );
   });
 
-  it("prefers env vars over built-in default", async () => {
+  it("uses env vars when account has no client configured", async () => {
     const envId = "ff00112233445566778899aabbccddeeff001122";
     process.env.LAUNCHPAD_CLIENT_ID = envId;
     process.env.LAUNCHPAD_CLIENT_SECRET = "env-secret";
@@ -273,29 +261,17 @@ describe("createTokenManager fallback", () => {
     vi.mocked(FileTokenStore).mockClear();
   });
 
-  it("uses built-in default when oauthClientId is missing", () => {
+  it("throws when oauthClientId is missing", () => {
     const account = makeAccount({ oauthClientId: undefined, oauthClientSecret: undefined });
-    createTokenManager(account);
-    expect(TokenManager).toHaveBeenCalledWith(
-      expect.objectContaining({
-        clientId: "37275cfbf73bb6a1140c9f255eefd9f6ac9be2ef",
-        clientSecret: undefined,
-      }),
-    );
+    expect(() => createTokenManager(account)).toThrow(/No OAuth client configured/);
   });
 
-  it("uses built-in default when oauthClientId is invalid (discards stale secret)", () => {
+  it("throws when oauthClientId is invalid (DCR placeholder)", () => {
     const account = makeAccount({ oauthClientId: "dcr-id", oauthClientSecret: "stale" });
-    createTokenManager(account);
-    expect(TokenManager).toHaveBeenCalledWith(
-      expect.objectContaining({
-        clientId: "37275cfbf73bb6a1140c9f255eefd9f6ac9be2ef",
-        clientSecret: undefined,
-      }),
-    );
+    expect(() => createTokenManager(account)).toThrow(/No OAuth client configured/);
   });
 
-  it("prefers env vars over built-in default", () => {
+  it("uses env vars when account has no client configured", () => {
     const envId = "ff00112233445566778899aabbccddeeff001122";
     process.env.LAUNCHPAD_CLIENT_ID = envId;
     process.env.LAUNCHPAD_CLIENT_SECRET = "env-secret";
