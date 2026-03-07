@@ -10,8 +10,9 @@
  * that PR lands.
  */
 
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import {
   FileTokenStore,
   type OAuthToken,
@@ -39,7 +40,7 @@ export function isValidLaunchpadClientId(id: string | undefined): id is string {
 /**
  * Resolve a valid OAuth client ID/secret pair.
  *
- * Priority: valid overrides → valid account config → env vars → throws.
+ * Priority: valid overrides → valid account config → env vars → persisted client file → throws.
  * Client ID and secret are treated as a pair — if a source's client ID is
  * invalid (e.g. DCR placeholder "dcr-id"), both are discarded and the next
  * source is tried.
@@ -64,6 +65,13 @@ function resolveOAuthClient(
     return { clientId: envClientId, clientSecret: envClientSecret };
   }
 
+  // Check companion client file saved during a previous login
+  const tokenFilePath = account.config.oauthTokenFile ?? resolveTokenFilePath(account.accountId);
+  const persisted = loadPersistedClient(tokenFilePath);
+  if (persisted) {
+    return { clientId: persisted.clientId, clientSecret: persisted.clientSecret };
+  }
+
   throw new Error(
     "No OAuth client configured for Basecamp. " +
       "Run `openclaw channels add` and select Basecamp to set up credentials, " +
@@ -86,6 +94,52 @@ const DEFAULT_TOKEN_DIR = join(homedir(), ".local", "share", "openclaw", "baseca
 export function resolveTokenFilePath(accountId: string, stateDir?: string): string {
   const dir = stateDir ? join(stateDir, "tokens") : DEFAULT_TOKEN_DIR;
   return join(dir, `${accountId}.json`);
+}
+
+// ---------------------------------------------------------------------------
+// Persisted OAuth client credentials
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve the path for the companion OAuth client file.
+ *
+ * Stored alongside the token file: `{tokenDir}/{accountId}.client.json`.
+ * Contains `{ clientId, clientSecret? }` so that token refresh works
+ * even when the original env vars / overrides aren't present.
+ */
+export function resolveClientFilePath(tokenFilePath: string): string {
+  if (tokenFilePath.endsWith(".json")) {
+    return tokenFilePath.replace(/\.json$/, ".client.json");
+  }
+  return `${tokenFilePath}.client.json`;
+}
+
+type PersistedClient = { clientId: string; clientSecret?: string };
+
+function loadPersistedClient(tokenFilePath: string): PersistedClient | undefined {
+  try {
+    const data = JSON.parse(readFileSync(resolveClientFilePath(tokenFilePath), "utf-8")) as PersistedClient;
+    if (isValidLaunchpadClientId(data.clientId)) return data;
+  } catch {
+    // File doesn't exist or is malformed — not an error
+  }
+  return undefined;
+}
+
+function persistClient(tokenFilePath: string, client: { clientId: string; clientSecret?: string }): void {
+  const clientPath = resolveClientFilePath(tokenFilePath);
+  try {
+    const dir = dirname(clientPath);
+    mkdirSync(dir, { recursive: true });
+    // Atomic write: temp file → rename (prevents partial reads on crash)
+    const tmp = join(dir, `.client-${Date.now()}.tmp`);
+    writeFileSync(tmp, JSON.stringify({ clientId: client.clientId, clientSecret: client.clientSecret }), {
+      mode: 0o600,
+    });
+    renameSync(tmp, clientPath);
+  } catch {
+    // Best-effort — don't fail the login over this
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -169,7 +223,7 @@ export async function interactiveLogin(
     }
   };
 
-  return performInteractiveLogin({
+  const token = await performInteractiveLogin({
     clientId: oauthClient.clientId,
     clientSecret: oauthClient.clientSecret,
     store,
@@ -179,4 +233,10 @@ export async function interactiveLogin(
       console.log(`[basecamp:oauth] ${message}`);
     },
   });
+
+  // Persist client credentials alongside the token so that subsequent
+  // token refreshes work without env vars or config overrides.
+  persistClient(tokenFilePath, oauthClient);
+
+  return token;
 }

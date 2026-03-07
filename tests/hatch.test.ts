@@ -39,6 +39,7 @@ const mockCreateTokenManager = vi.fn();
 vi.mock("../src/oauth-credentials.js", () => ({
   interactiveLogin: (...args: any[]) => mockInteractiveLogin(...args),
   resolveTokenFilePath: (...args: any[]) => mockResolveTokenFilePath(...args),
+  resolveClientFilePath: (tokenPath: string) => tokenPath.replace(/\.json$/, ".client.json"),
   createTokenManager: (...args: any[]) => mockCreateTokenManager(...args),
   isValidLaunchpadClientId: (id: string | undefined) => !!id && /^[0-9a-f]{40}$/.test(id),
   OAUTH_SETUP_GUIDANCE: "test guidance",
@@ -552,5 +553,11 @@ describe("hatchIdentity — token file relocation", () => {
     expect(account.oauthTokenFile).toBe("/tmp/tokens/my-acct.json");
     // unlink should have been attempted on the temp file
     expect(mockUnlink).toHaveBeenCalled();
+    // Companion .client.json should also have been relocated (rename attempt + copy fallback)
+    const clientRenames = mockRename.mock.calls.filter(
+      ([, dest]: [string, string]) => typeof dest === "string" && dest.endsWith(".client.json"),
+    );
+    expect(clientRenames.length).toBe(1);
+    expect(clientRenames[0][1]).toBe("/tmp/tokens/my-acct.client.json");
   });
 });
