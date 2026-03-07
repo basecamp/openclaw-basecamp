@@ -6,7 +6,7 @@
  *
  * Only auth-related functions remain in basecamp-cli.ts.
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("node:child_process", () => ({
   execFile: vi.fn(),
@@ -477,7 +477,7 @@ describe("exportCliCredentials", () => {
         });
       }
       if (String(filePath).includes("client.json")) {
-        return JSON.stringify({ client_id: "cid-abc", client_secret: "cs-xyz" });
+        return JSON.stringify({ client_id: "abcdef0123456789abcdef0123456789abcdef01", client_secret: "cs-xyz" });
       }
       throw new Error("unexpected file");
     });
@@ -487,7 +487,7 @@ describe("exportCliCredentials", () => {
       accessToken: "at-123",
       refreshToken: "rt-456",
       expiresAt: 1770188269,
-      clientId: "cid-abc",
+      clientId: "abcdef0123456789abcdef0123456789abcdef01",
       clientSecret: "cs-xyz",
     });
   });
@@ -507,6 +507,32 @@ describe("exportCliCredentials", () => {
     vi.mocked(readFileSync).mockImplementation(() => {
       throw new Error("ENOENT");
     });
+    expect(exportCliCredentials("https://3.basecampapi.com")).toBeNull();
+  });
+
+  it("returns null when client_id is a DCR placeholder", () => {
+    vi.mocked(readFileSync).mockImplementation((filePath: any) => {
+      if (String(filePath).includes("credentials.json")) {
+        return JSON.stringify({
+          "https://3.basecampapi.com": { access_token: "at", refresh_token: "rt" },
+        });
+      }
+      return JSON.stringify({ client_id: "dcr-id", client_secret: "cs" });
+    });
+
+    expect(exportCliCredentials("https://3.basecampapi.com")).toBeNull();
+  });
+
+  it("returns null when client_id is not 40-char hex", () => {
+    vi.mocked(readFileSync).mockImplementation((filePath: any) => {
+      if (String(filePath).includes("credentials.json")) {
+        return JSON.stringify({
+          "https://3.basecampapi.com": { access_token: "at", refresh_token: "rt" },
+        });
+      }
+      return JSON.stringify({ client_id: "short-id", client_secret: "cs" });
+    });
+
     expect(exportCliCredentials("https://3.basecampapi.com")).toBeNull();
   });
 

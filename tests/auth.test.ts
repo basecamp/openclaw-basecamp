@@ -85,7 +85,7 @@ const oauthAccount = {
   personId: "42",
   token: "",
   tokenSource: "oauth" as const,
-  oauthClientId: "client123",
+  oauthClientId: "aabbccdd00112233445566778899aabbccddeeff",
   config: { personId: "42", oauthTokenFile: "/tmp/token.json" },
 };
 
@@ -198,6 +198,32 @@ describe("auth.login", () => {
 
     expect(resolveBasecampAccount).toHaveBeenCalledWith({}, undefined);
     expect(interactiveLogin).toHaveBeenCalled();
+  });
+
+  it("passes channel-level recovered client to interactiveLogin when per-account was invalid", async () => {
+    const channelRecoveredAccount = {
+      ...oauthAccount,
+      accountId: "poisoned",
+      // Simulates resolveBasecampAccount output: invalid per-account "dcr-id"
+      // was discarded, channel-level valid ID was selected instead.
+      oauthClientId: "1122334455667788990011223344556677889900",
+      oauthClientSecret: "channel-secret",
+    };
+    vi.mocked(resolveBasecampAccount).mockReturnValue(channelRecoveredAccount as any);
+    vi.mocked(interactiveLogin).mockResolvedValue({} as any);
+
+    await basecampChannel.auth!.login!({
+      cfg: {} as any,
+      accountId: "poisoned",
+      runtime: {} as any,
+    });
+
+    expect(interactiveLogin).toHaveBeenCalledWith(
+      expect.objectContaining({
+        oauthClientId: "1122334455667788990011223344556677889900",
+        oauthClientSecret: "channel-secret",
+      }),
+    );
   });
 });
 

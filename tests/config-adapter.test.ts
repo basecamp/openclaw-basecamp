@@ -359,19 +359,20 @@ describe("resolveBasecampAccount — OAuth", () => {
   });
 
   it("resolves oauthClientId from per-account config", () => {
+    const validId = "aabbccdd00112233445566778899aabbccddeeff";
     const result = resolveBasecampAccount(
       cfg({
         accounts: {
           work: {
             personId: "42",
             oauthTokenFile: "/tmp/tok.json",
-            oauthClientId: "per-account-id",
+            oauthClientId: validId,
           },
         },
       }),
       "work",
     );
-    expect(result.oauthClientId).toBe("per-account-id");
+    expect(result.oauthClientId).toBe(validId);
   });
 
   it("resolves oauthClientId from channel-level oauth fallback", () => {
@@ -391,21 +392,63 @@ describe("resolveBasecampAccount — OAuth", () => {
     expect(result.oauthClientSecret).toBe("channel-secret");
   });
 
-  it("per-account oauthClientId overrides channel-level", () => {
+  it("valid per-account oauthClientId overrides channel-level", () => {
+    const validAccountId = "aabbccdd00112233445566778899aabbccddeeff";
     const result = resolveBasecampAccount(
       cfg({
         accounts: {
           work: {
             personId: "42",
             oauthTokenFile: "/tmp/tok.json",
-            oauthClientId: "override-id",
+            oauthClientId: validAccountId,
+            oauthClientSecret: "account-secret",
           },
         },
-        oauth: { clientId: "channel-level-id" },
+        oauth: { clientId: "1122334455667788990011223344556677889900", clientSecret: "channel-secret" },
       }),
       "work",
     );
-    expect(result.oauthClientId).toBe("override-id");
+    expect(result.oauthClientId).toBe(validAccountId);
+    expect(result.oauthClientSecret).toBe("account-secret");
+  });
+
+  it("invalid per-account oauthClientId falls through to valid channel-level", () => {
+    const channelId = "1122334455667788990011223344556677889900";
+    const result = resolveBasecampAccount(
+      cfg({
+        accounts: {
+          work: {
+            personId: "42",
+            oauthTokenFile: "/tmp/tok.json",
+            oauthClientId: "dcr-id",
+            oauthClientSecret: "stale-secret",
+          },
+        },
+        oauth: { clientId: channelId, clientSecret: "channel-secret" },
+      }),
+      "work",
+    );
+    expect(result.oauthClientId).toBe(channelId);
+    expect(result.oauthClientSecret).toBe("channel-secret");
+  });
+
+  it("valid per-account oauthClientId does not inherit unrelated channel-level secret", () => {
+    const validAccountId = "aabbccdd00112233445566778899aabbccddeeff";
+    const result = resolveBasecampAccount(
+      cfg({
+        accounts: {
+          work: {
+            personId: "42",
+            oauthTokenFile: "/tmp/tok.json",
+            oauthClientId: validAccountId,
+          },
+        },
+        oauth: { clientId: "1122334455667788990011223344556677889900", clientSecret: "channel-secret" },
+      }),
+      "work",
+    );
+    expect(result.oauthClientId).toBe(validAccountId);
+    expect(result.oauthClientSecret).toBeUndefined();
   });
 
   it("basecampAccountId field is preserved in config", () => {

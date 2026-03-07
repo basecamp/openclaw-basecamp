@@ -23,6 +23,51 @@ import type { ResolvedBasecampAccount } from "./types.js";
 
 const LAUNCHPAD_TOKEN_ENDPOINT = "https://launchpad.37signals.com/authorization/token";
 
+/**
+ * Built-in Launchpad OAuth client ID for the OpenClaw Basecamp plugin.
+ *
+ * This is a public identifier (like Basecamp CLI's launchpadClientID) — it
+ * identifies the app to Launchpad but is not a secret. The SDK negotiates
+ * PKCE automatically, so a client secret is optional.
+ */
+const DEFAULT_LAUNCHPAD_CLIENT_ID = "37275cfbf73bb6a1140c9f255eefd9f6ac9be2ef";
+
+/** Valid Launchpad OAuth client IDs are 40-character lowercase hex (SHA-1). */
+export function isValidLaunchpadClientId(id: string | undefined): id is string {
+  return !!id && /^[0-9a-f]{40}$/.test(id);
+}
+
+/**
+ * Resolve a valid OAuth client ID/secret pair.
+ *
+ * Priority: valid overrides → valid account config → env vars → built-in default.
+ * Client ID and secret are treated as a pair — if a source's client ID is
+ * invalid (e.g. DCR placeholder "dcr-id"), both are discarded and the next
+ * source is tried.
+ */
+function resolveOAuthClient(
+  account: ResolvedBasecampAccount,
+  overrides?: { clientId?: string; clientSecret?: string },
+): { clientId: string; clientSecret: string | undefined } {
+  // Overrides are validated too — callers (onboarding, hatch) may pass
+  // invalid values from config without realizing it.
+  if (isValidLaunchpadClientId(overrides?.clientId)) {
+    return { clientId: overrides.clientId, clientSecret: overrides.clientSecret };
+  }
+
+  if (isValidLaunchpadClientId(account.oauthClientId)) {
+    return { clientId: account.oauthClientId, clientSecret: account.oauthClientSecret };
+  }
+
+  const envClientId = process.env.LAUNCHPAD_CLIENT_ID;
+  const envClientSecret = process.env.LAUNCHPAD_CLIENT_SECRET;
+  if (isValidLaunchpadClientId(envClientId)) {
+    return { clientId: envClientId, clientSecret: envClientSecret };
+  }
+
+  return { clientId: DEFAULT_LAUNCHPAD_CLIENT_ID, clientSecret: undefined };
+}
+
 // ---------------------------------------------------------------------------
 // Token file path resolution
 // ---------------------------------------------------------------------------
@@ -60,12 +105,14 @@ export function createTokenManager(account: ResolvedBasecampAccount): TokenManag
 
   const store = new FileTokenStore(tokenFilePath);
 
+  const oauthClient = resolveOAuthClient(account);
+
   const tm = new TokenManager({
     store,
     refreshToken: sdkRefreshToken,
     tokenEndpoint: LAUNCHPAD_TOKEN_ENDPOINT,
-    clientId: account.oauthClientId,
-    clientSecret: account.oauthClientSecret,
+    clientId: oauthClient.clientId,
+    clientSecret: oauthClient.clientSecret,
     useLegacyFormat: true, // Launchpad
   });
 
@@ -99,14 +146,7 @@ export async function interactiveLogin(
   account: ResolvedBasecampAccount,
   overrides?: { clientId?: string; clientSecret?: string },
 ): Promise<OAuthToken> {
-  const clientId = overrides?.clientId ?? account.oauthClientId;
-  if (!clientId) {
-    throw new Error(
-      `No OAuth clientId available for account "${account.accountId}". ` +
-        `Set oauthClientId on the account or oauth.clientId at the channel level.`,
-    );
-  }
-  const clientSecret = overrides?.clientSecret ?? account.oauthClientSecret;
+  const oauthClient = resolveOAuthClient(account, overrides);
 
   const tokenFilePath = account.config.oauthTokenFile ?? resolveTokenFilePath(account.accountId);
 
@@ -127,8 +167,8 @@ export async function interactiveLogin(
   };
 
   return performInteractiveLogin({
-    clientId,
-    clientSecret,
+    clientId: oauthClient.clientId,
+    clientSecret: oauthClient.clientSecret,
     store,
     useLegacyFormat: true,
     openBrowser,

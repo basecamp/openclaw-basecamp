@@ -37,6 +37,7 @@ import {
   clearTokenManagers,
   createTokenManager,
   interactiveLogin,
+  isValidLaunchpadClientId,
   resolveTokenFilePath,
 } from "../src/oauth-credentials.js";
 import type { ResolvedBasecampAccount } from "../src/types.js";
@@ -48,7 +49,7 @@ function makeAccount(overrides?: Partial<ResolvedBasecampAccount>): ResolvedBase
     personId: "42",
     token: "",
     tokenSource: "oauth",
-    oauthClientId: "test-client-id",
+    oauthClientId: "aabbccdd00112233445566778899aabbccddeeff",
     oauthClientSecret: "test-client-secret",
     config: {
       personId: "42",
@@ -95,7 +96,7 @@ describe("createTokenManager", () => {
       expect.objectContaining({
         refreshToken,
         tokenEndpoint: "https://launchpad.37signals.com/authorization/token",
-        clientId: "test-client-id",
+        clientId: "aabbccdd00112233445566778899aabbccddeeff",
         clientSecret: "test-client-secret",
         useLegacyFormat: true,
       }),
@@ -149,28 +150,167 @@ describe("interactiveLogin", () => {
     });
     expect(performInteractiveLogin).toHaveBeenCalledWith(
       expect.objectContaining({
-        clientId: "test-client-id",
+        clientId: "aabbccdd00112233445566778899aabbccddeeff",
         clientSecret: "test-client-secret",
         useLegacyFormat: true,
       }),
     );
   });
 
-  it("uses override clientId when provided", async () => {
+  it("uses valid override clientId and clientSecret as a pair", async () => {
+    const overrideId = "ff00112233445566778899aabbccddeeff001122";
     const account = makeAccount();
-    await interactiveLogin(account, { clientId: "override-id" });
+    await interactiveLogin(account, { clientId: overrideId, clientSecret: "override-secret" });
     expect(performInteractiveLogin).toHaveBeenCalledWith(
       expect.objectContaining({
-        clientId: "override-id",
+        clientId: overrideId,
+        clientSecret: "override-secret",
+      }),
+    );
+  });
+
+  it("uses valid override clientId with undefined secret when only clientId overridden", async () => {
+    const overrideId = "ff00112233445566778899aabbccddeeff001122";
+    const account = makeAccount();
+    await interactiveLogin(account, { clientId: overrideId });
+    expect(performInteractiveLogin).toHaveBeenCalledWith(
+      expect.objectContaining({
+        clientId: overrideId,
+        clientSecret: undefined,
+      }),
+    );
+  });
+
+  it("uses built-in default when clientId is missing", async () => {
+    const account = makeAccount({
+      oauthClientId: undefined,
+      oauthClientSecret: undefined,
+    });
+    await interactiveLogin(account);
+    expect(performInteractiveLogin).toHaveBeenCalledWith(
+      expect.objectContaining({
+        clientId: "37275cfbf73bb6a1140c9f255eefd9f6ac9be2ef",
+        clientSecret: undefined,
+      }),
+    );
+  });
+
+  it("uses built-in default when clientId is invalid (DCR placeholder), discards stale secret", async () => {
+    const account = makeAccount({
+      oauthClientId: "dcr-id",
+      oauthClientSecret: "stale-secret",
+    });
+    await interactiveLogin(account);
+    expect(performInteractiveLogin).toHaveBeenCalledWith(
+      expect.objectContaining({
+        clientId: "37275cfbf73bb6a1140c9f255eefd9f6ac9be2ef",
+        clientSecret: undefined,
+      }),
+    );
+  });
+
+  it("validates override clientId — invalid override falls through to account", async () => {
+    const account = makeAccount();
+    await interactiveLogin(account, { clientId: "dcr-id", clientSecret: "bad-secret" });
+    expect(performInteractiveLogin).toHaveBeenCalledWith(
+      expect.objectContaining({
+        clientId: "aabbccdd00112233445566778899aabbccddeeff",
         clientSecret: "test-client-secret",
       }),
     );
   });
 
-  it("throws when no clientId is available", async () => {
-    const account = makeAccount({
-      oauthClientId: undefined,
-    });
-    await expect(interactiveLogin(account)).rejects.toThrow("No OAuth clientId");
+  it("prefers env vars over built-in default", async () => {
+    const envId = "ff00112233445566778899aabbccddeeff001122";
+    process.env.LAUNCHPAD_CLIENT_ID = envId;
+    process.env.LAUNCHPAD_CLIENT_SECRET = "env-secret";
+    try {
+      const account = makeAccount({ oauthClientId: undefined, oauthClientSecret: undefined });
+      await interactiveLogin(account);
+      expect(performInteractiveLogin).toHaveBeenCalledWith(
+        expect.objectContaining({
+          clientId: envId,
+          clientSecret: "env-secret",
+        }),
+      );
+    } finally {
+      delete process.env.LAUNCHPAD_CLIENT_ID;
+      delete process.env.LAUNCHPAD_CLIENT_SECRET;
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isValidLaunchpadClientId
+// ---------------------------------------------------------------------------
+
+describe("isValidLaunchpadClientId", () => {
+  it("accepts valid 40-char hex", () => {
+    expect(isValidLaunchpadClientId("aabbccdd00112233445566778899aabbccddeeff")).toBe(true);
+  });
+
+  it("rejects undefined", () => {
+    expect(isValidLaunchpadClientId(undefined)).toBe(false);
+  });
+
+  it("rejects short strings", () => {
+    expect(isValidLaunchpadClientId("dcr-id")).toBe(false);
+  });
+
+  it("rejects uppercase hex", () => {
+    expect(isValidLaunchpadClientId("AABBCCDD00112233445566778899AABBCCDDEEFF")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// createTokenManager — fallback
+// ---------------------------------------------------------------------------
+
+describe("createTokenManager fallback", () => {
+  beforeEach(() => {
+    clearTokenManagers();
+    vi.mocked(TokenManager).mockClear();
+    vi.mocked(FileTokenStore).mockClear();
+  });
+
+  it("uses built-in default when oauthClientId is missing", () => {
+    const account = makeAccount({ oauthClientId: undefined, oauthClientSecret: undefined });
+    createTokenManager(account);
+    expect(TokenManager).toHaveBeenCalledWith(
+      expect.objectContaining({
+        clientId: "37275cfbf73bb6a1140c9f255eefd9f6ac9be2ef",
+        clientSecret: undefined,
+      }),
+    );
+  });
+
+  it("uses built-in default when oauthClientId is invalid (discards stale secret)", () => {
+    const account = makeAccount({ oauthClientId: "dcr-id", oauthClientSecret: "stale" });
+    createTokenManager(account);
+    expect(TokenManager).toHaveBeenCalledWith(
+      expect.objectContaining({
+        clientId: "37275cfbf73bb6a1140c9f255eefd9f6ac9be2ef",
+        clientSecret: undefined,
+      }),
+    );
+  });
+
+  it("prefers env vars over built-in default", () => {
+    const envId = "ff00112233445566778899aabbccddeeff001122";
+    process.env.LAUNCHPAD_CLIENT_ID = envId;
+    process.env.LAUNCHPAD_CLIENT_SECRET = "env-secret";
+    try {
+      const account = makeAccount({ oauthClientId: undefined, oauthClientSecret: undefined });
+      createTokenManager(account);
+      expect(TokenManager).toHaveBeenCalledWith(
+        expect.objectContaining({
+          clientId: envId,
+          clientSecret: "env-secret",
+        }),
+      );
+    } finally {
+      delete process.env.LAUNCHPAD_CLIENT_ID;
+      delete process.env.LAUNCHPAD_CLIENT_SECRET;
+    }
   });
 });
