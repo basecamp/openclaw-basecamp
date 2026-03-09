@@ -6,15 +6,74 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
-  check:
+  typecheck:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: npm
       - run: npm ci
       - run: npm run typecheck
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
       - run: npm run lint
-      - run: npm test
+      - name: actionlint
+        run: |
+          curl -sL "$(curl -sL https://api.github.com/repos/rhysd/actionlint/releases/latest \
+            | jq -r '.assets[] | select(.name | test("linux.*amd64.*tar\\.gz$")) | .browser_download_url')" \
+            | tar xz actionlint
+          ./actionlint -color
+        if: github.event_name == 'pull_request'
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test -- --coverage
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage/
+        if: always()
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Verify build output
+        run: |
+          test -f dist/index.js || { echo "dist/index.js missing"; exit 1; }
+          test -f dist/index.d.ts || { echo "dist/index.d.ts missing"; exit 1; }
+
+  dependency-review:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/dependency-review-action@v4
