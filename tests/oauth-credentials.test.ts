@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -214,9 +214,8 @@ describe("interactiveLogin", () => {
   });
 
   it("persists client credentials to companion file after login", async () => {
-    const tokenDir = join(tmpdir(), `oc-test-${crypto.randomUUID()}`);
+    const tokenDir = mkdtempSync(join(tmpdir(), "oc-test-"));
     const tokenFile = join(tokenDir, "work.json");
-    mkdirSync(tokenDir, { recursive: true });
     try {
       const account = makeAccount({ config: { personId: "42", oauthTokenFile: tokenFile } });
       await interactiveLogin(account);
@@ -295,10 +294,9 @@ describe("createTokenManager fallback", () => {
   });
 
   it("uses persisted client file when account has no client configured", () => {
-    const tokenDir = join(tmpdir(), `oc-test-${crypto.randomUUID()}`);
+    const tokenDir = mkdtempSync(join(tmpdir(), "oc-test-"));
     const tokenFile = join(tokenDir, "test.json");
     const clientFile = join(tokenDir, "test.client.json");
-    mkdirSync(tokenDir, { recursive: true });
     writeFileSync(
       clientFile,
       JSON.stringify({
