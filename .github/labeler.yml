@@ -1,0 +1,37 @@
+adapters:
+  - changed-files:
+      - any-glob-to-any-file: "src/adapters/**"
+
+inbound:
+  - changed-files:
+      - any-glob-to-any-file: "src/inbound/**"
+
+outbound:
+  - changed-files:
+      - any-glob-to-any-file: "src/outbound/**"
+
+tests:
+  - changed-files:
+      - any-glob-to-any-file: "tests/**"
+
+ci:
+  - changed-files:
+      - any-glob-to-any-file: ".github/**"
+
+docs:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "*.md"
+          - "docs/**"
+
+config:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "src/config*.ts"
+          - "openclaw.plugin.json"
+
+deps:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "package.json"
+          - "package-lock.json"

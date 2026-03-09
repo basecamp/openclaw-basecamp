@@ -18,8 +18,8 @@ The Basecamp channel isn't a notification pipe — it's the **primary interactio
 
 ```
 Development repo: ~/Work/basecamp/basecamp-openclaw-plugin/
-Install: openclaw plugins install /path/to/basecamp-openclaw-plugin
-         — or — plugins.load.paths in openclaw.yaml
+Install (npm):  openclaw plugins install @37signals/openclaw-basecamp
+Install (local): npm run build && openclaw plugins install /path/to/basecamp-openclaw-plugin
 Upstream later: PR to openclaw/openclaw to bundle under extensions/basecamp/
 ```
 
@@ -77,7 +77,7 @@ basecamp-openclaw-plugin/
   "version": "0.1.0",
   "type": "module",
   "openclaw": {
-    "extensions": ["./src/index.ts"]
+    "extensions": ["./dist/index.js"]
   },
   "dependencies": {
     "openclaw": ">=2026.2.0"
@@ -150,7 +150,15 @@ export const basecampChannel: ChannelPlugin<BasecampAccount> = {
 
 ### 1.3 Installation
 
-**For development (local path):**
+**From npm (published):**
+```bash
+openclaw plugins install @37signals/openclaw-basecamp
+```
+
+**For development (local path — requires build):**
+```bash
+cd ~/Work/basecamp/basecamp-openclaw-plugin && npm run build
+```
 ```yaml
 # openclaw.yaml
 plugins:
@@ -159,7 +167,7 @@ plugins:
       - ~/Work/basecamp/basecamp-openclaw-plugin
 ```
 
-**For colleagues (git):**
+**For colleagues (git — requires build after clone):**
 ```bash
 openclaw plugins install git+ssh://git@github.com/basecamp/basecamp-openclaw-plugin
 ```
@@ -1175,7 +1183,7 @@ openclaw-plugin/
 
 ### Phase 1 Smoke Tests
 
-1. **Install plugin:** `openclaw plugins install ~/Work/basecamp/basecamp-openclaw-plugin` → plugin appears in `openclaw plugins list`
+1. **Install plugin:** `npm run build && openclaw plugins install ~/Work/basecamp/basecamp-openclaw-plugin` → plugin appears in `openclaw plugins list`
 2. **Config validation:** Add `channels.basecamp` to openclaw.yaml → no schema errors
 3. **Activity feed poll:** Start gateway → channel polls activity feed → events appear in gateway logs
 4. **Outbound post:** Agent sends text → Campfire line appears from service account

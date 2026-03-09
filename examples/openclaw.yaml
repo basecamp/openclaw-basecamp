@@ -1,6 +1,10 @@
 # Example OpenClaw config with Basecamp channel plugin.
 #
 # Install the plugin:
+#   openclaw plugins install @37signals/openclaw-basecamp
+#
+# Or from a local checkout (requires building first):
+#   cd ~/Work/basecamp/basecamp-openclaw-plugin && npm run build
 #   openclaw plugins install ~/Work/basecamp/basecamp-openclaw-plugin
 #
 # Then add this to your openclaw.yaml (or merge the relevant sections).

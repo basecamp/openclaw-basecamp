@@ -1,0 +1,140 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:  # Manual trigger is always dry-run
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  security:
+    uses: ./.github/workflows/security.yml
+    permissions:
+      contents: read
+      security-events: write
+
+  test:
+    name: Test Suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+
+  publish:
+    name: Publish to npm
+    needs: [security, test]
+    runs-on: ubuntu-latest
+    environment: release
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+
+      - name: Verify tag is on main
+        if: github.event_name == 'push'
+        run: |
+          git fetch origin main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+          cache: npm
+
+      - name: Upgrade npm for OIDC trusted publishing
+        run: npm install -g npm@latest
+
+      - run: npm ci
+
+      - name: Extract version
+        id: version
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            VERSION=$(node -p "require('./package.json').version")
+            echo "version=$VERSION" >> $GITHUB_OUTPUT
+            echo "Rehearsal for version: $VERSION"
+          else
+            VERSION="${GITHUB_REF#refs/tags/v}"
+            PKG_VERSION=$(node -p "require('./package.json').version")
+            if [ "$PKG_VERSION" != "$VERSION" ]; then
+              echo "::error::Package version ($PKG_VERSION) does not match tag version ($VERSION)"
+              exit 1
+            fi
+            echo "version=$VERSION" >> $GITHUB_OUTPUT
+            echo "Releasing version: $VERSION"
+          fi
+
+      - name: Determine npm tag
+        id: npm-tag
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          if [[ "$VERSION" == *-* ]]; then
+            echo "tag=next" >> $GITHUB_OUTPUT
+          else
+            echo "tag=latest" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Check if already published
+        id: check-published
+        if: github.event_name == 'push'
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          if npm view "@37signals/openclaw-basecamp@${VERSION}" version 2>/dev/null; then
+            echo "already_published=true" >> $GITHUB_OUTPUT
+            echo "::notice::Version ${VERSION} already published to npm"
+          else
+            echo "already_published=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build
+        run: npm run build
+
+      - name: Verify package artifact
+        run: |
+          PACKED=$(npm pack --dry-run --json 2>/dev/null)
+          EXT=$(node -p "require('./package.json').openclaw.extensions[0]")
+          EXT_PATH="${EXT#./}"
+          echo "$PACKED" | node -e "
+            const files = JSON.parse(require('fs').readFileSync(0,'utf8'))[0].files.map(f => f.path);
+            const target = '$EXT_PATH';
+            if (!files.includes(target)) {
+              console.error('::error::openclaw.extensions target \"' + target + '\" not found in packed artifact');
+              console.error('Packed files:', files.join(', '));
+              process.exit(1);
+            }
+            console.log('openclaw.extensions target \"' + target + '\" verified in packed artifact');
+          "
+
+      - name: Publish to npm
+        if: steps.check-published.outputs.already_published != 'true'
+        run: |
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            npm publish --access public --tag ${{ steps.npm-tag.outputs.tag }} --provenance
+          else
+            echo "::notice::Dry run mode - not actually publishing"
+            npm publish --access public --tag ${{ steps.npm-tag.outputs.tag }} --dry-run
+          fi
+
+      - name: Create GitHub Release
+        if: github.event_name == 'push'
+        uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2
+        with:
+          generate_release_notes: true
+          prerelease: ${{ contains(steps.version.outputs.version, '-') }}

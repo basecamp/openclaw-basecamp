@@ -74,6 +74,9 @@ Agents connected through this channel have access to the following tools:
 git clone <repo-url>
 cd basecamp-openclaw-plugin
 npm install
+npm run build        # required — OpenClaw loads dist/index.js
 npm test
 npm run typecheck
 ```
+
+For local-path plugin installs (e.g. `openclaw plugins install ./path/to/basecamp-openclaw-plugin`), you must run `npm run build` first so that the `openclaw.extensions` entrypoint (`./dist/index.js`) exists.
