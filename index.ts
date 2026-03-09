@@ -24,6 +24,7 @@ const plugin: {
     api.registerHttpRoute({
       path: "/webhooks/basecamp",
       handler: handleBasecampWebhook,
+      auth: "plugin",
     });
     api.on("before_agent_start", (event) => {
       const lines = event.prompt.split(/\r?\n/).filter((l) => l.startsWith("[basecamp] "));
