@@ -170,6 +170,8 @@ export async function interactiveLogin(
     }
   };
 
+  const slog = createConsoleStructuredLog({ accountId: account.accountId, source: "oauth" });
+
   return performInteractiveLogin({
     clientId: oauthClient.clientId,
     clientSecret: oauthClient.clientSecret,
@@ -177,7 +179,6 @@ export async function interactiveLogin(
     useLegacyFormat: true,
     openBrowser,
     onStatus: (message: string) => {
-      const slog = createConsoleStructuredLog({ accountId: account.accountId, source: "oauth" });
       slog.info("login_status", { message });
     },
   });

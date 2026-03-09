@@ -179,7 +179,12 @@ async function handleReact(ctx: ChannelMessageActionContext) {
     return jsonResult({ ok: true, target: "boost", boostId: (result as any)?.id });
   } catch (err) {
     const slog = createConsoleStructuredLog({ accountId: accountId ?? "unknown", source: "actions" });
-    slog.error("react_failed", { bucket: bucketId, recording: recordingId, error: String(err) });
+    slog.error("react_failed", {
+      bucket: bucketId,
+      recording: recordingId,
+      error: String(err),
+      stack: err instanceof Error ? err.stack : undefined,
+    });
     return jsonResult({ ok: false, error: String(err) });
   }
 }

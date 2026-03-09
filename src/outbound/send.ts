@@ -146,6 +146,7 @@ export async function postCampfireLine(params: {
       correlation: correlationId ?? "none",
       retryable,
       error: String(err),
+      stack: err instanceof Error ? err.stack : undefined,
     });
     return { ok: false, error: err, message: String(err), retryable };
   }
@@ -189,6 +190,7 @@ export async function postComment(params: {
       correlation: correlationId ?? "none",
       retryable,
       error: String(err),
+      stack: err instanceof Error ? err.stack : undefined,
     });
     return { ok: false, error: err, message: String(err), retryable };
   }

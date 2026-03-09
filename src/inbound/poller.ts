@@ -205,6 +205,7 @@ export async function startCompositePoller(opts: CompositePollerOptions): Promis
     // One-time: clear stale promotion state from pre-cleanup installs
     if (cursors.getCustom("reconciliation:promotions")) {
       cursors.deleteCustom("reconciliation:promotions");
+      await saveCursorsWithRetry(cursors, slog);
     }
   } catch (err) {
     slog.warn("cursors_load_failed", { error: String(err) });

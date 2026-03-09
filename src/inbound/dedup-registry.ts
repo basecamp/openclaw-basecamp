@@ -56,10 +56,6 @@ export function getAccountDedup(accountId: string): EventDedup {
   }
 }
 
-function flushAccountDedup(accountId: string): void {
-  registry.get(accountId)?.dedup.flush();
-}
-
 export function closeAccountDedup(accountId: string): void {
   const entry = registry.get(accountId);
   if (!entry) return;
