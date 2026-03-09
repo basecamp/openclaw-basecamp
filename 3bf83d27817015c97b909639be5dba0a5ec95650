@@ -1,0 +1,39 @@
+PLAN.md
+  4fdbd7f8a8108e97 21-22,80,153-161,170,1186
+.github/labeler.yml
+  4fdbd7f8a8108e97 1-37
+examples/openclaw.yaml
+  4fdbd7f8a8108e97 4-7
+.github/workflows/labeler.yml
+  4fdbd7f8a8108e97 1-17
+package.json
+  4fdbd7f8a8108e97 6-17,22-25,36,41
+README.md
+  4fdbd7f8a8108e97 77,81-82
+.gitignore
+  4fdbd7f8a8108e97 5-6
+.github/workflows/release.yml
+  4fdbd7f8a8108e97 1-140
+.npmrc
+  4fdbd7f8a8108e97 1
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.9",
+  "base_commit_sha": "3bf83d27817015c97b909639be5dba0a5ec95650",
+  "prompts": {
+    "4fdbd7f8a8108e97": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a6297fd6-91cb-4725-8fab-07285e2c1a41",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Jeremy Daer <jeremy@37signals.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 236,
+      "overriden_lines": 0
+    }
+  }
+}
