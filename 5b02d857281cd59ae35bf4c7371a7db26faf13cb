@@ -1,0 +1,27 @@
+.github/workflows/ci.yml
+  4fdbd7f8a8108e97 20,32,48,66
+.github/workflows/security.yml
+  4fdbd7f8a8108e97 26
+.github/workflows/release.yml
+  4fdbd7f8a8108e97 31,57
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.9",
+  "base_commit_sha": "5b02d857281cd59ae35bf4c7371a7db26faf13cb",
+  "prompts": {
+    "4fdbd7f8a8108e97": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a6297fd6-91cb-4725-8fab-07285e2c1a41",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Jeremy Daer <jeremy@37signals.com>",
+      "messages": [],
+      "total_additions": 7,
+      "total_deletions": 7,
+      "accepted_lines": 7,
+      "overriden_lines": 0
+    }
+  }
+}
