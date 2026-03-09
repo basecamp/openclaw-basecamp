@@ -16,8 +16,6 @@ export interface PollCursors {
   activitySince?: string;
   /** ISO timestamp of the most recent reading processed. */
   readingsSince?: string;
-  /** Page token for activity feed pagination (if API supports it). */
-  activityPage?: string;
   /** Arbitrary per-source cursor state. */
   custom?: Record<string, string>;
 }
@@ -105,14 +103,6 @@ export class CursorStore {
     }
   }
 
-  /** Update the activity page cursor. */
-  setActivityPage(page: string | undefined): void {
-    if (this.cursors.activityPage !== page) {
-      this.cursors.activityPage = page;
-      this.dirty = true;
-    }
-  }
-
   /** Set a custom cursor value. */
   setCustom(key: string, value: string): void {
     if (!this.cursors.custom) {
@@ -127,6 +117,14 @@ export class CursorStore {
   /** Get a custom cursor value. */
   getCustom(key: string): string | undefined {
     return this.cursors.custom?.[key];
+  }
+
+  /** Delete a custom cursor key. */
+  deleteCustom(key: string): void {
+    if (this.cursors.custom && key in this.cursors.custom) {
+      delete this.cursors.custom[key];
+      this.dirty = true;
+    }
   }
 
   /** Check if there are unsaved changes. */

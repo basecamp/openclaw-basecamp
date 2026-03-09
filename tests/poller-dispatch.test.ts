@@ -43,7 +43,6 @@ vi.mock("../src/config.js", () => ({
   resolveReconciliationConfig: () => ({
     enabled: false,
     intervalMs: 21_600_000,
-    gapThreshold: 3,
   }),
   resolveAccountForBucket: () => undefined,
   listBasecampAccountIds: () => ["default"],

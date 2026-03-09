@@ -56,7 +56,7 @@ export function getAccountDedup(accountId: string): EventDedup {
   }
 }
 
-export function flushAccountDedup(accountId: string): void {
+function flushAccountDedup(accountId: string): void {
   registry.get(accountId)?.dedup.flush();
 }
 

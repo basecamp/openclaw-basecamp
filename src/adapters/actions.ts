@@ -17,6 +17,7 @@ import type {
 import { jsonResult, readStringParam } from "openclaw/plugin-sdk";
 import { getClient, numId } from "../basecamp-client.js";
 import { resolveBasecampAccount } from "../config.js";
+import { createConsoleStructuredLog } from "../logging.js";
 import { markdownToBasecampHtml } from "../outbound/format.js";
 import { postCampfireLine, postComment } from "../outbound/send.js";
 
@@ -177,7 +178,8 @@ async function handleReact(ctx: ChannelMessageActionContext) {
     const result = await client.boosts.createForRecording(numId("recording", recordingId), { content: emoji });
     return jsonResult({ ok: true, target: "boost", boostId: (result as any)?.id });
   } catch (err) {
-    console.error(`[basecamp:${accountId}] react error: bucket=${bucketId} recording=${recordingId}`, err);
+    const slog = createConsoleStructuredLog({ accountId: accountId ?? "unknown", source: "actions" });
+    slog.error("react_failed", { bucket: bucketId, recording: recordingId, error: String(err) });
     return jsonResult({ ok: false, error: String(err) });
   }
 }

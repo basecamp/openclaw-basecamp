@@ -8,11 +8,6 @@ vi.mock("openclaw/plugin-sdk", () => ({
   deleteAccountFromConfigSection: vi.fn(),
 }));
 
-vi.mock("../src/bcq.js", () => ({
-  bcqAuthStatus: vi.fn(),
-  execBcqAuthLogin: vi.fn(),
-}));
-
 vi.mock("../src/config.js", () => ({
   BasecampConfigSchema: {},
   listBasecampAccountIds: vi.fn(),
@@ -83,7 +78,6 @@ vi.mock("../src/inbound/dedup-registry.js", () => ({
   getAccountDedup: vi.fn(() => ({ size: 0, isDuplicate: () => false, flush: vi.fn() })),
   closeAccountDedup: vi.fn(),
   closeAllAccountDedup: vi.fn(),
-  flushAccountDedup: vi.fn(),
 }));
 
 vi.mock("../src/inbound/webhook-lifecycle.js", () => ({
@@ -110,7 +104,6 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 });
 
 import { clearClient, clearClients } from "../src/basecamp-client.js";
-import { bcqAuthStatus } from "../src/bcq.js";
 import { _resetValidationState, basecampChannel } from "../src/channel.js";
 import {
   resolveBasecampAccount,

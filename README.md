@@ -49,7 +49,7 @@ All configuration lives under `channels.basecamp` in your OpenClaw config file.
 | `retry` | `object` | Retry behavior: `maxAttempts`, `baseDelayMs`, `maxDelayMs`, `jitter` |
 | `circuitBreaker` | `object` | Circuit breaker: `threshold`, `cooldownMs` |
 | `safetyNet` | `object` | Safety net polling for missed events: `projects`, `intervalMs` |
-| `reconciliation` | `object` | Gap reconciliation: `enabled`, `intervalMs`, `gapThreshold` |
+| `reconciliation` | `object` | Gap reconciliation: `enabled`, `intervalMs` |
 
 ## Agent tools
 

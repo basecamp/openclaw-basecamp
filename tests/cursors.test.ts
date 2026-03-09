@@ -43,17 +43,6 @@ describe("CursorStore", () => {
     expect(loaded.readingsSince).toBe("2025-06-15T12:00:00Z");
   });
 
-  it("round-trips activityPage through save and load", async () => {
-    const store = new CursorStore(tmpDir, "acct-1");
-    await store.load();
-    store.setActivityPage("page-token-abc");
-    await store.save();
-
-    const store2 = new CursorStore(tmpDir, "acct-1");
-    const loaded = await store2.load();
-    expect(loaded.activityPage).toBe("page-token-abc");
-  });
-
   it("round-trips custom cursors through save and load", async () => {
     const store = new CursorStore(tmpDir, "acct-1");
     await store.load();
@@ -109,6 +98,32 @@ describe("CursorStore", () => {
 
     const after = (await stat(filePath)).mtimeMs;
     expect(after).toBe(before);
+  });
+
+  it("deleteCustom removes key and marks dirty", async () => {
+    const store = new CursorStore(tmpDir, "acct-1");
+    await store.load();
+    store.setCustom("reconciliation:promotions", "some-value");
+    expect(store.isDirty).toBe(true);
+    await store.save();
+    expect(store.isDirty).toBe(false);
+
+    store.deleteCustom("reconciliation:promotions");
+    expect(store.getCustom("reconciliation:promotions")).toBeUndefined();
+    expect(store.isDirty).toBe(true);
+
+    await store.save();
+    // Verify it's gone after round-trip
+    const store2 = new CursorStore(tmpDir, "acct-1");
+    const loaded = await store2.load();
+    expect(loaded.custom?.["reconciliation:promotions"]).toBeUndefined();
+  });
+
+  it("deleteCustom is no-op for missing key", async () => {
+    const store = new CursorStore(tmpDir, "acct-1");
+    await store.load();
+    store.deleteCustom("nonexistent");
+    expect(store.isDirty).toBe(false);
   });
 
   it("creates directory recursively if it does not exist", async () => {

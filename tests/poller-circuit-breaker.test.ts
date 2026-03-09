@@ -16,6 +16,39 @@ import { clearMetrics, getAccountMetrics } from "../src/metrics.js";
 // Module mocks -- intercept poll functions and config at the module boundary
 // ---------------------------------------------------------------------------
 
+vi.mock("../src/inbound/dedup-registry.js", () => ({
+  getAccountDedup: vi.fn(() => ({
+    isDuplicate: () => false,
+    size: 0,
+    flush: vi.fn(),
+    close: vi.fn(),
+  })),
+}));
+
+vi.mock("../src/inbound/cursors.js", () => {
+  const store = {
+    load: vi.fn(async () => ({})),
+    save: vi.fn(async () => {}),
+    get: vi.fn(() => ({})),
+    setActivitySince: vi.fn(),
+    setReadingsSince: vi.fn(),
+    setCustom: vi.fn(),
+    getCustom: vi.fn(() => undefined),
+    deleteCustom: vi.fn(),
+    isDirty: false,
+    abandon: vi.fn(),
+  };
+  return { CursorStore: vi.fn(() => store) };
+});
+
+vi.mock("../src/inbound/state-dir.js", () => ({
+  resolvePluginStateDir: vi.fn(() => "/tmp/test-poller-cb"),
+}));
+
+vi.mock("../src/inbound/normalize.js", () => ({
+  isSelfMessage: vi.fn(() => false),
+}));
+
 vi.mock("../src/config.js", () => ({
   resolvePollingIntervals: () => ({
     activityIntervalMs: 50,
@@ -27,7 +60,7 @@ vi.mock("../src/config.js", () => ({
     cooldownMs: 60_000,
   }),
   resolveSafetyNetConfig: () => ({ projects: [], intervalMs: 600_000 }),
-  resolveReconciliationConfig: () => ({ enabled: false, intervalMs: 21_600_000, gapThreshold: 3 }),
+  resolveReconciliationConfig: () => ({ enabled: false, intervalMs: 21_600_000 }),
   resolveAccountForBucket: () => undefined,
   listBasecampAccountIds: () => ["default"],
 }));

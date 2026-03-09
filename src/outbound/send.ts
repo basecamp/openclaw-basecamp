@@ -10,6 +10,7 @@
 
 import { type BasecampClient, getClient, numId, rawOrThrow } from "../basecamp-client.js";
 import type { CircuitBreaker } from "../circuit-breaker.js";
+import { createConsoleStructuredLog } from "../logging.js";
 import { isRetryableError, withCircuitBreaker, withRetry } from "../retry.js";
 import type { BasecampRecordableType, ResolvedBasecampAccount } from "../types.js";
 
@@ -93,15 +94,6 @@ export async function resolveCircleInfoCached(
   }
 }
 
-/** Convenience: resolve just the transcript ID from the cache. */
-async function resolvePingTranscriptCached(
-  bucketId: string,
-  account: ResolvedBasecampAccount,
-): Promise<string | undefined> {
-  const info = await resolveCircleInfoCached(bucketId, account);
-  return info?.transcriptId;
-}
-
 export { LruCache, PING_CACHE_MAX, circleInfoCache };
 
 // ---------------------------------------------------------------------------
@@ -140,21 +132,21 @@ export async function postCampfireLine(params: {
     ? () => withCircuitBreaker(circuitBreaker.instance, circuitBreaker.key, doPost)
     : doPost;
 
+  const slog = createConsoleStructuredLog({ accountId: account.accountId, source: "outbound" });
   try {
     const result =
       retries && retries > 0 ? await withRetry(wrappedPost, { maxAttempts: retries + 1 }) : await wrappedPost();
-    console.log(
-      `[basecamp:outbound] sent ok — ` +
-        `type=campfire recording=${transcriptId} account=${account.accountId} correlation=${correlationId ?? "none"}`,
-    );
+    slog.info("sent_ok", { type: "campfire", recording: transcriptId, correlation: correlationId ?? "none" });
     return { ok: true, recordingId: String((result as any)?.id ?? "") };
   } catch (err) {
     const retryable = isRetryableError(err);
-    console.warn(
-      `[basecamp:outbound] failed — ` +
-        `type=campfire recording=${transcriptId} account=${account.accountId} ` +
-        `correlation=${correlationId ?? "none"} retryable=${retryable} error=${String(err)}`,
-    );
+    slog.warn("send_failed", {
+      type: "campfire",
+      recording: transcriptId,
+      correlation: correlationId ?? "none",
+      retryable,
+      error: String(err),
+    });
     return { ok: false, error: err, message: String(err), retryable };
   }
 }
@@ -183,21 +175,21 @@ export async function postComment(params: {
     ? () => withCircuitBreaker(circuitBreaker.instance, circuitBreaker.key, doPost)
     : doPost;
 
+  const slog = createConsoleStructuredLog({ accountId: account.accountId, source: "outbound" });
   try {
     const result =
       retries && retries > 0 ? await withRetry(wrappedPost, { maxAttempts: retries + 1 }) : await wrappedPost();
-    console.log(
-      `[basecamp:outbound] sent ok — ` +
-        `type=comment recording=${recordingId} account=${account.accountId} correlation=${correlationId ?? "none"}`,
-    );
+    slog.info("sent_ok", { type: "comment", recording: recordingId, correlation: correlationId ?? "none" });
     return { ok: true, commentId: String((result as any)?.id ?? "") };
   } catch (err) {
     const retryable = isRetryableError(err);
-    console.warn(
-      `[basecamp:outbound] failed — ` +
-        `type=comment recording=${recordingId} account=${account.accountId} ` +
-        `correlation=${correlationId ?? "none"} retryable=${retryable} error=${String(err)}`,
-    );
+    slog.warn("send_failed", {
+      type: "comment",
+      recording: recordingId,
+      correlation: correlationId ?? "none",
+      retryable,
+      error: String(err),
+    });
     return { ok: false, error: err, message: String(err), retryable };
   }
 }
@@ -239,7 +231,7 @@ export async function postReplyToEvent(params: {
 
   // Pings: resolve the transcript ID from the circle's bucket ID
   if (parsed.prefix === "ping") {
-    const transcriptId = await resolvePingTranscriptCached(bucketId, account);
+    const transcriptId = (await resolveCircleInfoCached(bucketId, account))?.transcriptId;
     if (!transcriptId) {
       return { ok: false, message: `Could not resolve Ping transcript for circle bucket=${bucketId}` };
     }

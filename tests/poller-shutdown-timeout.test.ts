@@ -14,7 +14,7 @@ vi.mock("../src/config.js", () => ({
     cooldownMs: 30_000,
   }),
   resolveSafetyNetConfig: () => ({ projects: [], intervalMs: 600_000 }),
-  resolveReconciliationConfig: () => ({ enabled: false, intervalMs: 21_600_000, gapThreshold: 3 }),
+  resolveReconciliationConfig: () => ({ enabled: false, intervalMs: 21_600_000 }),
   resolveAccountForBucket: () => undefined,
   listBasecampAccountIds: () => ["default"],
 }));

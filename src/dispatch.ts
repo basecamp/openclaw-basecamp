@@ -360,7 +360,8 @@ function resolveEngagePolicy(cfg: OpenClawConfig, bucketId: string): BasecampEng
  * Classify a dispatch error into a broad category for structured logging.
  * Prefers BasecampError.code when available, falls back to message heuristics.
  */
-function classifyDispatchError(err: unknown): string {
+/** @internal Exported for testing. */
+export function classifyDispatchError(err: unknown): string {
   // SDK errors carry a structured code
   if (err instanceof BasecampError) {
     switch (err.code) {

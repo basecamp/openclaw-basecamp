@@ -105,7 +105,6 @@ export const BasecampConfigSchema = z.object({
     .object({
       enabled: z.boolean().optional(),
       intervalMs: z.number().positive().optional(),
-      gapThreshold: z.number().positive().optional(),
     })
     .optional(),
 });
@@ -182,20 +181,6 @@ export async function readTokenFile(filePath: string): Promise<string> {
 }
 
 /**
- * Resolve a project-scope entry by its key.
- * Returns the real account ID and scoped bucket ID, or undefined if not found.
- */
-export function resolveProjectScope(
-  cfg: OpenClawConfig,
-  scopeId: string,
-): { accountId: string; bucketId: string } | undefined {
-  const section = getBasecampSection(cfg);
-  const va = section?.virtualAccounts?.[scopeId] as BasecampVirtualAccountConfig | undefined;
-  if (!va) return undefined;
-  return { accountId: va.accountId, bucketId: va.bucketId };
-}
-
-/**
  * Synchronously resolve a Basecamp account from config.
  * Token loading from file is deferred — use the token field if available,
  * otherwise the gateway startup will load it.
@@ -212,7 +197,8 @@ export function resolveBasecampAccount(
   const section = getBasecampSection(cfg);
 
   // Check if this is a project-scope (virtual account) entry
-  const scope = resolveProjectScope(cfg, effectiveId);
+  const va = section?.virtualAccounts?.[effectiveId] as BasecampVirtualAccountConfig | undefined;
+  const scope = va ? { accountId: va.accountId, bucketId: va.bucketId } : undefined;
   if (scope) {
     // Cycle detection: virtual accounts must not reference each other
     const visited = _visited ?? new Set<string>();
@@ -431,14 +417,12 @@ export function resolveSafetyNetConfig(cfg: OpenClawConfig): {
 export function resolveReconciliationConfig(cfg: OpenClawConfig): {
   enabled: boolean;
   intervalMs: number;
-  gapThreshold: number;
 } {
   const section = getBasecampSection(cfg);
-  const rc = section?.reconciliation as { enabled?: boolean; intervalMs?: number; gapThreshold?: number } | undefined;
+  const rc = section?.reconciliation as { enabled?: boolean; intervalMs?: number } | undefined;
   return {
     enabled: rc?.enabled ?? true,
     intervalMs: rc?.intervalMs ?? 21_600_000,
-    gapThreshold: rc?.gapThreshold ?? 3,
   };
 }
 

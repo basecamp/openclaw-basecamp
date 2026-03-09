@@ -518,7 +518,6 @@ export type BasecampChannelConfig = {
   reconciliation?: {
     enabled?: boolean;
     intervalMs?: number;
-    gapThreshold?: number;
   };
 };
 

@@ -27,13 +27,9 @@ export function markdownToBasecampHtml(md: string): string {
 
   // --- Fenced code blocks (``` ... ```) ---
   // Must run before inline transforms to avoid mangling code contents.
-  // Collect code block positions so table parsing can skip them.
-  const codeBlockRanges: Array<{ start: number; end: number }> = [];
-  html = html.replace(/```([\w.+#/-]*)\n([\s\S]*?)```/g, (_match, lang, code, offset) => {
+  html = html.replace(/```([\w.+#/-]*)\n([\s\S]*?)```/g, (_match, lang, code) => {
     const langAttr = lang ? ` class="language-${lang}"` : "";
-    const replacement = `<pre${langAttr}>${escapeHtml(code.replace(/\n$/, ""))}</pre>`;
-    codeBlockRanges.push({ start: offset, end: offset + _match.length });
-    return replacement;
+    return `<pre${langAttr}>${escapeHtml(code.replace(/\n$/, ""))}</pre>`;
   });
 
   // --- Tables (pipe tables) ---

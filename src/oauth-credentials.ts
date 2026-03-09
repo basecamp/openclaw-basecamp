@@ -19,6 +19,7 @@ import {
   refreshToken as sdkRefreshToken,
   TokenManager,
 } from "@37signals/basecamp/oauth";
+import { createConsoleStructuredLog } from "./logging.js";
 import type { ResolvedBasecampAccount } from "./types.js";
 
 const LAUNCHPAD_TOKEN_ENDPOINT = "https://launchpad.37signals.com/authorization/token";
@@ -176,7 +177,8 @@ export async function interactiveLogin(
     useLegacyFormat: true,
     openBrowser,
     onStatus: (message: string) => {
-      console.log(`[basecamp:oauth] ${message}`);
+      const slog = createConsoleStructuredLog({ accountId: account.accountId, source: "oauth" });
+      slog.info("login_status", { message });
     },
   });
 }

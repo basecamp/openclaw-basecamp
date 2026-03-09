@@ -47,8 +47,7 @@ import { EventDedup } from "./dedup.js";
 import { getAccountDedup } from "./dedup-registry.js";
 import { isSelfMessage } from "./normalize.js";
 import { pollReadings } from "./readings.js";
-import type { PromotionState } from "./reconciliation.js";
-import { deserializePromotionState, runReconciliation, serializePromotionState } from "./reconciliation.js";
+import { runReconciliation } from "./reconciliation.js";
 import type { DisappearedPending, SafetyNetSnapshot } from "./safety-net.js";
 import {
   deserializePending,
@@ -97,6 +96,53 @@ function abortableSleep(ms: number, signal?: AbortSignal): Promise<void> {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
+}
+
+/** Exponential backoff: doubles from intervalMs up to maxMs, starting at intervalMs. */
+function computeBackoff(current: number, intervalMs: number, maxMs: number): number {
+  return clamp(current === 0 ? intervalMs : current * 2, intervalMs, maxMs);
+}
+
+/**
+ * Shared event dispatch loop used by all polling sources.
+ *
+ * Deduplicates events (with optional secondary key), filters self-messages,
+ * and dispatches to the onEvent handler.
+ */
+async function dispatchBatch(opts: {
+  events: BasecampInboundMessage[];
+  dedup: EventDedup;
+  account: ResolvedBasecampAccount;
+  onEvent: (msg: BasecampInboundMessage) => Promise<boolean>;
+  slog: ReturnType<typeof createStructuredLog>;
+  source: string;
+  /** Compute secondary dedup key from recording metadata (activity/readings). */
+  useSecondaryKey?: boolean;
+  /** Check for self-messages (all sources except safety net). */
+  checkSelfMessage?: boolean;
+}): Promise<{ dispatched: number; dropped: number }> {
+  let dispatched = 0;
+  let dropped = 0;
+  for (const event of opts.events) {
+    const secondaryKey = opts.useSecondaryKey && event.meta.recordingId
+      ? EventDedup.secondaryKey(event.meta.recordingId, event.meta.eventKind, event.createdAt)
+      : undefined;
+
+    if (opts.dedup.isDuplicate(event.dedupKey, secondaryKey)) continue;
+    if (opts.checkSelfMessage !== false && isSelfMessage(event.sender.id, opts.account)) continue;
+
+    try {
+      const delivered = await opts.onEvent(event);
+      if (delivered) {
+        dispatched++;
+      } else {
+        dropped++;
+      }
+    } catch (err) {
+      opts.slog.error("dispatch_error", { feed: opts.source, key: event.dedupKey, error: String(err) });
+    }
+  }
+  return { dispatched, dropped };
 }
 
 /** Save cursors with one retry after 1s delay on failure. */
@@ -155,6 +201,11 @@ export async function startCompositePoller(opts: CompositePollerOptions): Promis
     await cursors.load();
     const c = cursors.get();
     slog.info("cursors_loaded", { activity: c.activitySince ?? "none", readings: c.readingsSince ?? "none" });
+
+    // One-time: clear stale promotion state from pre-cleanup installs
+    if (cursors.getCustom("reconciliation:promotions")) {
+      cursors.deleteCustom("reconciliation:promotions");
+    }
   } catch (err) {
     slog.warn("cursors_load_failed", { error: String(err) });
   }
@@ -241,11 +292,6 @@ export async function startCompositePoller(opts: CompositePollerOptions): Promis
   const storedPending = cursors.getCustom("safetyNetPending");
   if (storedPending) safetyNetPending = deserializePending(storedPending);
 
-  // Load promotion state for reconciliation
-  let promotionState: PromotionState | undefined;
-  const storedPromotion = cursors.getCustom("reconciliation:promotions");
-  if (storedPromotion) promotionState = deserializePromotionState(storedPromotion);
-
   let lastReconciliationPoll = 0;
 
   slog.info("started", {
@@ -274,27 +320,10 @@ export async function startCompositePoller(opts: CompositePollerOptions): Promis
           log,
         });
 
-        let dispatched = 0;
-        let dropped = 0;
-        for (const event of result.events) {
-          const secondaryKey = event.meta.recordingId
-            ? EventDedup.secondaryKey(event.meta.recordingId, event.meta.eventKind, event.createdAt)
-            : undefined;
-
-          if (dedup.isDuplicate(event.dedupKey, secondaryKey)) continue;
-          if (isSelfMessage(event.sender.id, account)) continue;
-
-          try {
-            const delivered = await onEvent(event);
-            if (delivered) {
-              dispatched++;
-            } else {
-              dropped++;
-            }
-          } catch (err) {
-            slog.error("dispatch_error", { feed: "activity", key: event.dedupKey, error: String(err) });
-          }
-        }
+        const { dispatched, dropped } = await dispatchBatch({
+          events: result.events, dedup, account, onEvent, slog,
+          source: "activity", useSecondaryKey: true,
+        });
 
         if (result.newestAt) {
           cursors.setActivitySince(result.newestAt);
@@ -310,11 +339,7 @@ export async function startCompositePoller(opts: CompositePollerOptions): Promis
         syncCircuitBreakerMetrics("activity");
         activityBackoff = 0;
       } catch (err) {
-        activityBackoff = clamp(
-          activityBackoff === 0 ? activityIntervalMs : activityBackoff * 2,
-          activityIntervalMs,
-          MAX_BACKOFF_MS,
-        );
+        activityBackoff = computeBackoff(activityBackoff, activityIntervalMs, MAX_BACKOFF_MS);
         recordPollError(account.accountId, "activity", String(err), activityBackoff);
         syncCircuitBreakerMetrics("activity");
         slog.error("poll_error", { feed: "activity", backoff: activityBackoff, error: String(err) });
@@ -333,27 +358,10 @@ export async function startCompositePoller(opts: CompositePollerOptions): Promis
           log,
         });
 
-        let dispatched = 0;
-        let dropped = 0;
-        for (const event of result.events) {
-          const secondaryKey = event.meta.recordingId
-            ? EventDedup.secondaryKey(event.meta.recordingId, event.meta.eventKind, event.createdAt)
-            : undefined;
-
-          if (dedup.isDuplicate(event.dedupKey, secondaryKey)) continue;
-          if (isSelfMessage(event.sender.id, account)) continue;
-
-          try {
-            const delivered = await onEvent(event);
-            if (delivered) {
-              dispatched++;
-            } else {
-              dropped++;
-            }
-          } catch (err) {
-            slog.error("dispatch_error", { feed: "readings", key: event.dedupKey, error: String(err) });
-          }
-        }
+        const { dispatched, dropped } = await dispatchBatch({
+          events: result.events, dedup, account, onEvent, slog,
+          source: "readings", useSecondaryKey: true,
+        });
 
         // Mark processed readings as read so they don't reappear
         if (result.processedSgids.length > 0) {
@@ -387,11 +395,7 @@ export async function startCompositePoller(opts: CompositePollerOptions): Promis
         syncCircuitBreakerMetrics("readings");
         readingsBackoff = 0;
       } catch (err) {
-        readingsBackoff = clamp(
-          readingsBackoff === 0 ? readingsIntervalMs : readingsBackoff * 2,
-          readingsIntervalMs,
-          MAX_BACKOFF_MS,
-        );
+        readingsBackoff = computeBackoff(readingsBackoff, readingsIntervalMs, MAX_BACKOFF_MS);
         recordPollError(account.accountId, "readings", String(err), readingsBackoff);
         syncCircuitBreakerMetrics("readings");
         slog.error("poll_error", { feed: "readings", backoff: readingsBackoff, error: String(err) });
@@ -412,23 +416,10 @@ export async function startCompositePoller(opts: CompositePollerOptions): Promis
           log,
         });
 
-        let dispatched = 0;
-        let dropped = 0;
-        for (const event of result.events) {
-          if (dedup.isDuplicate(event.dedupKey)) continue;
-          if (isSelfMessage(event.sender.id, account)) continue;
-
-          try {
-            const delivered = await onEvent(event);
-            if (delivered) {
-              dispatched++;
-            } else {
-              dropped++;
-            }
-          } catch (err) {
-            slog.error("dispatch_error", { feed: "assignments", key: event.dedupKey, error: String(err) });
-          }
-        }
+        const { dispatched, dropped } = await dispatchBatch({
+          events: result.events, dedup, account, onEvent, slog,
+          source: "assignments",
+        });
 
         // Persist updated known-ID set
         assignmentKnownIds = result.knownIds;
@@ -445,11 +436,7 @@ export async function startCompositePoller(opts: CompositePollerOptions): Promis
         syncCircuitBreakerMetrics("assignments");
         assignmentsBackoff = 0;
       } catch (err) {
-        assignmentsBackoff = clamp(
-          assignmentsBackoff === 0 ? assignmentsIntervalMs : assignmentsBackoff * 2,
-          assignmentsIntervalMs,
-          MAX_BACKOFF_MS,
-        );
+        assignmentsBackoff = computeBackoff(assignmentsBackoff, assignmentsIntervalMs, MAX_BACKOFF_MS);
         recordPollError(account.accountId, "assignments", String(err), assignmentsBackoff);
         syncCircuitBreakerMetrics("assignments");
         slog.error("poll_error", { feed: "assignments", backoff: assignmentsBackoff, error: String(err) });
@@ -479,19 +466,10 @@ export async function startCompositePoller(opts: CompositePollerOptions): Promis
             }),
           );
 
-          let dispatched = 0;
-          let dropped = 0;
-          for (const event of result.events) {
-            if (dedup.isDuplicate(event.dedupKey)) continue;
-
-            try {
-              const delivered = await onEvent(event);
-              if (delivered) dispatched++;
-              else dropped++;
-            } catch (err) {
-              slog.error("dispatch_error", { feed: "safetyNet", key: event.dedupKey, error: String(err) });
-            }
-          }
+          const { dispatched, dropped } = await dispatchBatch({
+            events: result.events, dedup, account, onEvent, slog,
+            source: "safetyNet", checkSelfMessage: false,
+          });
 
           safetyNetSnapshot = result.snapshot;
           safetyNetPending = result.pending;
@@ -514,11 +492,7 @@ export async function startCompositePoller(opts: CompositePollerOptions): Promis
           syncCircuitBreakerMetrics("safetyNet");
           safetyNetBackoff = 0;
         } catch (err) {
-          safetyNetBackoff = clamp(
-            safetyNetBackoff === 0 ? safetyNetIntervalMs : safetyNetBackoff * 2,
-            safetyNetIntervalMs,
-            MAX_BACKOFF_MS,
-          );
+          safetyNetBackoff = computeBackoff(safetyNetBackoff, safetyNetIntervalMs, MAX_BACKOFF_MS);
           recordPollError(account.accountId, "safetyNet", String(err), safetyNetBackoff);
           syncCircuitBreakerMetrics("safetyNet");
           slog.error("poll_error", { feed: "safetyNet", backoff: safetyNetBackoff, error: String(err) });
@@ -537,24 +511,14 @@ export async function startCompositePoller(opts: CompositePollerOptions): Promis
             client,
             dedup,
             maxItems: 250,
-            gapThreshold: rcConfig.gapThreshold,
-            promotionState,
             log,
           });
 
           lastReconciliationPoll = now;
 
-          promotionState = {
-            promotions: result.promotions,
-            previousGaps: result.gapsByType,
-          };
-          cursors.setCustom("reconciliation:promotions", serializePromotionState(result.promotions, result.gapsByType));
-          await saveCursorsWithRetry(cursors, slog);
-
           recordReconciliationRun(account.accountId, {
             replayed: result.replayed,
             unseen: result.unseen,
-            promotedTypes: result.promotions.map((p) => p.type),
           });
         } catch (err) {
           // Don't update lastReconciliationPoll — retry on next loop iteration
@@ -562,9 +526,6 @@ export async function startCompositePoller(opts: CompositePollerOptions): Promis
         }
       }
     }
-    // Promotions are observability-only: persisted to cursor state and metrics
-    // for operator visibility. Frequency escalation (tier-2) deferred.
-
     // Sleep until next poll
     const nextActivityDue = lastActivityPoll + activityIntervalMs + activityBackoff - Date.now();
     const nextReadingsDue = lastReadingsPoll + readingsIntervalMs + readingsBackoff - Date.now();

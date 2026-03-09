@@ -8,41 +8,12 @@ vi.mock("openclaw/plugin-sdk", () => ({
   },
 }));
 
-import { listBasecampAccountIds, resolveBasecampAccount, resolveProjectScope } from "../src/config.js";
+import { listBasecampAccountIds, resolveBasecampAccount } from "../src/config.js";
 
 function cfg(basecamp?: Record<string, unknown>) {
   if (!basecamp) return {} as any;
   return { channels: { basecamp } } as any;
 }
-
-// ---------------------------------------------------------------------------
-// resolveProjectScope
-// ---------------------------------------------------------------------------
-
-describe("resolveProjectScope", () => {
-  it("returns accountId and bucketId for a virtual account", () => {
-    const result = resolveProjectScope(
-      cfg({
-        virtualAccounts: {
-          "design-project": { accountId: "primary", bucketId: "12345" },
-        },
-      }),
-      "design-project",
-    );
-
-    expect(result).toEqual({ accountId: "primary", bucketId: "12345" });
-  });
-
-  it("returns undefined for non-existent scope", () => {
-    const result = resolveProjectScope(cfg({}), "nonexistent");
-    expect(result).toBeUndefined();
-  });
-
-  it("returns undefined when virtualAccounts is empty", () => {
-    const result = resolveProjectScope(cfg({ virtualAccounts: {} }), "anything");
-    expect(result).toBeUndefined();
-  });
-});
 
 // ---------------------------------------------------------------------------
 // listBasecampAccountIds — includes virtual accounts
@@ -140,20 +111,17 @@ describe("resolveBasecampAccount (virtual accounts)", () => {
 // ---------------------------------------------------------------------------
 
 describe("dispatch project-scope routing", () => {
-  // This test verifies the resolveProjectScopeAccountId logic in dispatch.ts
-  // by testing the config-level helpers that feed into it.
-
-  it("resolveProjectScope matches by bucketId for routing", () => {
+  it("resolveBasecampAccount resolves virtual accounts by key for routing", () => {
     const config = cfg({
-      accounts: { primary: { personId: "1" } },
+      accounts: { primary: { personId: "1", token: "tok" } },
       virtualAccounts: {
         design: { accountId: "primary", bucketId: "456" },
         eng: { accountId: "primary", bucketId: "789" },
       },
     });
 
-    expect(resolveProjectScope(config, "design")?.bucketId).toBe("456");
-    expect(resolveProjectScope(config, "eng")?.bucketId).toBe("789");
-    expect(resolveProjectScope(config, "marketing")).toBeUndefined();
+    expect(resolveBasecampAccount(config, "design").scopedBucketId).toBe("456");
+    expect(resolveBasecampAccount(config, "eng").scopedBucketId).toBe("789");
+    expect(resolveBasecampAccount(config, "marketing").scopedBucketId).toBeUndefined();
   });
 });

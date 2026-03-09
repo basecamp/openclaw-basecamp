@@ -36,7 +36,6 @@ export interface ReconciliationMetrics {
   lastRunAt: number | null;
   replayed: number;
   unseen: number;
-  promotedTypes: string[];
 }
 
 export interface AccountMetrics {
@@ -96,7 +95,7 @@ function getOrCreate(accountId: string): AccountMetrics {
       },
       webhook: { ...emptyWebhookMetrics(), authMethods: {} },
       circuitBreaker: {},
-      reconciliation: { lastRunAt: null, replayed: 0, unseen: 0, promotedTypes: [] },
+      reconciliation: { lastRunAt: null, replayed: 0, unseen: 0 },
       dedupSize: 0,
       webhookDedupSize: 0,
       dispatchFailureCount: 0,
@@ -192,13 +191,12 @@ export function recordWebhookAuthMethod(accountId: string, method: "token" | "hm
 
 export function recordReconciliationRun(
   accountId: string,
-  result: { replayed: number; unseen: number; promotedTypes: string[] },
+  result: { replayed: number; unseen: number },
 ): void {
   const m = getOrCreate(accountId);
   m.reconciliation.lastRunAt = Date.now();
   m.reconciliation.replayed = result.replayed;
   m.reconciliation.unseen = result.unseen;
-  m.reconciliation.promotedTypes = result.promotedTypes;
 }
 
 export function recordUnknownKind(accountId: string, rawKind: string): void {

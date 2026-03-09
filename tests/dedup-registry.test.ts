@@ -14,7 +14,6 @@ vi.mock("../src/runtime.js", () => ({
 import {
   closeAccountDedup,
   closeAllAccountDedup,
-  flushAccountDedup,
   getAccountDedup,
 } from "../src/inbound/dedup-registry.js";
 import * as sqliteStore from "../src/inbound/dedup-store-sqlite.js";
@@ -55,20 +54,6 @@ describe("dedup-registry", () => {
 
     // Webhook source checks a different primary key but same secondary key
     expect(dedup.isDuplicate("webhook:2", secKey)).toBe(true);
-  });
-
-  it("flushAccountDedup flushes without closing", () => {
-    const dedup = getAccountDedup("f");
-    dedup.isDuplicate("activity:10");
-
-    flushAccountDedup("f");
-
-    // Instance is still live — subsequent operations work
-    dedup.isDuplicate("activity:11");
-    expect(dedup.size).toBe(2);
-
-    // Same reference returned (not evicted)
-    expect(getAccountDedup("f")).toBe(dedup);
   });
 
   it("closeAccountDedup flushes, closes, and evicts — next get returns fresh instance", () => {

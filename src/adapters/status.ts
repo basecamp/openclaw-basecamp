@@ -14,6 +14,7 @@ import type { ChannelAccountSnapshot, ChannelStatusAdapter, OpenClawConfig } fro
 import { DEFAULT_ACCOUNT_ID } from "openclaw/plugin-sdk";
 import { getClient, numId } from "../basecamp-client.js";
 import { resolveBasecampAccount } from "../config.js";
+import { createConsoleStructuredLog } from "../logging.js";
 import type { AccountMetrics, PollerSourceMetrics } from "../metrics.js";
 import { getAccountMetrics } from "../metrics.js";
 import type { BasecampChannelConfig, BasecampProject, ResolvedBasecampAccount } from "../types.js";
@@ -67,7 +68,6 @@ export type BasecampAudit = {
     lastRunAt: number | null;
     replayed: number;
     unseen: number;
-    promotedTypes: string[];
   };
   /** Webhook auth method distribution. */
   webhookAuthMethods?: Record<string, number>;
@@ -259,8 +259,8 @@ export const basecampStatusAdapter: ChannelStatusAdapter<ResolvedBasecampAccount
   }),
 
   logSelfId: ({ account }) => {
-    const name = account.displayName ?? "unknown";
-    console.log(`[basecamp:${account.accountId}] identity: ${name} (personId=${account.personId})`);
+    const slog = createConsoleStructuredLog({ accountId: account.accountId, source: "status" });
+    slog.info("identity", { name: account.displayName ?? "unknown", personId: account.personId });
   },
 
   resolveAccountState: ({ account, configured, enabled }) => {
