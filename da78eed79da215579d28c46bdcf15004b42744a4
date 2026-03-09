@@ -1,0 +1,27 @@
+.github/workflows/security.yml
+  4fdbd7f8a8108e97 29,69,74-78
+.gitleaks.toml
+  4fdbd7f8a8108e97 1-10
+.github/workflows/release.yml
+  4fdbd7f8a8108e97 71,80,89,91,100,103,129,132
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.9",
+  "base_commit_sha": "da78eed79da215579d28c46bdcf15004b42744a4",
+  "prompts": {
+    "4fdbd7f8a8108e97": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a6297fd6-91cb-4725-8fab-07285e2c1a41",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Jeremy Daer <jeremy@37signals.com>",
+      "messages": [],
+      "total_additions": 27,
+      "total_deletions": 12,
+      "accepted_lines": 25,
+      "overriden_lines": 0
+    }
+  }
+}
