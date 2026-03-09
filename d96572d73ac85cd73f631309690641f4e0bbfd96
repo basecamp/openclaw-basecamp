@@ -1,0 +1,25 @@
+.github/codeql/codeql-config.yml
+  4fdbd7f8a8108e97 1-9
+.github/workflows/security.yml
+  4fdbd7f8a8108e97 1-95
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.9",
+  "base_commit_sha": "d96572d73ac85cd73f631309690641f4e0bbfd96",
+  "prompts": {
+    "4fdbd7f8a8108e97": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a6297fd6-91cb-4725-8fab-07285e2c1a41",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Jeremy Daer <jeremy@37signals.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 412,
+      "overriden_lines": 0
+    }
+  }
+}
