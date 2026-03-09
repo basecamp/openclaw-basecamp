@@ -16,7 +16,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
         with:
-          node-version: 22
+          node-version: 22.5
           cache: npm
       - run: npm ci
       - run: npm run typecheck
@@ -27,16 +27,13 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
         with:
-          node-version: 22
+          node-version: 22.5
           cache: npm
       - run: npm ci
       - run: npm run lint
-      - name: actionlint
-        run: |
-          curl -sL "$(curl -sL https://api.github.com/repos/rhysd/actionlint/releases/latest \
-            | jq -r '.assets[] | select(.name | test("linux.*amd64.*tar\\.gz$")) | .browser_download_url')" \
-            | tar xz actionlint
-          ./actionlint -color
+      - uses: rhysd/actionlint@a443f344ff32813837fa49f7aa6cbc478d770e62 # v1.7.9
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
         if: github.event_name == 'pull_request'
 
   test:
@@ -45,7 +42,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
         with:
-          node-version: 22
+          node-version: 22.5
           cache: npm
       - run: npm ci
       - run: npm test -- --coverage
@@ -61,7 +58,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
         with:
-          node-version: 22
+          node-version: 22.5
           cache: npm
       - run: npm ci
       - run: npm run build

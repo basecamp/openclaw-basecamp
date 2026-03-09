@@ -20,7 +20,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
         with:
-          node-version: 22
+          node-version: 22.5
           cache: npm
       - run: npm ci
       - run: npm audit --audit-level=high
@@ -34,6 +34,7 @@ jobs:
           scan-type: fs
           severity: HIGH,CRITICAL
           ignore-unfixed: true
+          exit-code: "1"
           format: sarif
           output: trivy-results.sarif
       - uses: github/codeql-action/upload-sarif@820e3160e279568db735cee8ed8f8e77a6da7818 # v3
