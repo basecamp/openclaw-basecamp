@@ -1,0 +1,10 @@
+title = "Basecamp OpenClaw plugin gitleaks config"
+
+[allowlist]
+  description = "Known safe patterns"
+
+  # Test fixtures and doc examples with placeholder secrets
+  paths = [
+    '''tests/.*\.test\.ts$''',
+    '''docs/.*\.md$''',
+  ]

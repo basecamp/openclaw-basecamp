@@ -68,7 +68,7 @@ jobs:
         run: |
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             VERSION=$(node -p "require('./package.json').version")
-            echo "version=$VERSION" >> $GITHUB_OUTPUT
+            echo "version=$VERSION" >> "$GITHUB_OUTPUT"
             echo "Rehearsal for version: $VERSION"
           else
             VERSION="${GITHUB_REF#refs/tags/v}"
@@ -77,7 +77,7 @@ jobs:
               echo "::error::Package version ($PKG_VERSION) does not match tag version ($VERSION)"
               exit 1
             fi
-            echo "version=$VERSION" >> $GITHUB_OUTPUT
+            echo "version=$VERSION" >> "$GITHUB_OUTPUT"
             echo "Releasing version: $VERSION"
           fi
 
@@ -86,9 +86,9 @@ jobs:
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           if [[ "$VERSION" == *-* ]]; then
-            echo "tag=next" >> $GITHUB_OUTPUT
+            echo "tag=next" >> "$GITHUB_OUTPUT"
           else
-            echo "tag=latest" >> $GITHUB_OUTPUT
+            echo "tag=latest" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Check if already published
@@ -97,10 +97,10 @@ jobs:
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           if npm view "@37signals/openclaw-basecamp@${VERSION}" version 2>/dev/null; then
-            echo "already_published=true" >> $GITHUB_OUTPUT
+            echo "already_published=true" >> "$GITHUB_OUTPUT"
             echo "::notice::Version ${VERSION} already published to npm"
           else
-            echo "already_published=false" >> $GITHUB_OUTPUT
+            echo "already_published=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Build
@@ -126,10 +126,10 @@ jobs:
         if: steps.check-published.outputs.already_published != 'true'
         run: |
           if [[ "${{ github.event_name }}" == "push" ]]; then
-            npm publish --access public --tag ${{ steps.npm-tag.outputs.tag }} --provenance
+            npm publish --access public --tag "${{ steps.npm-tag.outputs.tag }}" --provenance
           else
             echo "::notice::Dry run mode - not actually publishing"
-            npm publish --access public --tag ${{ steps.npm-tag.outputs.tag }} --dry-run
+            npm publish --access public --tag "${{ steps.npm-tag.outputs.tag }}" --dry-run
           fi
 
       - name: Create GitHub Release
