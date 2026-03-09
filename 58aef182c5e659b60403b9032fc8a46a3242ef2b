@@ -1,0 +1,25 @@
+.github/workflows/dependabot-auto-merge.yml
+  4fdbd7f8a8108e97 1-43
+.github/dependabot.yml
+  4fdbd7f8a8108e97 1-29
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.9",
+  "base_commit_sha": "58aef182c5e659b60403b9032fc8a46a3242ef2b",
+  "prompts": {
+    "4fdbd7f8a8108e97": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a6297fd6-91cb-4725-8fab-07285e2c1a41",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Jeremy Daer <jeremy@37signals.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 308,
+      "overriden_lines": 0
+    }
+  }
+}
