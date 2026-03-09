@@ -104,20 +104,7 @@ jobs:
         run: npm run build
 
       - name: Verify package artifact
-        run: |
-          PACKED=$(npm pack --dry-run --json 2>/dev/null)
-          EXT=$(node -p "require('./package.json').openclaw.extensions[0]")
-          EXT_PATH="${EXT#./}"
-          echo "$PACKED" | node -e "
-            const files = JSON.parse(require('fs').readFileSync(0,'utf8'))[0].files.map(f => f.path);
-            const target = '$EXT_PATH';
-            if (!files.includes(target)) {
-              console.error('::error::openclaw.extensions target \"' + target + '\" not found in packed artifact');
-              console.error('Packed files:', files.join(', '));
-              process.exit(1);
-            }
-            console.log('openclaw.extensions target \"' + target + '\" verified in packed artifact');
-          "
+        run: bash scripts/verify-pack.sh
 
       - name: Publish to npm
         if: steps.check-published.outputs.already_published != 'true'

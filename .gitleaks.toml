@@ -5,6 +5,6 @@ title = "Basecamp OpenClaw plugin gitleaks config"
 
   # Test fixtures and doc examples with placeholder secrets
   paths = [
-    '''tests/.*\.test\.ts$''',
-    '''docs/.*\.md$''',
+    "tests/.*\\.test\\.ts$",
+    "docs/.*\\.md$",
   ]

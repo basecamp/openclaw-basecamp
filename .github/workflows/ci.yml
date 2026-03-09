@@ -48,7 +48,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npx vitest run --coverage
+      - run: npm test -- --coverage
       - name: Upload coverage
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
         if: always()
@@ -73,24 +73,7 @@ jobs:
           test -f dist/index.d.ts || { echo "::error::dist/index.d.ts not found"; exit 1; }
 
       - name: Verify package artifact
-        run: |
-          PACKED=$(npm pack --dry-run --json 2>/dev/null)
-          # Verify openclaw.extensions target is in the tarball
-          EXT=$(node -p "require('./package.json').openclaw.extensions[0]")
-          # Strip leading ./ for comparison against pack output paths
-          EXT_PATH="${EXT#./}"
-          if ! echo "$PACKED" | node -e "
-            const files = JSON.parse(require('fs').readFileSync(0,'utf8'))[0].files.map(f => f.path);
-            const target = '$EXT_PATH';
-            if (!files.includes(target)) {
-              console.error('::error::openclaw.extensions target \"' + target + '\" not found in packed artifact');
-              console.error('Packed files:', files.join(', '));
-              process.exit(1);
-            }
-            console.log('openclaw.extensions target \"' + target + '\" verified in packed artifact');
-          "; then
-            exit 1
-          fi
+        run: bash scripts/verify-pack.sh
 
   dependency-review:
     name: Dependency Review
