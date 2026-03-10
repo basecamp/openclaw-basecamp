@@ -9,6 +9,7 @@
  *   { primary: { [key]: { seenAt, source } }, secondary: { [key]: primaryKey } }
  */
 
+import crypto from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
@@ -68,7 +69,7 @@ export class JsonFileDedupStore implements DedupStore {
       mkdirSync(dir, { recursive: true });
       // Atomic write: write to temp file then rename into place.
       // Prevents partial writes from corrupting the store on crash.
-      const tmp = join(dir, `.dedup-${Date.now()}.tmp`);
+      const tmp = join(dir, `.dedup-${crypto.randomUUID()}.tmp`);
       writeFileSync(tmp, JSON.stringify(snapshot), "utf-8");
       renameSync(tmp, this.filePath);
     } catch {

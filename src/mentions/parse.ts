@@ -1,3 +1,5 @@
+import { decodeEntities, stripTags } from "../util.js";
+
 /**
  * Parse Basecamp bc-attachment SGID tags from HTML content.
  *
@@ -125,15 +127,10 @@ export function htmlToPlainText(html: string): string {
   text = text.replace(/<br\s*\/?>/gi, "\n");
   text = text.replace(/<\/(?:div|p|h[1-6]|li|blockquote|pre)>/gi, "\n");
   text = text.replace(/<(?:div|p|h[1-6]|li|blockquote|pre)[^>]*>/gi, "");
-  // Strip remaining tags
-  text = text.replace(/<[^>]+>/g, "");
-  // Decode common entities
-  text = text.replace(/&amp;/g, "&");
-  text = text.replace(/&lt;/g, "<");
-  text = text.replace(/&gt;/g, ">");
-  text = text.replace(/&quot;/g, '"');
-  text = text.replace(/&#39;/g, "'");
-  text = text.replace(/&nbsp;/g, " ");
+  // Strip remaining tags (iterative to handle nested)
+  text = stripTags(text);
+  // Decode common entities (single-pass to avoid double-unescaping)
+  text = decodeEntities(text);
   // Collapse multiple newlines
   text = text.replace(/\n{3,}/g, "\n\n");
   return text.trim();

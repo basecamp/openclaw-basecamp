@@ -419,9 +419,7 @@ export async function hatchIdentity(cfg: OpenClawConfig, prompter: WizardPrompte
       }
     } catch {
       // All move attempts failed — keep temp path
-      console.warn(
-        `[basecamp:hatch] Could not relocate token file to ${finalPath}; using ${oauthResult.tempTokenFile}`,
-      );
+      console.warn(`[basecamp:hatch] Could not relocate token file for account ${accountId}; using temporary path`);
     }
     oauthTokenFile = relocated ? finalPath : oauthResult.tempTokenFile;
     oauthClientId = oauthResult.clientId;

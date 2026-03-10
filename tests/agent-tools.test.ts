@@ -41,9 +41,10 @@ vi.mock("../src/config.js", () => ({
   })),
 }));
 
-vi.mock("../src/outbound/format.js", () => ({
-  basecampHtmlToPlainText: vi.fn((html: string) => html.replace(/<[^>]+>/g, "")),
-}));
+vi.mock("../src/outbound/format.js", async () => {
+  const { stripHtml } = await vi.importActual<typeof import("../src/outbound/format.js")>("../src/outbound/format.js");
+  return { basecampHtmlToPlainText: vi.fn((html: string) => stripHtml(html)) };
+});
 
 import { basecampAgentTools } from "../src/adapters/agent-tools.js";
 

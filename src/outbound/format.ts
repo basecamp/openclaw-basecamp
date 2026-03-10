@@ -1,3 +1,5 @@
+import { decodeEntities, stripTags } from "../util.js";
+
 /**
  * Markdown to Basecamp HTML converter.
  *
@@ -174,16 +176,13 @@ export function markdownToBasecampHtml(md: string): string {
  * Strip HTML tags for plain-text fallback.
  */
 export function stripHtml(html: string): string {
-  return html
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<\/?(p|div|h[1-6]|blockquote|pre|ul|ol|li|hr|table|thead|tbody|tr|th|td)[^>]*>/gi, "\n")
-    .replace(/<[^>]+>/g, "")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
+  let text = html;
+  text = text.replace(/<br\s*\/?>/gi, "\n");
+  text = text.replace(/<\/?(p|div|h[1-6]|blockquote|pre|ul|ol|li|hr|table|thead|tbody|tr|th|td)[^>]*>/gi, "\n");
+  text = stripTags(text);
+  text = decodeEntities(text);
+  text = text.replace(/\n{3,}/g, "\n\n");
+  return text.trim();
 }
 
 /**

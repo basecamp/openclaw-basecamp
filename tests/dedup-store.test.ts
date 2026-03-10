@@ -1,4 +1,4 @@
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -122,11 +122,12 @@ describe("EventDedup — persistent store integration", () => {
 // ---------------------------------------------------------------------------
 
 describe("JsonFileDedupStore", () => {
-  const testDir = join(tmpdir(), `dedup-test-${Date.now()}`);
-  const testFile = join(testDir, "dedup.json");
+  let testDir: string;
+  let testFile: string;
 
   beforeEach(() => {
-    mkdirSync(testDir, { recursive: true });
+    testDir = mkdtempSync(join(tmpdir(), "dedup-test-"));
+    testFile = join(testDir, "dedup.json");
   });
 
   afterEach(() => {
