@@ -31,6 +31,7 @@ vi.mock("../src/oauth-credentials.js", () => ({
   createTokenManager: vi.fn(),
   clearTokenManagers: vi.fn(),
   clearTokenManager: vi.fn(),
+  resolveClientFilePath: vi.fn((p: string) => p.replace(/\.json$/, ".client.json")),
 }));
 
 vi.mock("../src/basecamp-client.js", () => ({
