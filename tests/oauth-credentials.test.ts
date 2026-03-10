@@ -1,6 +1,7 @@
-import { homedir } from "node:os";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Mock @37signals/basecamp OAuth exports (these are being built in parallel)
 vi.mock("@37signals/basecamp/oauth", () => {
@@ -140,6 +141,10 @@ describe("interactiveLogin", () => {
     vi.mocked(FileTokenStore).mockClear();
   });
 
+  afterEach(() => {
+    rmSync("/tmp/tokens/work.client.json", { force: true });
+  });
+
   it("calls performInteractiveLogin with correct params", async () => {
     const account = makeAccount();
     const token = await interactiveLogin(account);
@@ -208,6 +213,22 @@ describe("interactiveLogin", () => {
     );
   });
 
+  it("persists client credentials to companion file after login", async () => {
+    const tokenDir = mkdtempSync(join(tmpdir(), "oc-test-"));
+    const tokenFile = join(tokenDir, "work.json");
+    try {
+      const account = makeAccount({ config: { personId: "42", oauthTokenFile: tokenFile } });
+      await interactiveLogin(account);
+      const clientData = JSON.parse(readFileSync(join(tokenDir, "work.client.json"), "utf-8"));
+      expect(clientData).toEqual({
+        clientId: "aabbccdd00112233445566778899aabbccddeeff",
+        clientSecret: "test-client-secret",
+      });
+    } finally {
+      rmSync(tokenDir, { recursive: true, force: true });
+    }
+  });
+
   it("uses env vars when account has no client configured", async () => {
     const envId = "ff00112233445566778899aabbccddeeff001122";
     process.env.LAUNCHPAD_CLIENT_ID = envId;
@@ -257,11 +278,12 @@ describe("isValidLaunchpadClientId", () => {
 describe("createTokenManager fallback", () => {
   beforeEach(() => {
     clearTokenManagers();
+    rmSync("/tmp/tokens/work.client.json", { force: true });
     vi.mocked(TokenManager).mockClear();
     vi.mocked(FileTokenStore).mockClear();
   });
 
-  it("throws when oauthClientId is missing", () => {
+  it("throws when oauthClientId is missing and no persisted client", () => {
     const account = makeAccount({ oauthClientId: undefined, oauthClientSecret: undefined });
     expect(() => createTokenManager(account)).toThrow(/No OAuth client configured/);
   });
@@ -269,6 +291,35 @@ describe("createTokenManager fallback", () => {
   it("throws when oauthClientId is invalid (DCR placeholder)", () => {
     const account = makeAccount({ oauthClientId: "dcr-id", oauthClientSecret: "stale" });
     expect(() => createTokenManager(account)).toThrow(/No OAuth client configured/);
+  });
+
+  it("uses persisted client file when account has no client configured", () => {
+    const tokenDir = mkdtempSync(join(tmpdir(), "oc-test-"));
+    const tokenFile = join(tokenDir, "test.json");
+    const clientFile = join(tokenDir, "test.client.json");
+    writeFileSync(
+      clientFile,
+      JSON.stringify({
+        clientId: "aabbccdd00112233445566778899aabbccddeeff",
+        clientSecret: "persisted-secret",
+      }),
+    );
+    try {
+      const account = makeAccount({
+        oauthClientId: undefined,
+        oauthClientSecret: undefined,
+        config: { personId: "42", oauthTokenFile: tokenFile },
+      });
+      createTokenManager(account);
+      expect(TokenManager).toHaveBeenCalledWith(
+        expect.objectContaining({
+          clientId: "aabbccdd00112233445566778899aabbccddeeff",
+          clientSecret: "persisted-secret",
+        }),
+      );
+    } finally {
+      rmSync(tokenDir, { recursive: true, force: true });
+    }
   });
 
   it("uses env vars when account has no client configured", () => {

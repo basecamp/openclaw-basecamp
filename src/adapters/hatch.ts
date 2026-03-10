@@ -23,6 +23,7 @@ import {
   interactiveLogin,
   isValidLaunchpadClientId,
   OAUTH_SETUP_GUIDANCE,
+  resolveClientFilePath,
   resolveTokenFilePath,
 } from "../oauth-credentials.js";
 import type { BasecampChannelConfig, ResolvedBasecampAccount } from "../types.js";
@@ -388,9 +389,9 @@ export async function hatchIdentity(cfg: OpenClawConfig, prompter: WizardPrompte
     };
   }
 
-  // Relocate OAuth temp token file to final {accountId}-based path.
-  // Try rename first; fall back to copy+unlink for cross-device moves.
-  // If all moves fail, keep the temp path (the file exists there).
+  // Relocate OAuth temp token file (and companion client file) to final
+  // {accountId}-based path. Try rename first; fall back to copy+unlink
+  // for cross-device moves. If all moves fail, keep the temp path.
   if (oauthResult) {
     const finalPath = resolveTokenFilePath(accountId);
     let relocated = false;
@@ -406,6 +407,15 @@ export async function hatchIdentity(cfg: OpenClawConfig, prompter: WizardPrompte
         await copyFile(oauthResult.tempTokenFile, finalPath);
         relocated = true;
         await unlink(oauthResult.tempTokenFile).catch(() => {});
+      }
+      // Relocate companion .client.json alongside the token file
+      const tempClientFile = resolveClientFilePath(oauthResult.tempTokenFile);
+      const finalClientFile = resolveClientFilePath(finalPath);
+      try {
+        await rename(tempClientFile, finalClientFile);
+      } catch {
+        await copyFile(tempClientFile, finalClientFile);
+        await unlink(tempClientFile).catch(() => {});
       }
     } catch {
       // All move attempts failed — keep temp path

@@ -506,14 +506,17 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
     logoutAccount: async ({ accountId, cfg }) => {
       const account = resolveBasecampAccount(cfg, accountId);
 
-      // Delete OAuth token file if it exists
+      // Delete OAuth token file and companion .client.json if they exist
       let cleared = false;
       const tokenFilePath = account.config.oauthTokenFile;
       if (tokenFilePath) {
         try {
           const { unlink } = await import("node:fs/promises");
+          const { resolveClientFilePath } = await import("./oauth-credentials.js");
           await unlink(tokenFilePath);
           cleared = true;
+          // Remove companion client credentials file (best-effort)
+          await unlink(resolveClientFilePath(tokenFilePath)).catch(() => {});
         } catch (err: any) {
           if (err?.code !== "ENOENT") throw err;
           // File already gone — still counts as cleared
