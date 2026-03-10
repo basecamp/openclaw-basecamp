@@ -6,12 +6,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // Mock @37signals/basecamp OAuth exports (these are being built in parallel)
 vi.mock("@37signals/basecamp/oauth", () => {
   const mockGetToken = vi.fn().mockResolvedValue("access-token-123");
-  const MockTokenManager = vi.fn().mockImplementation(() => ({
-    getToken: mockGetToken,
-  }));
-  const MockFileTokenStore = vi.fn().mockImplementation((path: string) => ({
-    path,
-  }));
+  const MockTokenManager = vi.fn().mockImplementation(function () {
+    return { getToken: mockGetToken };
+  });
+  const MockFileTokenStore = vi.fn().mockImplementation(function (path: string) {
+    return { path };
+  });
   const mockPerformInteractiveLogin = vi.fn().mockResolvedValue({
     accessToken: "new-access-token",
     refreshToken: "new-refresh-token",
