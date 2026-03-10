@@ -515,12 +515,8 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
           const { resolveClientFilePath } = await import("./oauth-credentials.js");
           await unlink(tokenFilePath);
           cleared = true;
-          // Remove companion client credentials file
-          try {
-            await unlink(resolveClientFilePath(tokenFilePath));
-          } catch (clientErr: any) {
-            if (clientErr?.code !== "ENOENT") throw clientErr;
-          }
+          // Remove companion client credentials file (best-effort)
+          await unlink(resolveClientFilePath(tokenFilePath)).catch(() => {});
         } catch (err: any) {
           if (err?.code !== "ENOENT") throw err;
           // File already gone — still counts as cleared
