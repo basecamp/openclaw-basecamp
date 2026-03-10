@@ -56,5 +56,8 @@
   "dependencies": {
     "@37signals/basecamp": "git+https://github.com/basecamp/basecamp-sdk.git#b0939b8fd8f38023dd3ee1975daf6a761bf3d83c",
     "zod": "^4.3.6"
+  },
+  "overrides": {
+    "@hono/node-server": ">=1.19.10"
   }
 }
