@@ -414,7 +414,7 @@ export async function hatchIdentity(cfg: OpenClawConfig, prompter: WizardPrompte
       try {
         await rename(tempClientFile, finalClientFile);
       } catch {
-        await copyFile(tempClientFile, finalClientFile).catch(() => {});
+        await copyFile(tempClientFile, finalClientFile);
         await unlink(tempClientFile).catch(() => {});
       }
     } catch {
