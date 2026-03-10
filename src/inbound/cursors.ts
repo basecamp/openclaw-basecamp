@@ -8,8 +8,9 @@
  * File format: cursors-<accountId>.json
  */
 
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import crypto from "node:crypto";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 
 export interface PollCursors {
   /** ISO timestamp of the most recent activity feed event processed. */
@@ -65,10 +66,13 @@ export class CursorStore {
     if (!this.dirty || this.abandoned) return;
 
     // Ensure directory exists
-    const { dirname } = await import("node:path");
-    await mkdir(dirname(this.filePath), { recursive: true });
+    const dir = dirname(this.filePath);
+    await mkdir(dir, { recursive: true });
 
-    await writeFile(this.filePath, JSON.stringify(this.cursors, null, 2), "utf-8");
+    // Atomic write: temp file + rename to prevent partial writes on crash
+    const tmp = join(dir, `.cursors-${crypto.randomUUID()}.tmp`);
+    await writeFile(tmp, JSON.stringify(this.cursors, null, 2), "utf-8");
+    await rename(tmp, this.filePath);
     this.dirty = false;
   }
 

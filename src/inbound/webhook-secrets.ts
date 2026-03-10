@@ -8,6 +8,7 @@
  * Format: { [projectId]: { webhookId, secret, payloadUrl, types } }
  */
 
+import crypto from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
@@ -53,7 +54,7 @@ export class JsonFileWebhookSecretStore implements WebhookSecretStore {
     try {
       const dir = dirname(this.filePath);
       mkdirSync(dir, { recursive: true });
-      const tmp = join(dir, `.webhook-secrets-${Date.now()}.tmp`);
+      const tmp = join(dir, `.webhook-secrets-${crypto.randomUUID()}.tmp`);
       writeFileSync(tmp, JSON.stringify(snapshot, null, 2), "utf-8");
       renameSync(tmp, this.filePath);
     } catch {
