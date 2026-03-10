@@ -1,0 +1,33 @@
+biome.json
+  b49991810ddbaafa 2
+package.json
+  b49991810ddbaafa 61
+src/inbound/cursors.ts
+  b49991810ddbaafa 74
+src/util.ts
+  b49991810ddbaafa 14-19
+tests/dedup-store.test.ts
+  b49991810ddbaafa 1
+tests/agent-tools.test.ts
+  b49991810ddbaafa 44-47,279-280,309
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.9",
+  "base_commit_sha": "ba39bc3c362d8880a290e4efbc7b9e68f5774200",
+  "prompts": {
+    "b49991810ddbaafa": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5c28040d-e8b1-46e8-9ab1-a5e94e45380f",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Jeremy Daer <jeremy@37signals.com>",
+      "messages": [],
+      "total_additions": 11,
+      "total_deletions": 10,
+      "accepted_lines": 47,
+      "overriden_lines": 0
+    }
+  }
+}
