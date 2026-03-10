@@ -130,6 +130,7 @@ export async function postCampfireLine(params: {
   correlationId?: string;
 }): Promise<OutboundResult> {
   const { bucketId, transcriptId, content, account, retries, circuitBreaker, correlationId } = params;
+  const { accountId } = account;
 
   const doPost = async () => {
     const client = getClient(account);
@@ -145,14 +146,14 @@ export async function postCampfireLine(params: {
       retries && retries > 0 ? await withRetry(wrappedPost, { maxAttempts: retries + 1 }) : await wrappedPost();
     console.log(
       `[basecamp:outbound] sent ok — ` +
-        `type=campfire recording=${transcriptId} account=${account.accountId} correlation=${correlationId ?? "none"}`,
+        `type=campfire recording=${transcriptId} account=${accountId} correlation=${correlationId ?? "none"}`,
     );
     return { ok: true, recordingId: String((result as any)?.id ?? "") };
   } catch (err) {
     const retryable = isRetryableError(err);
     console.warn(
       `[basecamp:outbound] failed — ` +
-        `type=campfire recording=${transcriptId} account=${account.accountId} ` +
+        `type=campfire recording=${transcriptId} account=${accountId} ` +
         `correlation=${correlationId ?? "none"} retryable=${retryable} error=${String(err)}`,
     );
     return { ok: false, error: err, message: String(err), retryable };
@@ -173,6 +174,7 @@ export async function postComment(params: {
   correlationId?: string;
 }): Promise<OutboundResult> {
   const { bucketId, recordingId, content, account, retries, circuitBreaker, correlationId } = params;
+  const { accountId } = account;
 
   const doPost = async () => {
     const client = getClient(account);
@@ -188,14 +190,14 @@ export async function postComment(params: {
       retries && retries > 0 ? await withRetry(wrappedPost, { maxAttempts: retries + 1 }) : await wrappedPost();
     console.log(
       `[basecamp:outbound] sent ok — ` +
-        `type=comment recording=${recordingId} account=${account.accountId} correlation=${correlationId ?? "none"}`,
+        `type=comment recording=${recordingId} account=${accountId} correlation=${correlationId ?? "none"}`,
     );
     return { ok: true, commentId: String((result as any)?.id ?? "") };
   } catch (err) {
     const retryable = isRetryableError(err);
     console.warn(
       `[basecamp:outbound] failed — ` +
-        `type=comment recording=${recordingId} account=${account.accountId} ` +
+        `type=comment recording=${recordingId} account=${accountId} ` +
         `correlation=${correlationId ?? "none"} retryable=${retryable} error=${String(err)}`,
     );
     return { ok: false, error: err, message: String(err), retryable };
