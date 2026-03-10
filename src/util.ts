@@ -11,8 +11,12 @@
 // ---------------------------------------------------------------------------
 
 const ENTITY_MAP: Record<string, string> = {
-  "&amp;": "&", "&lt;": "<", "&gt;": ">",
-  "&quot;": '"', "&#39;": "'", "&nbsp;": " ",
+  "&amp;": "&",
+  "&lt;": "<",
+  "&gt;": ">",
+  "&quot;": '"',
+  "&#39;": "'",
+  "&nbsp;": " ",
 };
 const ENTITY_RE = /&(?:amp|lt|gt|quot|nbsp|#39);/g;
 
@@ -24,7 +28,10 @@ export function decodeEntities(text: string): string {
 /** Strip HTML tags, iterating until no nested tags remain. */
 export function stripTags(text: string): string {
   let prev: string;
-  do { prev = text; text = text.replace(/<[^>]+>/g, ""); } while (text !== prev);
+  do {
+    prev = text;
+    text = text.replace(/<[^>]+>/g, "");
+  } while (text !== prev);
   return text;
 }
 

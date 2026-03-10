@@ -41,9 +41,10 @@ vi.mock("../src/config.js", () => ({
   })),
 }));
 
-vi.mock("../src/outbound/format.js", () => ({
-  basecampHtmlToPlainText: vi.fn((html: string) => html),
-}));
+vi.mock("../src/outbound/format.js", async () => {
+  const { stripHtml } = await vi.importActual<typeof import("../src/outbound/format.js")>("../src/outbound/format.js");
+  return { basecampHtmlToPlainText: vi.fn((html: string) => stripHtml(html)) };
+});
 
 import { basecampAgentTools } from "../src/adapters/agent-tools.js";
 
@@ -275,8 +276,8 @@ describe("basecamp_read_history", () => {
     expect(parsed.ok).toBe(true);
     expect(parsed.count).toBe(2);
     expect(parsed.messages).toEqual([
-      { id: 1, sender: "Alice", senderId: 10, text: "<p>Hello</p>", timestamp: "2025-01-01T10:00:00Z" },
-      { id: 2, sender: "Bob", senderId: 20, text: "<p>World</p>", timestamp: "2025-01-01T10:01:00Z" },
+      { id: 1, sender: "Alice", senderId: 10, text: "Hello", timestamp: "2025-01-01T10:00:00Z" },
+      { id: 2, sender: "Bob", senderId: 20, text: "World", timestamp: "2025-01-01T10:01:00Z" },
     ]);
   });
 
@@ -305,7 +306,7 @@ describe("basecamp_read_history", () => {
     expect(parsed.ok).toBe(true);
     expect(parsed.count).toBe(1);
     expect(parsed.messages[0].sender).toBe("Charlie");
-    expect(parsed.messages[0].text).toBe("<strong>Done</strong>");
+    expect(parsed.messages[0].text).toBe("Done");
   });
 
   it("respects limit parameter", async () => {

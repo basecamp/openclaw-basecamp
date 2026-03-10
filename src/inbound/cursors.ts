@@ -71,7 +71,7 @@ export class CursorStore {
 
     // Atomic write: temp file + rename to prevent partial writes on crash
     const tmp = join(dir, `.cursors-${crypto.randomUUID()}.tmp`);
-    await writeFile(tmp, JSON.stringify(this.cursors, null, 2), "utf-8");
+    await writeFile(tmp, JSON.stringify(this.cursors, null, 2), { encoding: "utf-8", flag: "wx" });
     await rename(tmp, this.filePath);
     this.dirty = false;
   }
