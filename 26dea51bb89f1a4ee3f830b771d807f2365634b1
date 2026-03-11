@@ -1,0 +1,33 @@
+src/inbound/reconciliation.ts
+  3a5042651eafa82e 15,62-63,72,87-88,105,109-115,153-154,157
+src/dispatch.ts
+  3a5042651eafa82e 16,365
+src/inbound/activity.ts
+  3a5042651eafa82e 46-47
+src/basecamp-client.ts
+  3a5042651eafa82e 12,15-16,20,41-49,55
+src/adapters/agent-tools.ts
+  3a5042651eafa82e 246-249
+src/inbound/safety-net.ts
+  3a5042651eafa82e 17,29
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.10",
+  "base_commit_sha": "26dea51bb89f1a4ee3f830b771d807f2365634b1",
+  "prompts": {
+    "3a5042651eafa82e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6b09f19f-a6b4-4975-9be1-f918dcca0bef",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Jeremy Daer <jeremy@37signals.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 89,
+      "overriden_lines": 0
+    }
+  }
+}
