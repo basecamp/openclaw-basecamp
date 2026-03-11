@@ -1,0 +1,25 @@
+tests/reconciliation.test.ts
+  3a5042651eafa82e 447-492
+tests/safety-net.test.ts
+  3a5042651eafa82e 36-37
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.10",
+  "base_commit_sha": "2a61e7c86d2c389864f9368c45ec9d68e3902c14",
+  "prompts": {
+    "3a5042651eafa82e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6b09f19f-a6b4-4975-9be1-f918dcca0bef",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Jeremy Daer <jeremy@37signals.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 48,
+      "overriden_lines": 0
+    }
+  }
+}
