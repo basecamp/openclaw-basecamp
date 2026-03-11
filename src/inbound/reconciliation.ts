@@ -106,7 +106,7 @@ export async function runReconciliation(opts: ReconciliationOptions): Promise<Re
     };
   }
 
-  // Detect truncation: if we got exactly maxItems results, the feed was
+  // Detect truncation: if we got at least maxItems results, the feed was
   // likely capped by pagination. Gap counts are sampled, not exhaustive.
   const sampled = rawEvents.length >= maxItems;
   if (sampled) {
