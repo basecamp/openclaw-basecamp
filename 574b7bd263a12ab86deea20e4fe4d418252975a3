@@ -1,0 +1,23 @@
+src/inbound/reconciliation.ts
+  3a5042651eafa82e 109
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.10",
+  "base_commit_sha": "574b7bd263a12ab86deea20e4fe4d418252975a3",
+  "prompts": {
+    "3a5042651eafa82e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6b09f19f-a6b4-4975-9be1-f918dcca0bef",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Jeremy Daer <jeremy@37signals.com>",
+      "messages": [],
+      "total_additions": 1,
+      "total_deletions": 1,
+      "accepted_lines": 1,
+      "overriden_lines": 0
+    }
+  }
+}
