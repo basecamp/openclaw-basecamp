@@ -243,6 +243,10 @@ function buildTools(client: BasecampClient): ChannelAgentTool[] {
         const { bucketId, recordingId, type, limit } = rawParams as ReadHistoryInput;
         const effectiveLimit = Math.min(limit ?? DEFAULT_HISTORY_LIMIT, 50);
 
+        // Use raw GET for a single page — the API returns oldest-first, and
+        // .slice(-N) gives the most recent N from whatever page we get.
+        // Typed list methods auto-paginate with maxItems truncating from the
+        // front, which would return the oldest N instead.
         const path =
           type === "campfire"
             ? `/buckets/${bucketId}/chats/${recordingId}/lines.json`

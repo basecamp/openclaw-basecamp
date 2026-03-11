@@ -12,6 +12,7 @@
  *   - 24h TTL on promotions
  */
 
+import type { BasecampClient } from "../basecamp-client.js";
 import type { BasecampActivityEvent, BasecampRecordableType, ResolvedBasecampAccount } from "../types.js";
 import { EventDedup } from "./dedup.js";
 import { isNormalizableKind, recordableTypeForKind, resolveEventKind } from "./normalize.js";
@@ -58,6 +59,8 @@ export interface ReconciliationResult {
   gapsByType: Record<string, number>;
   /** Currently promoted types after applying promotion logic. */
   promotions: PromotionEntry[];
+  /** True when results were capped by maxItems — gap counts are sampled, not exhaustive. */
+  sampled: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -66,7 +69,7 @@ export interface ReconciliationResult {
 
 export interface ReconciliationOptions {
   account: ResolvedBasecampAccount;
-  client: any;
+  client: BasecampClient;
   dedup: EventDedup;
   maxItems?: number;
   windowMs?: number;
@@ -81,6 +84,8 @@ export interface ReconciliationOptions {
 }
 
 export async function runReconciliation(opts: ReconciliationOptions): Promise<ReconciliationResult> {
+  // maxItems caps SDK pagination (v0.4.0+). 250 covers a typical 24h window
+  // while preventing runaway pagination on high-activity accounts.
   const { account, client, dedup, log, maxItems = 250, windowMs = 24 * 60 * 60 * 1000, gapThreshold = 3 } = opts;
 
   const cutoff = new Date(Date.now() - windowMs).toISOString();
@@ -97,7 +102,17 @@ export async function runReconciliation(opts: ReconciliationOptions): Promise<Re
       unseen: 0,
       gapsByType: {},
       promotions: opts.promotionState?.promotions ?? [],
+      sampled: false,
     };
+  }
+
+  // Detect truncation: if we got exactly maxItems results, the feed was
+  // likely capped by pagination. Gap counts are sampled, not exhaustive.
+  const sampled = rawEvents.length >= maxItems;
+  if (sampled) {
+    log?.warn?.(
+      `[${account.accountId}] reconciliation: results capped at ${maxItems} events — gap detection is sampled`,
+    );
   }
 
   let replayed = 0;
@@ -135,10 +150,11 @@ export async function runReconciliation(opts: ReconciliationOptions): Promise<Re
   });
 
   log?.info?.(
-    `[${account.accountId}] reconciliation: replayed=${replayed} unseen=${unseen} promoted=${promotions.length}`,
+    `[${account.accountId}] reconciliation: replayed=${replayed} unseen=${unseen} promoted=${promotions.length}` +
+      (sampled ? " sampled=true" : ""),
   );
 
-  return { replayed, unseen, gapsByType, promotions };
+  return { replayed, unseen, gapsByType, promotions, sampled };
 }
 
 // ---------------------------------------------------------------------------

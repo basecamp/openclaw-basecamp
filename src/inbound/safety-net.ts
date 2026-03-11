@@ -14,7 +14,7 @@
  */
 
 import crypto from "node:crypto";
-import { BasecampError } from "../basecamp-client.js";
+import { isBasecampError } from "../basecamp-client.js";
 import type {
   BasecampEventKind,
   BasecampInboundMessage,
@@ -26,7 +26,7 @@ import { EventDedup } from "./dedup.js";
 import { invalidateDockCache, resolveDockToolIds } from "./dock-cache.js";
 
 function isStaleResourceError(err: unknown): boolean {
-  if (err instanceof BasecampError) {
+  if (isBasecampError(err)) {
     return err.httpStatus === 404 || err.httpStatus === 410 || err.code === "not_found";
   }
   return false;

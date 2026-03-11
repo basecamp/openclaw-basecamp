@@ -7,10 +7,17 @@
 
 import { homedir } from "node:os";
 import { resolve as pathResolve } from "node:path";
-import { type BasecampClient, BasecampError, createBasecampClient, errorFromResponse } from "@37signals/basecamp";
+import {
+  type BasecampClient,
+  type BasecampHooks,
+  BasecampError,
+  createBasecampClient,
+  errorFromResponse,
+  isBasecampError,
+} from "@37signals/basecamp";
 import type { ResolvedBasecampAccount } from "./types.js";
 
-export { BasecampError };
+export { BasecampError, isBasecampError };
 export type { BasecampClient };
 
 // ---------------------------------------------------------------------------
@@ -31,11 +38,21 @@ export function getClient(account: ResolvedBasecampAccount): BasecampClient {
   const basecampAccountId = resolveNumericAccountId(account);
   const tokenProvider = resolveTokenProvider(account);
 
+  const hooks: BasecampHooks = {
+    onRetry(info, _attempt, error, delayMs) {
+      console.warn(
+        `[basecamp:sdk:${cacheKey}] retry #${info.attempt} ${info.method} ${info.url} ` +
+          `(${error.message}, backoff ${delayMs}ms)`,
+      );
+    },
+  };
+
   const client = createBasecampClient({
     accountId: basecampAccountId,
     accessToken: tokenProvider,
     enableRetry: true,
     enableCache: false,
+    hooks,
   });
 
   clientCache.set(cacheKey, client);
