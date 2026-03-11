@@ -444,6 +444,52 @@ describe("reconciliation", () => {
     expect(result.promotions).toEqual([entry]);
   });
 
+  // ---- sampled flag ----
+
+  it("sampled=false when event count is below maxItems", async () => {
+    const client = makeClient([
+      activityEvent({ id: 1, kind: "todo_created" }),
+      activityEvent({ id: 2, kind: "todo_completed" }),
+    ]);
+    const result = await runReconciliation({
+      account,
+      client,
+      dedup,
+      maxItems: 10,
+      log,
+    });
+    expect(result.sampled).toBe(false);
+  });
+
+  it("sampled=true when event count equals maxItems", async () => {
+    const events = Array.from({ length: 5 }, (_, i) =>
+      activityEvent({ id: i + 1, kind: "todo_created" }),
+    );
+    const client = makeClient(events);
+    const result = await runReconciliation({
+      account,
+      client,
+      dedup,
+      maxItems: 5,
+      log,
+    });
+    expect(result.sampled).toBe(true);
+    expect(log.warn).toHaveBeenCalledWith(
+      expect.stringContaining("capped at 5 events"),
+    );
+  });
+
+  it("sampled=false on fetch error", async () => {
+    const client = makeClient(new Error("boom"));
+    const result = await runReconciliation({
+      account,
+      client,
+      dedup,
+      log,
+    });
+    expect(result.sampled).toBe(false);
+  });
+
   it("secondary key matching detects cross-source dedup", async () => {
     // Register an event via secondary key (as if it came through webhooks)
     const recordingId = "12345";
