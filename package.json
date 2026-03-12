@@ -54,7 +54,7 @@
     }
   },
   "dependencies": {
-    "@37signals/basecamp": "git+https://github.com/basecamp/basecamp-sdk.git#b0939b8fd8f38023dd3ee1975daf6a761bf3d83c",
+    "@37signals/basecamp": "git+https://github.com/basecamp/basecamp-sdk.git#92026d65a1561dcc220b9bd4e9e8460e08a92045",
     "zod": "^4.3.6"
   },
   "overrides": {

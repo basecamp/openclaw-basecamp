@@ -43,6 +43,8 @@ export async function pollActivityFeed(opts: ActivityPollerOptions): Promise<Act
 
   const fetchTimeline = async () => {
     const client = getClient(account);
+    // SDK returns TimelineEvent[] (generated type with all-optional fields).
+    // Cast to our richer hand-rolled type which matches the actual API shape.
     return client.reports.progress() as Promise<BasecampActivityEvent[]>;
   };
 

@@ -13,7 +13,7 @@
 
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import { BASECAMP_TEXT_CHUNK_LIMIT, chunkMarkdownText } from "./adapters/outbound.js";
-import { BasecampError } from "./basecamp-client.js";
+import { isBasecampError } from "./basecamp-client.js";
 import { CircuitBreaker } from "./circuit-breaker.js";
 import {
   resolveBasecampAccount,
@@ -362,7 +362,7 @@ function resolveEngagePolicy(cfg: OpenClawConfig, bucketId: string): BasecampEng
  */
 function classifyDispatchError(err: unknown): string {
   // SDK errors carry a structured code
-  if (err instanceof BasecampError) {
+  if (isBasecampError(err)) {
     switch (err.code) {
       case "auth_required":
       case "forbidden":

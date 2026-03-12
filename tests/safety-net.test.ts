@@ -32,7 +32,10 @@ vi.mock("../src/basecamp-client.js", () => {
       this.retryable = false;
     }
   }
-  return { BasecampError };
+  return {
+    BasecampError,
+    isBasecampError: (err: unknown): err is InstanceType<typeof BasecampError> => err instanceof BasecampError,
+  };
 });
 
 import { invalidateDockCache, resolveDockToolIds } from "../src/inbound/dock-cache.js";
