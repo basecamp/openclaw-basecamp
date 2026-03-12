@@ -462,9 +462,7 @@ describe("reconciliation", () => {
   });
 
   it("sampled=true when event count equals maxItems", async () => {
-    const events = Array.from({ length: 5 }, (_, i) =>
-      activityEvent({ id: i + 1, kind: "todo_created" }),
-    );
+    const events = Array.from({ length: 5 }, (_, i) => activityEvent({ id: i + 1, kind: "todo_created" }));
     const client = makeClient(events);
     const result = await runReconciliation({
       account,
@@ -474,9 +472,7 @@ describe("reconciliation", () => {
       log,
     });
     expect(result.sampled).toBe(true);
-    expect(log.warn).toHaveBeenCalledWith(
-      expect.stringContaining("capped at 5 events"),
-    );
+    expect(log.warn).toHaveBeenCalledWith(expect.stringContaining("capped at 5 events"));
   });
 
   it("sampled=false on fetch error", async () => {

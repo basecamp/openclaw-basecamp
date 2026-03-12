@@ -9,8 +9,8 @@ import { homedir } from "node:os";
 import { resolve as pathResolve } from "node:path";
 import {
   type BasecampClient,
-  type BasecampHooks,
   BasecampError,
+  type BasecampHooks,
   createBasecampClient,
   errorFromResponse,
   isBasecampError,
