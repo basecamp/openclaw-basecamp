@@ -55,8 +55,14 @@ export async function pollReadings(opts: ReadingsPollerOptions): Promise<Reading
     ? await withCircuitBreaker(opts.circuitBreaker.instance, opts.circuitBreaker.key, fetchReadings)
     : await fetchReadings();
 
+  if (data === undefined || data === null) {
+    log?.info?.(`[${account.accountId}] readings returned no body (HTTP 204)`);
+    return { events: [], newestAt: undefined, processedSgids: [] };
+  }
+
   const unreads = data?.unreads;
   if (!Array.isArray(unreads) || unreads.length === 0) {
+    log?.debug?.(`[${account.accountId}] readings returned empty unreads array`);
     return { events: [], newestAt: undefined, processedSgids: [] };
   }
 
