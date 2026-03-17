@@ -51,6 +51,7 @@ import {
 import { listBasecampAccountIds, resolveBasecampAccount, resolveDefaultBasecampAccountId } from "../config.js";
 import { isValidLaunchpadClientId, OAUTH_SETUP_GUIDANCE } from "../oauth-credentials.js";
 import type { BasecampChannelConfig } from "../types.js";
+import { DEFAULT_ENGAGE } from "../types.js";
 
 const channel = "basecamp" as const;
 
@@ -405,6 +406,8 @@ export const basecampOnboardingAdapter: ChannelOnboardingAdapter = {
         basecamp: {
           ...section,
           enabled: true,
+          dmPolicy: (section as any)?.dmPolicy ?? "pairing",
+          engage: (section as any)?.engage ?? DEFAULT_ENGAGE,
           ...(channelOauth ? { oauth: channelOauth } : {}),
           accounts: {
             ...accounts,
