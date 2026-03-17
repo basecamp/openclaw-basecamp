@@ -184,6 +184,11 @@ describe("poller dispatch flow", () => {
   });
 
   it("dispatches activity events and advances cursor", async () => {
+    // Pre-seed activity cursor so poller is past bootstrap phase
+    const cursors = new CursorStore(tmpDir, baseAccount.accountId);
+    cursors.setActivitySince("2025-06-01T11:00:00Z");
+    await cursors.save();
+
     const ev = makeEvent("act", { createdAt: "2025-06-01T12:00:00Z" });
     activityEvents = [ev];
 
@@ -211,6 +216,11 @@ describe("poller dispatch flow", () => {
   });
 
   it("dispatches readings events and triggers mark-read", async () => {
+    // Pre-seed readings cursor so poller is past bootstrap phase
+    const cursors = new CursorStore(tmpDir, baseAccount.accountId);
+    cursors.setReadingsSince("2025-06-01T11:00:00Z");
+    await cursors.save();
+
     const ev = makeEvent("read");
     readingsEvents = [ev];
     readingsSgids = ["sgid://bc3/Recording/1"];
@@ -239,6 +249,11 @@ describe("poller dispatch flow", () => {
   });
 
   it("dedup filters duplicate dedupKeys", async () => {
+    // Pre-seed activity cursor so poller is past bootstrap phase
+    const cursors = new CursorStore(tmpDir, baseAccount.accountId);
+    cursors.setActivitySince("2025-06-01T11:00:00Z");
+    await cursors.save();
+
     // Same event object returned on every poll cycle — same dedupKey
     const ev = makeEvent("dup");
     activityEvents = [ev];
@@ -268,6 +283,11 @@ describe("poller dispatch flow", () => {
   });
 
   it("self-message filtering: sender.id === account.personId → not dispatched", async () => {
+    // Pre-seed activity cursor so poller is past bootstrap phase
+    const cursors = new CursorStore(tmpDir, baseAccount.accountId);
+    cursors.setActivitySince("2025-06-01T11:00:00Z");
+    await cursors.save();
+
     const ev = makeEvent("self", { senderId: "99" }); // matches account.personId
     activityEvents = [ev];
 
