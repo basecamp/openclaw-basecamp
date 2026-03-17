@@ -62,6 +62,16 @@ vi.mock("@37signals/basecamp/oauth", () => ({
 vi.mock("@37signals/basecamp", () => ({}));
 
 // ---------------------------------------------------------------------------
+// Mock basecamp-client (resolvePersonId for per-account person ID resolution)
+// ---------------------------------------------------------------------------
+
+const mockResolvePersonId = vi.fn();
+
+vi.mock("../src/basecamp-client.js", () => ({
+  resolvePersonId: (...args: any[]) => mockResolvePersonId(...args),
+}));
+
+// ---------------------------------------------------------------------------
 // Mock node:fs/promises (for token file relocation)
 // ---------------------------------------------------------------------------
 
@@ -143,6 +153,7 @@ describe("hatchIdentity — CLI path (chains into OAuth)", () => {
       identity: { id: 42, firstName: "Jeremy", lastName: "", emailAddress: "j@example.com" },
       accounts: [{ id: 99, name: "Acme", product: "bc3" }],
     });
+    mockResolvePersonId.mockResolvedValue("42");
     mockResolveTokenFilePath.mockImplementation((id: string) => `/tmp/tokens/${id}.json`);
 
     const { prompter } = createMockPrompter({
@@ -186,6 +197,7 @@ describe("hatchIdentity — CLI path (chains into OAuth)", () => {
       identity: { id: 10, firstName: "Bot", lastName: "", emailAddress: "bot@example.com" },
       accounts: [{ id: 1, name: "Co", product: "bc3" }],
     });
+    mockResolvePersonId.mockResolvedValue("10");
     mockResolveTokenFilePath.mockImplementation((id: string) => `/tmp/tokens/${id}.json`);
 
     const { prompter } = createMockPrompter({
@@ -223,6 +235,7 @@ describe("hatchIdentity — CLI path (chains into OAuth)", () => {
       identity: { id: 1, firstName: "X", lastName: "", emailAddress: "x@x.com" },
       accounts: [],
     });
+    mockResolvePersonId.mockResolvedValue("1");
     mockResolveTokenFilePath.mockImplementation((id: string) => `/tmp/tokens/${id}.json`);
 
     const { prompter } = createMockPrompter({
@@ -272,6 +285,7 @@ describe("hatchIdentity — CLI path (chains into OAuth)", () => {
       identity: { id: 42, firstName: "Test", lastName: "", emailAddress: "t@t.com" },
       accounts: [{ id: 1, name: "Co", product: "bc3" }],
     });
+    mockResolvePersonId.mockResolvedValue("42");
     mockResolveTokenFilePath.mockImplementation((id: string) => `/tmp/tokens/${id}.json`);
 
     const { prompter } = createMockPrompter({
@@ -313,6 +327,7 @@ describe("hatchIdentity — CLI path (chains into OAuth)", () => {
       identity: { id: 42, firstName: "Test", lastName: "", emailAddress: "t@t.com" },
       accounts: [{ id: 1, name: "Co", product: "bc3" }],
     });
+    mockResolvePersonId.mockResolvedValue("42");
     mockResolveTokenFilePath.mockImplementation((id: string) => `/tmp/tokens/${id}.json`);
 
     // Config has an invalid client ID with a stale secret
@@ -349,6 +364,7 @@ describe("hatchIdentity — Browser/OAuth path", () => {
       identity: { id: 55, firstName: "OAuth", lastName: "Bot", emailAddress: "bot@test.com" },
       accounts: [{ id: 200, name: "OAuth Co", product: "bc3" }],
     });
+    mockResolvePersonId.mockResolvedValue("55");
     mockResolveTokenFilePath.mockImplementation((id: string) => `/tmp/tokens/${id}.json`);
 
     const { prompter } = createMockPrompter({
@@ -384,6 +400,7 @@ describe("hatchIdentity — Browser/OAuth path", () => {
       identity: { id: 10, firstName: "Bot", lastName: "", emailAddress: "b@t.com" },
       accounts: [{ id: 1, name: "Co", product: "bc3" }],
     });
+    mockResolvePersonId.mockResolvedValue("10");
     mockResolveTokenFilePath.mockImplementation((id: string) => `/tmp/tokens/${id}.json`);
 
     const { prompter } = createMockPrompter({
@@ -421,6 +438,7 @@ describe("hatchIdentity — Browser/OAuth path", () => {
       identity: { id: 1, firstName: "A", lastName: "", emailAddress: "a@t.com" },
       accounts: [{ id: 1, name: "Co", product: "bc3" }],
     });
+    mockResolvePersonId.mockResolvedValue("1");
     mockResolveTokenFilePath.mockImplementation((id: string) => `/tmp/tokens/${id}.json`);
 
     const { prompter: p1 } = createMockPrompter({
@@ -505,6 +523,7 @@ describe("hatchIdentity — token file relocation", () => {
       identity: { id: 1, firstName: "A", lastName: "", emailAddress: "a@t.com" },
       accounts: [{ id: 1, name: "Co", product: "bc3" }],
     });
+    mockResolvePersonId.mockResolvedValue("1");
     mockResolveTokenFilePath.mockImplementation((id: string) => `/tmp/tokens/${id}.json`);
     // Both rename and copy fail
     mockRename.mockRejectedValue(new Error("EXDEV"));
@@ -535,6 +554,7 @@ describe("hatchIdentity — token file relocation", () => {
       identity: { id: 1, firstName: "A", lastName: "", emailAddress: "a@t.com" },
       accounts: [{ id: 1, name: "Co", product: "bc3" }],
     });
+    mockResolvePersonId.mockResolvedValue("1");
     mockResolveTokenFilePath.mockImplementation((id: string) => `/tmp/tokens/${id}.json`);
     // rename fails, copy succeeds
     mockRename.mockRejectedValue(new Error("EXDEV"));
