@@ -141,6 +141,25 @@ async function readTokenFile(filePath: string): Promise<string> {
 }
 
 // ---------------------------------------------------------------------------
+// Per-account person ID resolution
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve the per-account Basecamp person ID for the authenticated user.
+ * Creates a temporary client scoped to the given Basecamp account number.
+ *
+ * This returns the **per-account** person ID (e.g. 51190969), which differs
+ * from the global Launchpad identity ID (e.g. 28147435) returned by
+ * discoverIdentity(). The per-account ID is what appears in activity events
+ * and is needed for self-message filtering.
+ */
+export async function resolvePersonId(basecampAccountId: string, accessToken: string): Promise<string> {
+  const client = createBasecampClient({ accountId: basecampAccountId, accessToken });
+  const profile = await client.people.me();
+  return String(profile.id);
+}
+
+// ---------------------------------------------------------------------------
 // ID coercion helper
 // ---------------------------------------------------------------------------
 
