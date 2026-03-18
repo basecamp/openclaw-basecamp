@@ -1,0 +1,23 @@
+src/adapters/onboarding.ts
+  1c07995a8907251d 27,382-383
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.12",
+  "base_commit_sha": "29b47219ffc8a304fc63a7972bec54ef40b055b1",
+  "prompts": {
+    "1c07995a8907251d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "705444d3-e14c-4949-9dd9-e0ad75582521",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Jeremy Daer <jeremy@37signals.com>",
+      "messages": [],
+      "total_additions": 3,
+      "total_deletions": 0,
+      "accepted_lines": 3,
+      "overriden_lines": 0
+    }
+  }
+}
