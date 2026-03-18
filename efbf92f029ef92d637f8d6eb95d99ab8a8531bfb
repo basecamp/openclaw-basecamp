@@ -1,0 +1,23 @@
+package.json
+  1c07995a8907251d 57
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.12",
+  "base_commit_sha": "efbf92f029ef92d637f8d6eb95d99ab8a8531bfb",
+  "prompts": {
+    "1c07995a8907251d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "705444d3-e14c-4949-9dd9-e0ad75582521",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Jeremy Daer <jeremy@37signals.com>",
+      "messages": [],
+      "total_additions": 1,
+      "total_deletions": 1,
+      "accepted_lines": 1,
+      "overriden_lines": 0
+    }
+  }
+}
