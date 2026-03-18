@@ -1,0 +1,31 @@
+tests/onboarding.test.ts
+  1c07995a8907251d 86-87,94,281,327,366,414,509,552,599,635,691,723
+src/adapters/onboarding.ts
+  1c07995a8907251d 322-335
+tests/hatch.test.ts
+  1c07995a8907251d 65-73,156,200,238,288,330,367,403,441,526,557
+src/adapters/hatch.ts
+  1c07995a8907251d 76,140,280-290,381-382,384-391,396
+src/basecamp-client.ts
+  1c07995a8907251d 41-49,144-161
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.15",
+  "base_commit_sha": "8dcda813b574a9fe8bf0e031b44fcedd57058d6f",
+  "prompts": {
+    "1c07995a8907251d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "705444d3-e14c-4949-9dd9-e0ad75582521",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Jeremy Daer <jeremy@37signals.com>",
+      "messages": [],
+      "total_additions": 135,
+      "total_deletions": 67,
+      "accepted_lines": 97,
+      "overriden_lines": 0
+    }
+  }
+}
