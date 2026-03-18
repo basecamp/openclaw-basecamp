@@ -263,6 +263,20 @@ export async function startCompositePoller(opts: CompositePollerOptions): Promis
       : { mode: "primary" }),
   });
 
+  /** Mark processed readings as read via the Basecamp API. */
+  async function markReadingsRead(sgids: string[]): Promise<void> {
+    if (sgids.length === 0) return;
+    const markRead = async () => {
+      const client = getClient(account);
+      await rawOrThrow(
+        await client.raw.PUT("/my/unreads.json" as any, {
+          body: { readables: sgids } as any,
+        }),
+      );
+    };
+    await withCircuitBreaker(cb, "readings:mark-read", markRead);
+  }
+
   while (!abortSignal?.aborted) {
     const now = Date.now();
     const activityDue = now - lastActivityPoll >= activityIntervalMs + activityBackoff;
@@ -285,9 +299,11 @@ export async function startCompositePoller(opts: CompositePollerOptions): Promis
           if (result.newestAt) {
             cursors.setActivitySince(result.newestAt);
             await saveCursorsWithRetry(cursors, slog);
+            activityBootstrapped = true;
+            slog.info("poll_bootstrap", { feed: "activity", fetched: result.events.length, cursor: result.newestAt });
+          } else {
+            slog.info("poll_bootstrap_empty", { feed: "activity", fetched: result.events.length });
           }
-          activityBootstrapped = true;
-          slog.info("poll_bootstrap", { feed: "activity", fetched: result.events.length, cursor: result.newestAt ?? "none" });
           recordPollSuccess(account.accountId, "activity", 0, 0);
         } else {
           let dispatched = 0;
@@ -354,27 +370,19 @@ export async function startCompositePoller(opts: CompositePollerOptions): Promis
 
         if (!readingsBootstrapped) {
           // First run / cleared cursor: advance cursor and mark-read without emitting events
-          if (result.processedSgids.length > 0) {
-            try {
-              const markRead = async () => {
-                const client = getClient(account);
-                await rawOrThrow(
-                  await client.raw.PUT("/my/unreads.json" as any, {
-                    body: { readables: result.processedSgids } as any,
-                  }),
-                );
-              };
-              await withCircuitBreaker(cb, "readings:mark-read", markRead);
-            } catch (err) {
-              slog.warn("readings_mark_read_failed", { error: String(err) });
-            }
+          try {
+            await markReadingsRead(result.processedSgids);
+          } catch (err) {
+            slog.warn("readings_mark_read_failed", { error: String(err) });
           }
           if (result.newestAt) {
             cursors.setReadingsSince(result.newestAt);
             await saveCursorsWithRetry(cursors, slog);
+            readingsBootstrapped = true;
+            slog.info("poll_bootstrap", { feed: "readings", fetched: result.events.length, cursor: result.newestAt });
+          } else {
+            slog.info("poll_bootstrap_empty", { feed: "readings", fetched: result.events.length });
           }
-          readingsBootstrapped = true;
-          slog.info("poll_bootstrap", { feed: "readings", fetched: result.events.length, cursor: result.newestAt ?? "none" });
           recordPollSuccess(account.accountId, "readings", 0, 0);
         } else {
           let dispatched = 0;
@@ -401,21 +409,11 @@ export async function startCompositePoller(opts: CompositePollerOptions): Promis
           }
 
           // Mark processed readings as read so they don't reappear
-          if (result.processedSgids.length > 0) {
-            try {
-              const markRead = async () => {
-                const client = getClient(account);
-                await rawOrThrow(
-                  await client.raw.PUT("/my/unreads.json" as any, {
-                    body: { readables: result.processedSgids } as any,
-                  }),
-                );
-              };
-              await withCircuitBreaker(cb, "readings:mark-read", markRead);
-              slog.debug("readings_marked_read", { count: result.processedSgids.length });
-            } catch (err) {
-              slog.warn("readings_mark_read_failed", { error: String(err) });
-            }
+          try {
+            await markReadingsRead(result.processedSgids);
+            slog.debug("readings_marked_read", { count: result.processedSgids.length });
+          } catch (err) {
+            slog.warn("readings_mark_read_failed", { error: String(err) });
           }
 
           if (result.newestAt) {
