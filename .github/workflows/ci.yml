@@ -33,10 +33,23 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run lint
-      - name: Lint workflow files
-        uses: docker://rhysd/actionlint@sha256:6f03470d0152251d7f07f7c4dc019dbe7024c72cd952f839544c7798843efa8f
+
+  lint-actions:
+    name: GitHub Actions audit
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
         with:
-          args: -color
+          persist-credentials: false
+
+      - name: Run actionlint
+        uses: rhysd/actionlint@v1.7.11
+
+      - name: Run zizmor
+        uses: zizmorcore/zizmor-action@v0.5.2
+        with:
+          advanced-security: false
 
   test:
     name: Test
