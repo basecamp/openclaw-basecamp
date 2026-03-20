@@ -17,8 +17,8 @@ import {
 } from "@37signals/basecamp";
 import type { ResolvedBasecampAccount } from "./types.js";
 
-export { BasecampError, isBasecampError };
 export type { BasecampClient };
+export { BasecampError, isBasecampError };
 
 // ---------------------------------------------------------------------------
 // Client cache
