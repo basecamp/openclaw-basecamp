@@ -102,7 +102,7 @@ async function resolvePingTranscriptCached(
   return info?.transcriptId;
 }
 
-export { LruCache, PING_CACHE_MAX, circleInfoCache };
+export { circleInfoCache, LruCache, PING_CACHE_MAX };
 
 // ---------------------------------------------------------------------------
 // Outbound result types
