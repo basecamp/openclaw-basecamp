@@ -129,7 +129,7 @@ export async function postCampfireLine(params: {
   circuitBreaker?: { instance: CircuitBreaker; key: string };
   correlationId?: string;
 }): Promise<OutboundResult> {
-  const { bucketId, transcriptId, content, account, retries, circuitBreaker, correlationId } = params;
+  const { transcriptId, content, account, retries, circuitBreaker, correlationId } = params;
   const { accountId } = account;
 
   const doPost = async () => {
@@ -173,7 +173,7 @@ export async function postComment(params: {
   circuitBreaker?: { instance: CircuitBreaker; key: string };
   correlationId?: string;
 }): Promise<OutboundResult> {
-  const { bucketId, recordingId, content, account, retries, circuitBreaker, correlationId } = params;
+  const { recordingId, content, account, retries, circuitBreaker, correlationId } = params;
   const { accountId } = account;
 
   const doPost = async () => {

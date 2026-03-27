@@ -41,6 +41,7 @@ type ChannelOnboardingAdapter = {
   dmPolicy: ChannelOnboardingDmPolicy;
   disable: (cfg: OpenClawConfig) => OpenClawConfig;
 };
+
 import {
   type CliProfile,
   cliProfileListFull,

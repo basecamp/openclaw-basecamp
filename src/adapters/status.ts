@@ -11,8 +11,8 @@
  */
 
 import type { ChannelAccountSnapshot, OpenClawConfig } from "openclaw/plugin-sdk";
-import type { ChannelStatusAdapter } from "openclaw/plugin-sdk/channel-runtime";
 import { DEFAULT_ACCOUNT_ID } from "openclaw/plugin-sdk/account-id";
+import type { ChannelStatusAdapter } from "openclaw/plugin-sdk/channel-runtime";
 import { getClient, numId } from "../basecamp-client.js";
 import { resolveBasecampAccount } from "../config.js";
 import type { AccountMetrics, PollerSourceMetrics } from "../metrics.js";
