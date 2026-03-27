@@ -154,7 +154,12 @@ async function readTokenFile(filePath: string): Promise<string> {
  * and is needed for self-message filtering.
  */
 export async function resolvePersonId(basecampAccountId: string, accessToken: string): Promise<string> {
-  const client = createBasecampClient({ accountId: basecampAccountId, accessToken });
+  const client = createBasecampClient({
+    accountId: basecampAccountId,
+    accessToken,
+    enableRetry: true,
+    enableCache: false,
+  });
   const profile = await client.people.me();
   return String(profile.id);
 }

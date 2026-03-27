@@ -398,6 +398,11 @@ export async function hatchIdentity(cfg: OpenClawConfig, prompter: WizardPrompte
       } catch {
         // Non-fatal: proceed with CLI-discovered identity
       }
+    } else {
+      // No Basecamp account selected — CLI-discovered personId may be Launchpad-scoped.
+      // Clear it so step 4 prompts for manual entry.
+      personId = undefined;
+      attachableSgid = undefined;
     }
 
     oauthResult = {
@@ -516,5 +521,5 @@ export async function hatchIdentity(cfg: OpenClawConfig, prompter: WizardPrompte
     },
   };
 
-  return { cfg: next, accountId, personId, personaMapping };
+  return { cfg: next, accountId, personId: personId!, personaMapping };
 }
