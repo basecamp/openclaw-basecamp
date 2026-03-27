@@ -1,5 +1,4 @@
 import type { ChannelPlugin } from "openclaw/plugin-sdk";
-import { DEFAULT_ACCOUNT_ID } from "openclaw/plugin-sdk/account-id";
 import { buildChannelConfigSchema } from "openclaw/plugin-sdk/channel-config-schema";
 import { deleteAccountFromConfigSection, setAccountEnabledInConfigSection } from "openclaw/plugin-sdk/core";
 import { basecampActionsAdapter } from "./adapters/actions.js";
