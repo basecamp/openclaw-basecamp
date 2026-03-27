@@ -314,7 +314,10 @@ export async function startCompositePoller(opts: CompositePollerOptions): Promis
               ? EventDedup.secondaryKey(event.meta.recordingId, event.meta.eventKind, event.createdAt)
               : undefined;
 
-            if (dedup.isDuplicate(event.dedupKey, secondaryKey)) { deduped++; continue; }
+            if (dedup.isDuplicate(event.dedupKey, secondaryKey)) {
+              deduped++;
+              continue;
+            }
             if (isSelfMessage(event.sender.id, account)) continue;
 
             try {
@@ -393,7 +396,10 @@ export async function startCompositePoller(opts: CompositePollerOptions): Promis
               ? EventDedup.secondaryKey(event.meta.recordingId, event.meta.eventKind, event.createdAt)
               : undefined;
 
-            if (dedup.isDuplicate(event.dedupKey, secondaryKey)) { deduped++; continue; }
+            if (dedup.isDuplicate(event.dedupKey, secondaryKey)) {
+              deduped++;
+              continue;
+            }
             if (isSelfMessage(event.sender.id, account)) continue;
 
             try {
@@ -461,7 +467,10 @@ export async function startCompositePoller(opts: CompositePollerOptions): Promis
         let dropped = 0;
         let deduped = 0;
         for (const event of result.events) {
-          if (dedup.isDuplicate(event.dedupKey)) { deduped++; continue; }
+          if (dedup.isDuplicate(event.dedupKey)) {
+            deduped++;
+            continue;
+          }
           if (isSelfMessage(event.sender.id, account)) continue;
 
           try {
