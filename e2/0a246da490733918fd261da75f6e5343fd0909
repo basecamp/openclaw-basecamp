@@ -1,0 +1,25 @@
+tests/hatch.test.ts
+  a3af520f0e014bc0 175-176
+src/adapters/hatch.ts
+  a3af520f0e014bc0 308-310,323,392,395,407-416,485,523
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.21",
+  "base_commit_sha": "e20a246da490733918fd261da75f6e5343fd0909",
+  "prompts": {
+    "a3af520f0e014bc0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "69f954f7-4e41-4c48-a03b-ffa15d849043",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Jeremy Daer <jeremy@37signals.com>",
+      "messages": [],
+      "total_additions": 24,
+      "total_deletions": 24,
+      "accepted_lines": 20,
+      "overriden_lines": 0
+    }
+  }
+}
