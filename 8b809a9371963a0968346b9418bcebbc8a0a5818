@@ -1,0 +1,31 @@
+src/adapters/status.ts
+  1c07995a8907251d 15
+src/adapters/onboarding.ts
+  1c07995a8907251d 44
+src/outbound/send.ts
+  1c07995a8907251d 132,176
+src/inbound/webhooks.ts
+  1c07995a8907251d 145
+src/adapters/actions.ts
+  1c07995a8907251d 17
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.20",
+  "base_commit_sha": "8b809a9371963a0968346b9418bcebbc8a0a5818",
+  "prompts": {
+    "1c07995a8907251d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "705444d3-e14c-4949-9dd9-e0ad75582521",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Jeremy Daer <jeremy@37signals.com>",
+      "messages": [],
+      "total_additions": 6,
+      "total_deletions": 5,
+      "accepted_lines": 6,
+      "overriden_lines": 0
+    }
+  }
+}
