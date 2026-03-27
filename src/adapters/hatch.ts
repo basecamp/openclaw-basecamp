@@ -137,7 +137,15 @@ async function discoverViaBrowser(
 
   const tempTokenFile = resolveTokenFilePath(tempKey);
 
-  return { info, accessToken: token.accessToken, clientId, clientSecret, tempTokenFile, promptedClientId, promptedClientSecret };
+  return {
+    info,
+    accessToken: token.accessToken,
+    clientId,
+    clientSecret,
+    tempTokenFile,
+    promptedClientId,
+    promptedClientSecret,
+  };
 }
 
 // ---------------------------------------------------------------------------
