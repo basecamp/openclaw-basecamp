@@ -172,7 +172,7 @@ describe("hatchIdentity — CLI path (chains into OAuth)", () => {
     expect(accounts.security).toBeDefined();
     expect(accounts.security.personId).toBe("42");
     expect(accounts.security.displayName).toBe("Jeremy");
-    // attachableSgid is cleared when resolvePersonId returns a different ID than CLI discovery
+    // attachableSgid is cleared because CLI SGID does not apply to the per-account person ID
     expect(accounts.security.attachableSgid).toBeUndefined();
     expect(accounts.security.cliProfile).toBe("default");
     // CLI path chains into OAuth — oauthTokenFile should be set

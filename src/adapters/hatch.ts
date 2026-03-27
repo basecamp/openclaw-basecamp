@@ -293,7 +293,7 @@ export async function hatchIdentity(cfg: OpenClawConfig, prompter: WizardPrompte
         const { resolvePersonId } = await import("../basecamp-client.js");
         personId = await resolvePersonId(basecampAccountId, browserResult.accessToken);
       } catch {
-        // Will fall through to manual entry at step 4
+        // Will fall through to manual entry at step 5
       }
     }
   } else {
@@ -306,7 +306,7 @@ export async function hatchIdentity(cfg: OpenClawConfig, prompter: WizardPrompte
       );
 
       // Don't set personId from CLI — it's the Launchpad identity ID, not the
-      // per-account person ID. resolvePersonId in the CLI OAuth chain (or step 4
+      // per-account person ID. resolvePersonId in the CLI OAuth chain (or step 5
       // manual prompt) will set the correct value.
       displayName = cliResult.identity.name;
       attachableSgid = cliResult.identity.attachable_sgid;
@@ -379,20 +379,17 @@ export async function hatchIdentity(cfg: OpenClawConfig, prompter: WizardPrompte
 
     const cliOauthToken = await interactiveLogin(tempAccount, { clientId: cliClientId, clientSecret: cliClientSecret });
 
-    // Resolve per-account person ID (CLI identity may be Launchpad-scoped)
+    // Resolve per-account person ID (CLI identity is Launchpad-scoped, not per-account)
     if (basecampAccountId) {
       try {
         const { resolvePersonId } = await import("../basecamp-client.js");
-        const resolvedId = await resolvePersonId(basecampAccountId, cliOauthToken.accessToken);
-        if (resolvedId !== personId) {
-          personId = resolvedId;
-          attachableSgid = undefined; // CLI SGID may not match different person
-        }
+        personId = await resolvePersonId(basecampAccountId, cliOauthToken.accessToken);
+        attachableSgid = undefined; // CLI SGID does not apply to per-account person
       } catch {
-        // Non-fatal: fall through to step 4 manual prompt
+        // Non-fatal: fall through to step 5 manual prompt
       }
     }
-    // When basecampAccountId is absent, personId stays unset — step 4 prompts.
+    // When basecampAccountId is absent, personId stays unset — step 5 prompts.
 
     oauthResult = {
       accessToken: cliOauthToken.accessToken,
