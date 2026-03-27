@@ -1,0 +1,40 @@
+src/channel.ts
+  a3af520f0e014bc0 12,74-75
+src/adapters/onboarding.ts
+  a3af520f0e014bc0 2,12-14,21,112,119-133,135-136,138-141,143-144,147-154,157,159-161,163-186,190,194,196,206,210,214-222,250,330,348,358,364,369,379,432,454
+tests/onboarding.test.ts
+  a3af520f0e014bc0 8-26,30-31,33-35,57-62,64-88,206,224-230,249,254,257,264,268-271,274-275,280,283-284,289,292-293,298,302-408,427,429-430,436-438,445,451,457,462,464-465,471,480,486,499,501-502,508,514,536,538,540-541,547-548,564,580,582,584-585,591,600,607,611,615,618-637,642,646-651,681,687,762,773,785-790,792,803,845,861-866
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.21",
+  "base_commit_sha": "3aa9c76bd7ffc3dcb0d9af6d1b399c09accab163",
+  "prompts": {
+    "1c07995a8907251d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "705444d3-e14c-4949-9dd9-e0ad75582521",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Jeremy Daer <jeremy@37signals.com>",
+      "messages": [],
+      "total_additions": 247,
+      "total_deletions": 94,
+      "accepted_lines": 125,
+      "overriden_lines": 0
+    },
+    "a3af520f0e014bc0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "69f954f7-4e41-4c48-a03b-ffa15d849043",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Jeremy Daer <jeremy@37signals.com>",
+      "messages": [],
+      "total_additions": 2266,
+      "total_deletions": 327,
+      "accepted_lines": 1916,
+      "overriden_lines": 2
+    }
+  }
+}
