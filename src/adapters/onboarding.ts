@@ -8,13 +8,39 @@
  * Both paths converge on discoverIdentity() for account/person resolution.
  */
 
-import type {
-  ChannelOnboardingAdapter,
-  ChannelOnboardingDmPolicy,
-  DmPolicy,
-  OpenClawConfig,
-} from "openclaw/plugin-sdk";
-import { DEFAULT_ACCOUNT_ID, normalizeAccountId } from "openclaw/plugin-sdk";
+import type { OpenClawConfig } from "openclaw/plugin-sdk";
+import { DEFAULT_ACCOUNT_ID, normalizeAccountId } from "openclaw/plugin-sdk/account-id";
+import type { DmPolicy } from "openclaw/plugin-sdk/setup";
+
+/** Local type for onboarding DM policy (removed from SDK barrel). */
+type ChannelOnboardingDmPolicy = {
+  label: string;
+  channel: string;
+  policyKey: string;
+  allowFromKey: string;
+  getCurrent: (cfg: OpenClawConfig) => DmPolicy;
+  setPolicy: (cfg: OpenClawConfig, policy: DmPolicy) => OpenClawConfig;
+};
+
+/** Local type for onboarding adapter (removed from SDK barrel). */
+type ChannelOnboardingAdapter = {
+  channel: string;
+  getStatus: (params: { cfg: OpenClawConfig }) => Promise<{
+    channel: string;
+    configured: boolean;
+    statusLines: string[];
+    selectionHint: string;
+    quickstartScore: number;
+  }>;
+  configure: (params: {
+    cfg: OpenClawConfig;
+    prompter: any;
+    accountOverrides: Record<string, string | undefined>;
+    shouldPromptAccountIds: boolean;
+  }) => Promise<{ cfg: OpenClawConfig; accountId: string }>;
+  dmPolicy: ChannelOnboardingDmPolicy;
+  disable: (cfg: OpenClawConfig) => OpenClawConfig;
+};
 import {
   type CliProfile,
   cliProfileListFull,
@@ -169,7 +195,7 @@ export const basecampOnboardingAdapter: ChannelOnboardingAdapter = {
       if (choice === "__new__") {
         const entered = await prompter.text({
           message: "New account ID",
-          validate: (value) => (value?.trim() ? undefined : "Required"),
+          validate: (value: string | undefined) => (value?.trim() ? undefined : "Required"),
         });
         accountId = normalizeAccountId(String(entered));
       } else {
@@ -324,7 +350,7 @@ export const basecampOnboardingAdapter: ChannelOnboardingAdapter = {
     if (!personId) {
       const entered = await prompter.text({
         message: "Basecamp person ID (your service account's person ID)",
-        validate: (value) => (value?.trim() ? undefined : "Required"),
+        validate: (value: string | undefined) => (value?.trim() ? undefined : "Required"),
       });
       personId = String(entered).trim();
     } else {

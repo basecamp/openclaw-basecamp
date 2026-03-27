@@ -3,7 +3,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("openclaw/plugin-sdk", () => ({
   DEFAULT_ACCOUNT_ID: "default",
   normalizeAccountId: (v: string | undefined | null) => (v ?? "").trim() || "default",
-  jsonResult: (payload: unknown) => ({ ok: true, result: payload }),
+}));
+
+vi.mock("openclaw/plugin-sdk/param-readers", () => ({
   readStringParam: (params: Record<string, unknown>, key: string, opts?: { required?: boolean; label?: string }) => {
     const val = params[key];
     if (opts?.required && (val === undefined || val === null || val === "")) {
@@ -72,13 +74,21 @@ function actionCtx(overrides: Record<string, unknown> = {}) {
 }
 
 // ---------------------------------------------------------------------------
-// listActions
+// Helper: extract payload from AgentToolResult shape
 // ---------------------------------------------------------------------------
 
-describe("actions.listActions", () => {
+function resultPayload(result: unknown): unknown {
+  return (result as { details: unknown }).details;
+}
+
+// ---------------------------------------------------------------------------
+// describeMessageTool
+// ---------------------------------------------------------------------------
+
+describe("actions.describeMessageTool", () => {
   it("returns supported action names", () => {
-    const actions = basecampActionsAdapter.listActions!({ cfg: {} as any });
-    expect(actions).toEqual(["send", "react"]);
+    const discovery = basecampActionsAdapter.describeMessageTool!({ cfg: {} } as any);
+    expect(discovery?.actions).toEqual(["send", "react"]);
   });
 });
 
@@ -98,22 +108,6 @@ describe("actions.supportsAction", () => {
   it("returns false for unsupported actions", () => {
     expect(basecampActionsAdapter.supportsAction!({ action: "delete" })).toBe(false);
     expect(basecampActionsAdapter.supportsAction!({ action: "edit" })).toBe(false);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// supportsButtons / supportsCards
-// ---------------------------------------------------------------------------
-
-describe("actions.supportsButtons", () => {
-  it("returns false", () => {
-    expect(basecampActionsAdapter.supportsButtons!({ cfg: {} as any })).toBe(false);
-  });
-});
-
-describe("actions.supportsCards", () => {
-  it("returns false", () => {
-    expect(basecampActionsAdapter.supportsCards!({ cfg: {} as any })).toBe(false);
   });
 });
 
@@ -163,10 +157,7 @@ describe("actions.handleAction — send campfire line", () => {
       }),
     );
 
-    expect(result).toEqual({
-      ok: true,
-      result: { ok: true, target: "campfire", recordingId: "42" },
-    });
+    expect(resultPayload(result)).toEqual({ ok: true, target: "campfire", recordingId: "42" });
     expect(postCampfireLine).toHaveBeenCalledWith({
       bucketId: "1",
       transcriptId: "2",
@@ -198,10 +189,7 @@ describe("actions.handleAction — send campfire line", () => {
       }),
     );
 
-    expect(result).toEqual({
-      ok: true,
-      result: { ok: false, target: "campfire", error: "timeout" },
-    });
+    expect(resultPayload(result)).toEqual({ ok: false, target: "campfire", error: "timeout" });
   });
 });
 
@@ -219,10 +207,7 @@ describe("actions.handleAction — send comment", () => {
       }),
     );
 
-    expect(result).toEqual({
-      ok: true,
-      result: { ok: true, target: "comment", commentId: "77" },
-    });
+    expect(resultPayload(result)).toEqual({ ok: true, target: "comment", commentId: "77" });
     expect(postComment).toHaveBeenCalledWith({
       bucketId: "1",
       recordingId: "3",
@@ -244,10 +229,7 @@ describe("actions.handleAction — send comment", () => {
       }),
     );
 
-    expect(result).toEqual({
-      ok: true,
-      result: { ok: false, target: "comment", error: "403 Forbidden" },
-    });
+    expect(resultPayload(result)).toEqual({ ok: false, target: "comment", error: "403 Forbidden" });
   });
 });
 
@@ -271,10 +253,7 @@ describe("actions.handleAction — send validation", () => {
   it("returns error when neither transcriptId nor recordingId is provided", async () => {
     const result = await basecampActionsAdapter.handleAction!(actionCtx({ params: { bucketId: "1", text: "Hello" } }));
 
-    expect(result).toEqual({
-      ok: true,
-      result: { ok: false, error: expect.stringContaining("transcriptId") },
-    });
+    expect(resultPayload(result)).toEqual({ ok: false, error: expect.stringContaining("transcriptId") });
   });
 });
 
@@ -291,16 +270,15 @@ describe("actions.handleAction — send dryRun", () => {
       }),
     );
 
-    expect(result).toEqual({
-      ok: true,
-      result: expect.objectContaining({
+    expect(resultPayload(result)).toEqual(
+      expect.objectContaining({
         ok: true,
         dryRun: true,
         target: "campfire",
         bucketId: "1",
         transcriptId: "2",
       }),
-    });
+    );
     expect(postCampfireLine).not.toHaveBeenCalled();
     expect(postComment).not.toHaveBeenCalled();
   });
@@ -313,16 +291,15 @@ describe("actions.handleAction — send dryRun", () => {
       }),
     );
 
-    expect(result).toEqual({
-      ok: true,
-      result: expect.objectContaining({
+    expect(resultPayload(result)).toEqual(
+      expect.objectContaining({
         ok: true,
         dryRun: true,
         target: "comment",
         bucketId: "1",
         recordingId: "3",
       }),
-    });
+    );
   });
 });
 
@@ -334,10 +311,7 @@ describe("actions.handleAction — unsupported action", () => {
   it("returns error for unsupported action", async () => {
     const result = await basecampActionsAdapter.handleAction!(actionCtx({ action: "delete" }));
 
-    expect(result).toEqual({
-      ok: true,
-      result: { ok: false, error: "Unsupported action: delete" },
-    });
+    expect(resultPayload(result)).toEqual({ ok: false, error: "Unsupported action: delete" });
   });
 });
 
@@ -364,12 +338,9 @@ describe("actions.handleAction — bucket scoping", () => {
       }),
     );
 
-    expect(result).toEqual({
-      ok: true,
-      result: {
-        ok: false,
-        error: expect.stringContaining("scoped to bucket 42"),
-      },
+    expect(resultPayload(result)).toEqual({
+      ok: false,
+      error: expect.stringContaining("scoped to bucket 42"),
     });
     expect(postCampfireLine).not.toHaveBeenCalled();
   });
@@ -403,10 +374,7 @@ describe("actions.handleAction — react", () => {
       }),
     );
 
-    expect(result).toEqual({
-      ok: true,
-      result: { ok: true, target: "boost", boostId: 55 },
-    });
+    expect(resultPayload(result)).toEqual({ ok: true, target: "boost", boostId: 55 });
     expect(mockClient.boosts.createForRecording).toHaveBeenCalledWith(500, { content: "🎉" });
   });
 
@@ -433,10 +401,7 @@ describe("actions.handleAction — react", () => {
       }),
     );
 
-    expect(result).toEqual({
-      ok: true,
-      result: { ok: false, error: "Error: 503 Unavailable" },
-    });
+    expect(resultPayload(result)).toEqual({ ok: false, error: "Error: 503 Unavailable" });
   });
 
   it("throws on missing bucketId", async () => {
@@ -486,12 +451,9 @@ describe("actions.handleAction — react bucket scoping", () => {
       }),
     );
 
-    expect(result).toEqual({
-      ok: true,
-      result: {
-        ok: false,
-        error: expect.stringContaining("scoped to bucket 42"),
-      },
+    expect(resultPayload(result)).toEqual({
+      ok: false,
+      error: expect.stringContaining("scoped to bucket 42"),
     });
     expect(mockClient.boosts.createForRecording).not.toHaveBeenCalled();
   });
@@ -523,9 +485,8 @@ describe("actions.handleAction — react dryRun", () => {
       }),
     );
 
-    expect(result).toEqual({
-      ok: true,
-      result: expect.objectContaining({
+    expect(resultPayload(result)).toEqual(
+      expect.objectContaining({
         ok: true,
         dryRun: true,
         target: "boost",
@@ -533,7 +494,7 @@ describe("actions.handleAction — react dryRun", () => {
         recordingId: "500",
         emoji: "🎉",
       }),
-    });
+    );
     expect(mockClient.boosts.createForRecording).not.toHaveBeenCalled();
   });
 });

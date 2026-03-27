@@ -5,7 +5,7 @@
  * (recording:<id>, bucket:<id>, ping:<id>) and formatting them for display.
  */
 
-import type { ChannelMessagingAdapter } from "openclaw/plugin-sdk";
+import type { ChannelMessagingAdapter } from "openclaw/plugin-sdk/channel-runtime";
 
 const PEER_PATTERN = /^(recording|bucket|ping):\d+$/;
 

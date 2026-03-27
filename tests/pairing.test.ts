@@ -8,6 +8,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("openclaw/plugin-sdk", () => ({
   DEFAULT_ACCOUNT_ID: "default",
   normalizeAccountId: (v: string | undefined) => (v ?? "").trim() || "default",
+}));
+
+vi.mock("openclaw/plugin-sdk/channel-runtime", () => ({}));
+
+vi.mock("openclaw/plugin-sdk/channel-status", () => ({
   PAIRING_APPROVED_MESSAGE: "You have been approved!",
 }));
 

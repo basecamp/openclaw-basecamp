@@ -12,13 +12,25 @@ import type {
   ChannelMessageActionAdapter,
   ChannelMessageActionContext,
   ChannelMessageActionName,
-  ChannelToolSend,
 } from "openclaw/plugin-sdk";
-import { jsonResult, readStringParam } from "openclaw/plugin-sdk";
+import type { ChannelToolSend } from "openclaw/plugin-sdk/tool-send";
+import { readStringParam } from "openclaw/plugin-sdk/param-readers";
 import { getClient, numId } from "../basecamp-client.js";
 import { resolveBasecampAccount } from "../config.js";
 import { markdownToBasecampHtml } from "../outbound/format.js";
 import { postCampfireLine, postComment } from "../outbound/send.js";
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Wrap a payload as a JSON agent tool result (inlined; removed from barrel export). */
+function jsonResult(payload: unknown) {
+  return {
+    content: [{ type: "text" as const, text: JSON.stringify(payload) }],
+    details: payload,
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Supported action set
@@ -32,13 +44,9 @@ const SUPPORTED_ACTIONS: ChannelMessageActionName[] = ["send", "react"];
 // ---------------------------------------------------------------------------
 
 export const basecampActionsAdapter: ChannelMessageActionAdapter = {
-  listActions: () => SUPPORTED_ACTIONS,
+  describeMessageTool: () => ({ actions: SUPPORTED_ACTIONS }),
 
   supportsAction: ({ action }) => SUPPORTED_ACTIONS.includes(action),
-
-  supportsButtons: () => false,
-
-  supportsCards: () => false,
 
   extractToolSend: ({ args }) => {
     const to = args.to;
@@ -58,10 +66,6 @@ export const basecampActionsAdapter: ChannelMessageActionAdapter = {
     }
   },
 };
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
 // send — post a campfire line or comment

@@ -8,7 +8,8 @@
  * at the start of a message.
  */
 
-import type { ChannelMentionAdapter, OpenClawConfig } from "openclaw/plugin-sdk";
+import type { OpenClawConfig } from "openclaw/plugin-sdk";
+import type { ChannelMentionAdapter } from "openclaw/plugin-sdk/channel-runtime";
 import type { BasecampChannelConfig } from "../types.js";
 
 function getBasecampSection(cfg: OpenClawConfig): BasecampChannelConfig | undefined {
