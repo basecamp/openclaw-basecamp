@@ -305,7 +305,9 @@ export async function hatchIdentity(cfg: OpenClawConfig, prompter: WizardPrompte
         "Detected identity",
       );
 
-      personId = String(cliResult.identity.id);
+      // Don't set personId from CLI — it's the Launchpad identity ID, not the
+      // per-account person ID. resolvePersonId in the CLI OAuth chain (or step 4
+      // manual prompt) will set the correct value.
       displayName = cliResult.identity.name;
       attachableSgid = cliResult.identity.attachable_sgid;
       cliProfile = cliResult.profile;
@@ -318,16 +320,7 @@ export async function hatchIdentity(cfg: OpenClawConfig, prompter: WizardPrompte
     }
   }
 
-  // Step 4: Resolve personId — confirm or prompt for manual entry
-  if (!personId) {
-    personId = await prompter.text({
-      message: "Basecamp person ID for this identity",
-      validate: (v) => (v?.trim() ? undefined : "Required"),
-    });
-    personId = personId.trim();
-  }
-
-  // Step 5: Prompt for unique accountId key
+  // Step 4: Prompt for unique accountId key
   const existingIds = new Set(listBasecampAccountIds(cfg));
   const accountId = normalizeAccountId(
     await prompter.text({
@@ -396,14 +389,10 @@ export async function hatchIdentity(cfg: OpenClawConfig, prompter: WizardPrompte
           attachableSgid = undefined; // CLI SGID may not match different person
         }
       } catch {
-        // Non-fatal: proceed with CLI-discovered identity
+        // Non-fatal: fall through to step 4 manual prompt
       }
-    } else {
-      // No Basecamp account selected — CLI-discovered personId may be Launchpad-scoped.
-      // Clear it so step 4 prompts for manual entry.
-      personId = undefined;
-      attachableSgid = undefined;
     }
+    // When basecampAccountId is absent, personId stays unset — step 4 prompts.
 
     oauthResult = {
       accessToken: cliOauthToken.accessToken,
@@ -414,6 +403,16 @@ export async function hatchIdentity(cfg: OpenClawConfig, prompter: WizardPrompte
       promptedClientSecret: cliPromptedClientSecret,
     };
   }
+
+  // Step 5: Resolve personId — prompt if not set by resolvePersonId or browser discovery
+  if (!personId) {
+    const entered = await prompter.text({
+      message: "Basecamp person ID for this identity",
+      validate: (v) => (v?.trim() ? undefined : "Required"),
+    });
+    personId = entered.trim();
+  }
+  const finalPersonId: string = personId;
 
   // Relocate OAuth temp token file (and companion client file) to final
   // {accountId}-based path. Try rename first; fall back to copy+unlink
@@ -483,7 +482,7 @@ export async function hatchIdentity(cfg: OpenClawConfig, prompter: WizardPrompte
 
   // Build account entry — include auth-method fields, omit the other method's fields
   const accountEntry: Record<string, unknown> = {
-    personId,
+    personId: finalPersonId,
     enabled: true,
     ...(displayName ? { displayName } : {}),
     ...(attachableSgid ? { attachableSgid } : {}),
@@ -521,5 +520,5 @@ export async function hatchIdentity(cfg: OpenClawConfig, prompter: WizardPrompte
     },
   };
 
-  return { cfg: next, accountId, personId: personId!, personaMapping };
+  return { cfg: next, accountId, personId: finalPersonId, personaMapping };
 }
