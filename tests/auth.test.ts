@@ -36,7 +36,7 @@ vi.mock("../src/dispatch.js", () => ({
 }));
 
 vi.mock("../src/adapters/onboarding.js", () => ({
-  basecampOnboardingAdapter: {},
+  basecampSetupWizard: {},
 }));
 
 vi.mock("../src/adapters/setup.js", () => ({
