@@ -61,7 +61,7 @@ vi.mock("../src/basecamp-client.js", () => ({
 }));
 
 // Mock adapter imports so channel.ts loads cleanly
-vi.mock("../src/adapters/onboarding.js", () => ({ basecampOnboardingAdapter: {} }));
+vi.mock("../src/adapters/onboarding.js", () => ({ basecampSetupWizard: {} }));
 vi.mock("../src/adapters/setup.js", () => ({ basecampSetupAdapter: {} }));
 vi.mock("../src/adapters/status.js", () => ({ basecampStatusAdapter: {} }));
 vi.mock("../src/adapters/pairing.js", () => ({ basecampPairingAdapter: {} }));

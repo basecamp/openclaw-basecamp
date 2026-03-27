@@ -60,7 +60,7 @@ vi.mock("../src/adapters/outbound.js", () => ({
   BASECAMP_TEXT_CHUNK_LIMIT: 10000,
 }));
 
-vi.mock("../src/adapters/onboarding.js", () => ({ basecampOnboardingAdapter: {} }));
+vi.mock("../src/adapters/onboarding.js", () => ({ basecampSetupWizard: {} }));
 vi.mock("../src/adapters/setup.js", () => ({ basecampSetupAdapter: {} }));
 vi.mock("../src/adapters/status.js", () => ({ basecampStatusAdapter: {}, BasecampProbe: {}, BasecampAudit: {} }));
 vi.mock("../src/adapters/pairing.js", () => ({ basecampPairingAdapter: {} }));

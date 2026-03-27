@@ -1,5 +1,5 @@
 /**
- * Basecamp onboarding adapter — guides users through initial channel setup.
+ * Basecamp setup wizard — guides users through initial channel setup.
  *
  * Supports two authentication paths:
  * - Browser-based OAuth (recommended) — uses @37signals/basecamp interactive login
@@ -9,46 +9,16 @@
  */
 
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
-import { DEFAULT_ACCOUNT_ID, normalizeAccountId } from "openclaw/plugin-sdk/account-id";
-import type { DmPolicy } from "openclaw/plugin-sdk/setup";
-
-/** Local type for onboarding DM policy (removed from SDK barrel). */
-type ChannelOnboardingDmPolicy = {
-  label: string;
-  channel: string;
-  policyKey: string;
-  allowFromKey: string;
-  getCurrent: (cfg: OpenClawConfig) => DmPolicy;
-  setPolicy: (cfg: OpenClawConfig, policy: DmPolicy) => OpenClawConfig;
-};
-
-/** Local type for onboarding adapter (removed from SDK barrel). */
-type ChannelOnboardingAdapter = {
-  channel: string;
-  getStatus: (params: { cfg: OpenClawConfig }) => Promise<{
-    channel: string;
-    configured: boolean;
-    statusLines: string[];
-    selectionHint: string;
-    quickstartScore: number;
-  }>;
-  configure: (params: {
-    cfg: OpenClawConfig;
-    prompter: any;
-    accountOverrides: Record<string, string | undefined>;
-    shouldPromptAccountIds: boolean;
-  }) => Promise<{ cfg: OpenClawConfig; accountId: string }>;
-  dmPolicy: ChannelOnboardingDmPolicy;
-  disable: (cfg: OpenClawConfig) => OpenClawConfig;
-};
-
+import { normalizeAccountId } from "openclaw/plugin-sdk/account-id";
+import type { ChannelSetupWizard } from "openclaw/plugin-sdk/channel-setup";
+import type { ChannelSetupDmPolicy, DmPolicy } from "openclaw/plugin-sdk/setup";
 import {
   type CliProfile,
   cliProfileListFull,
   exportCliCredentials,
   extractCliBootstrapToken,
 } from "../basecamp-cli.js";
-import { listBasecampAccountIds, resolveBasecampAccount, resolveDefaultBasecampAccountId } from "../config.js";
+import { listBasecampAccountIds, resolveBasecampAccount } from "../config.js";
 import { isValidLaunchpadClientId, OAUTH_SETUP_GUIDANCE } from "../oauth-credentials.js";
 import type { BasecampChannelConfig } from "../types.js";
 
@@ -139,54 +109,93 @@ function setBasecampDmPolicy(cfg: OpenClawConfig, dmPolicy: DmPolicy): OpenClawC
 // DM policy descriptor
 // ---------------------------------------------------------------------------
 
-const dmPolicy: ChannelOnboardingDmPolicy = {
+const dmPolicy: ChannelSetupDmPolicy = {
   label: "Basecamp",
   channel,
   policyKey: "channels.basecamp.dmPolicy",
   allowFromKey: "channels.basecamp.allowFrom",
   getCurrent: (cfg) => (getBasecampSection(cfg)?.dmPolicy as DmPolicy) ?? "pairing",
   setPolicy: (cfg, policy) => setBasecampDmPolicy(cfg, policy),
+  promptAllowFrom: async ({ cfg, prompter }) => {
+    const section = getBasecampSection(cfg) ?? {};
+    const current = (section.allowFrom ?? []).map(String);
+
+    await prompter.note(
+      "Enter Basecamp person IDs that should be allowed to DM agents.\n" +
+        "You can find person IDs in Basecamp URLs or via `openclaw channels resolve basecamp`.\n" +
+        (current.length > 0 ? `\nCurrently allowed: ${current.join(", ")}` : ""),
+      "Basecamp allowlist",
+    );
+
+    const entered = await prompter.text({
+      message: "Person IDs (comma-separated)",
+      placeholder: current.join(", ") || "e.g. 12345, 67890",
+    });
+
+    const raw = String(entered).trim();
+    if (!raw) return cfg;
+
+    const ids = raw
+      .split(/[,\s]+/)
+      .map((s) => s.replace(/^(basecamp|bc):/i, "").trim())
+      .filter((s) => /^\d+$/.test(s));
+
+    if (ids.length === 0) return cfg;
+
+    // Merge with existing, deduplicate
+    const merged = [...new Set([...current, ...ids])];
+
+    return {
+      ...cfg,
+      channels: {
+        ...cfg.channels,
+        basecamp: {
+          ...section,
+          allowFrom: merged,
+        },
+      },
+    };
+  },
 };
 
 // ---------------------------------------------------------------------------
-// Adapter
+// Setup wizard
 // ---------------------------------------------------------------------------
 
-export const basecampOnboardingAdapter: ChannelOnboardingAdapter = {
+export const basecampSetupWizard: ChannelSetupWizard = {
   channel,
 
-  getStatus: async ({ cfg }) => {
-    const accountIds = listBasecampAccountIds(cfg);
-    const configured = accountIds.some((id) => {
-      const account = resolveBasecampAccount(cfg, id);
-      return account.tokenSource !== "none" && !!account.personId;
-    });
-
-    return {
-      channel,
-      configured,
-      statusLines: [`Basecamp: ${configured ? "configured" : "needs setup"}`],
-      selectionHint: configured ? "configured" : "requires setup",
-      quickstartScore: configured ? 1 : 5,
-    };
+  status: {
+    configuredLabel: "configured",
+    unconfiguredLabel: "needs setup",
+    resolveConfigured: ({ cfg }) => {
+      const accountIds = listBasecampAccountIds(cfg);
+      return accountIds.some((id) => {
+        const account = resolveBasecampAccount(cfg, id);
+        return account.tokenSource !== "none" && !!account.personId;
+      });
+    },
   },
 
-  configure: async ({ cfg, prompter, accountOverrides, shouldPromptAccountIds }) => {
-    let next = cfg;
-
-    // Step 1: Resolve OpenClaw account ID
-    const basecampOverride = accountOverrides.basecamp?.trim();
-    const defaultAccountId = resolveDefaultBasecampAccountId(cfg);
+  resolveAccountIdForConfigure: async ({
+    cfg,
+    prompter,
+    accountOverride,
+    shouldPromptAccountIds,
+    listAccountIds,
+    defaultAccountId,
+  }) => {
+    const basecampOverride = accountOverride?.trim();
     let accountId = basecampOverride ? normalizeAccountId(basecampOverride) : defaultAccountId;
 
     if (shouldPromptAccountIds && !basecampOverride) {
-      const existingIds = listBasecampAccountIds(cfg);
+      const existingIds = listAccountIds(cfg);
       const choice = await prompter.select({
         message: "OpenClaw account ID for this Basecamp connection",
         options: [
-          ...existingIds.map((id) => ({
+          ...existingIds.map((id: string) => ({
             value: id,
-            label: id === DEFAULT_ACCOUNT_ID ? "default (primary)" : id,
+            label: id === defaultAccountId ? "default (primary)" : id,
           })),
           { value: "__new__", label: "Add a new account" },
         ],
@@ -196,15 +205,23 @@ export const basecampOnboardingAdapter: ChannelOnboardingAdapter = {
       if (choice === "__new__") {
         const entered = await prompter.text({
           message: "New account ID",
-          validate: (value: string | undefined) => (value?.trim() ? undefined : "Required"),
+          validate: (value: string) => (value?.trim() ? undefined : "Required"),
         });
         accountId = normalizeAccountId(String(entered));
       } else {
-        accountId = normalizeAccountId(choice);
+        accountId = normalizeAccountId(choice as string);
       }
     }
 
-    // Step 2: Auth method choice
+    return accountId;
+  },
+
+  credentials: [],
+
+  finalize: async ({ cfg, accountId, prompter }) => {
+    let next = cfg;
+
+    // Step 1: Auth method choice
     // Probe for CLI availability
     let cliProfiles: CliProfile[] = [];
     try {
@@ -232,7 +249,7 @@ export const basecampOnboardingAdapter: ChannelOnboardingAdapter = {
       authMethod = "oauth";
     }
 
-    // Step 3: Obtain token provider (branched by auth method)
+    // Step 2: Obtain token provider (branched by auth method)
     let accessToken: string | undefined;
     let selectedProfile: string | undefined;
     let oauthTokenFile: string | undefined;
@@ -312,7 +329,7 @@ export const basecampOnboardingAdapter: ChannelOnboardingAdapter = {
       promptedClientSecret = oauthResult.promptedClientSecret;
     }
 
-    // Step 4: Discover identity
+    // Step 3: Discover identity
     type DiscoveredAccount = { id: number; name: string; product: string; href: string; appHref: string };
     let discoveredAccounts: DiscoveredAccount[] = [];
     let identityId: number | undefined;
@@ -330,7 +347,7 @@ export const basecampOnboardingAdapter: ChannelOnboardingAdapter = {
       }
     }
 
-    // Step 5: Select Basecamp account
+    // Step 4: Select Basecamp account
     let basecampAccountId: string | undefined;
     if (discoveredAccounts.length > 1) {
       const choice = await prompter.select({
@@ -340,18 +357,18 @@ export const basecampOnboardingAdapter: ChannelOnboardingAdapter = {
           label: `${a.name} (${a.id})`,
         })),
       });
-      basecampAccountId = choice;
+      basecampAccountId = choice as string;
     } else if (discoveredAccounts.length === 1) {
       basecampAccountId = String(discoveredAccounts[0]!.id);
       await prompter.note(`Using account: ${discoveredAccounts[0]!.name} (${basecampAccountId})`, "Basecamp account");
     }
 
-    // Step 6: Resolve personId
+    // Step 5: Resolve personId
     let personId = identityId ? String(identityId) : "";
     if (!personId) {
       const entered = await prompter.text({
         message: "Basecamp person ID (your service account's person ID)",
-        validate: (value: string | undefined) => (value?.trim() ? undefined : "Required"),
+        validate: (value: string) => (value?.trim() ? undefined : "Required"),
       });
       personId = String(entered).trim();
     } else {
@@ -361,7 +378,7 @@ export const basecampOnboardingAdapter: ChannelOnboardingAdapter = {
       );
     }
 
-    // Step 7: Apply config
+    // Step 6: Apply config
     const section = getBasecampSection(next) ?? {};
     const accounts = (section.accounts ?? {}) as Record<string, Record<string, unknown>>;
     const existingAccount = accounts[accountId] ?? {};
@@ -414,7 +431,7 @@ export const basecampOnboardingAdapter: ChannelOnboardingAdapter = {
       },
     };
 
-    // Step 8: Offer to add another identity via hatch
+    // Step 7: Offer to add another identity via hatch
     const postChoice = await prompter.select({
       message: "What would you like to do?",
       options: [
@@ -436,7 +453,7 @@ export const basecampOnboardingAdapter: ChannelOnboardingAdapter = {
       }
     }
 
-    return { cfg: next, accountId };
+    return { cfg: next };
   },
 
   dmPolicy,

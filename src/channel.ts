@@ -9,6 +9,7 @@ import { basecampGroupAdapter } from "./adapters/groups.js";
 import { basecampHeartbeatAdapter } from "./adapters/heartbeat.js";
 import { basecampMentionAdapter } from "./adapters/mentions.js";
 import { basecampMessagingAdapter } from "./adapters/messaging.js";
+import { basecampSetupWizard } from "./adapters/onboarding.js";
 import { BASECAMP_TEXT_CHUNK_LIMIT, chunkMarkdownText, resolveOutboundTarget } from "./adapters/outbound.js";
 import { basecampPairingAdapter } from "./adapters/pairing.js";
 import { basecampResolverAdapter } from "./adapters/resolver.js";
@@ -69,6 +70,8 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
     nativeCommands: false,
     blockStreaming: false,
   },
+
+  setupWizard: basecampSetupWizard,
 
   pairing: basecampPairingAdapter,
 
