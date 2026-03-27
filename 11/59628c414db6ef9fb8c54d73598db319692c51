@@ -1,0 +1,33 @@
+tests/config.test.ts
+  a3af520f0e014bc0 456-457,460-461
+src/config.ts
+  a3af520f0e014bc0 354,357
+src/adapters/onboarding.ts
+  a3af520f0e014bc0 117
+tests/security.test.ts
+  a3af520f0e014bc0 25,27
+src/adapters/security.ts
+  a3af520f0e014bc0 26
+tests/onboarding.test.ts
+  a3af520f0e014bc0 606-607
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.21",
+  "base_commit_sha": "1159628c414db6ef9fb8c54d73598db319692c51",
+  "prompts": {
+    "a3af520f0e014bc0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "69f954f7-4e41-4c48-a03b-ffa15d849043",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Jeremy Daer <jeremy@37signals.com>",
+      "messages": [],
+      "total_additions": 12,
+      "total_deletions": 12,
+      "accepted_lines": 12,
+      "overriden_lines": 0
+    }
+  }
+}
