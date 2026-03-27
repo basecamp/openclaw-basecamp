@@ -415,11 +415,13 @@ export async function startCompositePoller(opts: CompositePollerOptions): Promis
           }
 
           // Mark processed readings as read so they don't reappear
-          try {
-            await markReadingsRead(result.processedSgids);
-            slog.debug("readings_marked_read", { count: result.processedSgids.length });
-          } catch (err) {
-            slog.warn("readings_mark_read_failed", { error: String(err) });
+          if (result.processedSgids.length > 0) {
+            try {
+              await markReadingsRead(result.processedSgids);
+              slog.debug("readings_marked_read", { count: result.processedSgids.length });
+            } catch (err) {
+              slog.warn("readings_mark_read_failed", { error: String(err) });
+            }
           }
 
           if (result.newestAt) {
