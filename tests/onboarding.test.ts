@@ -629,8 +629,24 @@ describe("basecampSetupWizard", () => {
       expect(result.channels.basecamp.allowFrom).toEqual(["42", "111", "222"]);
     });
 
+    it("promptAllowFrom strips basecamp:/bc: prefixes and filters non-numeric", async () => {
+      const prompter = createPrompter({ textAnswers: ["basecamp:111, BC:222, not-a-number, 333"] });
+      const result = await basecampSetupWizard.dmPolicy!.promptAllowFrom!({
+        cfg: cfg({ allowFrom: ["42"] }),
+        prompter,
+      });
+      expect(result.channels.basecamp.allowFrom).toEqual(["42", "111", "222", "333"]);
+    });
+
     it("promptAllowFrom preserves config when input is empty", async () => {
       const prompter = createPrompter({ textAnswers: [""] });
+      const input = cfg({ allowFrom: ["42"] });
+      const result = await basecampSetupWizard.dmPolicy!.promptAllowFrom!({ cfg: input, prompter });
+      expect(result).toBe(input);
+    });
+
+    it("promptAllowFrom preserves config when all entries are non-numeric", async () => {
+      const prompter = createPrompter({ textAnswers: ["abc, def"] });
       const input = cfg({ allowFrom: ["42"] });
       const result = await basecampSetupWizard.dmPolicy!.promptAllowFrom!({ cfg: input, prompter });
       expect(result).toBe(input);

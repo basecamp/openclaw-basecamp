@@ -137,8 +137,10 @@ const dmPolicy: ChannelSetupDmPolicy = {
 
     const ids = raw
       .split(/[,\s]+/)
-      .map((s) => s.trim())
-      .filter(Boolean);
+      .map((s) => s.replace(/^(basecamp|bc):/i, "").trim())
+      .filter((s) => /^\d+$/.test(s));
+
+    if (ids.length === 0) return cfg;
 
     // Merge with existing, deduplicate
     const merged = [...new Set([...current, ...ids])];
