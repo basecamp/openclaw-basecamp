@@ -114,7 +114,7 @@ const dmPolicy: ChannelSetupDmPolicy = {
   channel,
   policyKey: "channels.basecamp.dmPolicy",
   allowFromKey: "channels.basecamp.allowFrom",
-  getCurrent: (cfg) => (getBasecampSection(cfg)?.dmPolicy as DmPolicy) ?? "pairing",
+  getCurrent: (cfg) => (getBasecampSection(cfg)?.dmPolicy as DmPolicy) ?? "allowlist",
   setPolicy: (cfg, policy) => setBasecampDmPolicy(cfg, policy),
   promptAllowFrom: async ({ cfg, prompter }) => {
     const section = getBasecampSection(cfg) ?? {};

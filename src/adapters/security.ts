@@ -23,7 +23,7 @@ export const basecampSecurityAdapter = {
     account: ResolvedBasecampAccount;
   }) => {
     const section = getBasecampSection(cfg);
-    const dmPolicy = section?.dmPolicy ?? "pairing";
+    const dmPolicy = section?.dmPolicy ?? "allowlist";
     const allowFrom = section?.allowFrom ?? [];
     // DM policy is channel-level (channels.basecamp.dmPolicy), not per-account.
     const basePath = "channels.basecamp.";

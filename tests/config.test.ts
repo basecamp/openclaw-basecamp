@@ -453,12 +453,12 @@ describe("resolvePollingIntervals", () => {
 // ---------------------------------------------------------------------------
 
 describe("resolveBasecampDmPolicy", () => {
-  it("defaults to 'pairing' when config is empty", () => {
-    expect(resolveBasecampDmPolicy({} as any)).toBe("pairing");
+  it("defaults to 'allowlist' when config is empty", () => {
+    expect(resolveBasecampDmPolicy({} as any)).toBe("allowlist");
   });
 
-  it("defaults to 'pairing' when dmPolicy is not set", () => {
-    expect(resolveBasecampDmPolicy(cfg({}))).toBe("pairing");
+  it("defaults to 'allowlist' when dmPolicy is not set", () => {
+    expect(resolveBasecampDmPolicy(cfg({}))).toBe("allowlist");
   });
 
   it("returns 'disabled' when configured", () => {

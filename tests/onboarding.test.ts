@@ -603,8 +603,8 @@ describe("basecampSetupWizard", () => {
       expect(dp.allowFromKey).toBe("channels.basecamp.allowFrom");
     });
 
-    it("getCurrent returns 'pairing' by default", () => {
-      expect(basecampSetupWizard.dmPolicy!.getCurrent({} as any)).toBe("pairing");
+    it("getCurrent returns 'allowlist' by default", () => {
+      expect(basecampSetupWizard.dmPolicy!.getCurrent({} as any)).toBe("allowlist");
     });
 
     it("getCurrent returns configured policy", () => {
