@@ -1,0 +1,55 @@
+src/adapters/heartbeat.ts
+  1c07995a8907251d 11
+src/adapters/pairing.ts
+  1c07995a8907251d 9-11
+src/channel.ts
+  1c07995a8907251d 2-4
+src/config.ts
+  1c07995a8907251d 2
+src/adapters/security.ts
+  1c07995a8907251d 9
+src/adapters/status.ts
+  1c07995a8907251d 13-15
+src/adapters/mentions.ts
+  1c07995a8907251d 11-12
+src/adapters/groups.ts
+  1c07995a8907251d 8
+src/adapters/resolver.ts
+  1c07995a8907251d 9
+src/adapters/onboarding.ts
+  1c07995a8907251d 11-43,198,353
+src/adapters/setup.ts
+  1c07995a8907251d 9-10
+src/adapters/directory.ts
+  1c07995a8907251d 8-9
+src/adapters/hatch.ts
+  1c07995a8907251d 19
+src/adapters/actions.ts
+  1c07995a8907251d 16-17,24-34,47
+tests/actions.test.ts
+  1c07995a8907251d 6-8,77,80-85,88,90-91,160,192,210,232,256,273-274,281,294-295,302,314,341-343,377,404,454-456,488-489,497
+src/adapters/messaging.ts
+  1c07995a8907251d 8
+tests/pairing.test.ts
+  1c07995a8907251d 11-15
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.20",
+  "base_commit_sha": "f150934f40bc08d9377a092c55d26f1540141642",
+  "prompts": {
+    "1c07995a8907251d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "705444d3-e14c-4949-9dd9-e0ad75582521",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Jeremy Daer <jeremy@37signals.com>",
+      "messages": [],
+      "total_additions": 115,
+      "total_deletions": 120,
+      "accepted_lines": 115,
+      "overriden_lines": 0
+    }
+  }
+}
