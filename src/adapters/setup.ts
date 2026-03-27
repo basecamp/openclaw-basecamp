@@ -6,7 +6,8 @@
  */
 
 import type { ChannelSetupAdapter, ChannelSetupInput, OpenClawConfig } from "openclaw/plugin-sdk";
-import { applyAccountNameToChannelSection, DEFAULT_ACCOUNT_ID, normalizeAccountId } from "openclaw/plugin-sdk";
+import { normalizeAccountId } from "openclaw/plugin-sdk/account-id";
+import { applyAccountNameToChannelSection } from "openclaw/plugin-sdk/setup";
 import type { BasecampChannelConfig } from "../types.js";
 
 function getBasecampSection(cfg: OpenClawConfig): BasecampChannelConfig | undefined {

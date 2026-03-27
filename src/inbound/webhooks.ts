@@ -142,7 +142,7 @@ export function verifyWebhookSignature(params: {
 
   // Replay protection: reject if timestamp is too old
   const ts = parseInt(timestamp, 10);
-  if (isNaN(ts)) return false;
+  if (Number.isNaN(ts)) return false;
   const age = Math.abs(Math.floor(Date.now() / 1000) - ts);
   if (age > MAX_TIMESTAMP_AGE_S) return false;
 

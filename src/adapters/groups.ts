@@ -5,7 +5,7 @@
  * and group intro hints on a per-project (bucket) basis.
  */
 
-import type { ChannelGroupAdapter, ChannelGroupContext } from "openclaw/plugin-sdk";
+import type { ChannelGroupAdapter, ChannelGroupContext } from "openclaw/plugin-sdk/channel-runtime";
 import type { BasecampBucketConfig, BasecampChannelConfig } from "../types.js";
 
 function getBasecampSection(cfg: Record<string, unknown>): BasecampChannelConfig | undefined {

@@ -6,7 +6,7 @@
  * exact name (case-insensitive), partial name, or email prefix.
  */
 
-import type { ChannelResolveResult, ChannelResolverAdapter } from "openclaw/plugin-sdk";
+import type { ChannelResolveResult, ChannelResolverAdapter } from "openclaw/plugin-sdk/channel-runtime";
 import { getClient } from "../basecamp-client.js";
 import { resolveBasecampAccount } from "../config.js";
 import type { BasecampPerson, BasecampProject } from "../types.js";

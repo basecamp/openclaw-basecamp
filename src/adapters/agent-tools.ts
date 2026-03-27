@@ -206,7 +206,7 @@ function buildTools(client: BasecampClient): ChannelAgentTool[] {
       description: "Mark a Basecamp to-do as complete. Requires the project (bucket) ID and to-do ID.",
       parameters: CompleteTodoParams,
       execute: async (_toolCallId: string, rawParams: unknown) => {
-        const { bucketId, todoId } = rawParams as CompleteTodoInput;
+        const { todoId } = rawParams as CompleteTodoInput;
         try {
           await client.todos.complete(numId("todo", todoId));
           return toolOk({ todoId });
@@ -222,7 +222,7 @@ function buildTools(client: BasecampClient): ChannelAgentTool[] {
         "Reopen a completed Basecamp to-do (mark as incomplete). Requires the project (bucket) ID and to-do ID.",
       parameters: ReopenTodoParams,
       execute: async (_toolCallId: string, rawParams: unknown) => {
-        const { bucketId, todoId } = rawParams as ReopenTodoInput;
+        const { todoId } = rawParams as ReopenTodoInput;
         try {
           await client.todos.uncomplete(numId("todo", todoId));
           return toolOk({ todoId });
@@ -297,7 +297,7 @@ function buildTools(client: BasecampClient): ChannelAgentTool[] {
         "Requires the project (bucket) ID, card recording ID, and target column ID.",
       parameters: MoveCardParams,
       execute: async (_toolCallId: string, rawParams: unknown) => {
-        const { bucketId, cardId, columnId } = rawParams as MoveCardInput;
+        const { cardId, columnId } = rawParams as MoveCardInput;
         try {
           await client.cards.move(numId("card", cardId), { columnId });
           return toolOk({ cardId, columnId });
@@ -315,7 +315,7 @@ function buildTools(client: BasecampClient): ChannelAgentTool[] {
         "Optionally include body content and a message category/type ID.",
       parameters: PostMessageParams,
       execute: async (_toolCallId: string, rawParams: unknown) => {
-        const { bucketId, messageBoardId, subject, content, categoryId } = rawParams as PostMessageInput;
+        const { messageBoardId, subject, content, categoryId } = rawParams as PostMessageInput;
         try {
           const result = await client.messages.create(numId("board", messageBoardId), { subject, content, categoryId });
           return toolOk({ messageId: (result as any)?.id, subject: (result as any)?.subject });
@@ -331,7 +331,7 @@ function buildTools(client: BasecampClient): ChannelAgentTool[] {
         "Answer a Basecamp check-in question. " + "Requires the project (bucket) ID, question ID, and answer content.",
       parameters: AnswerCheckinParams,
       execute: async (_toolCallId: string, rawParams: unknown) => {
-        const { bucketId, questionId, content } = rawParams as AnswerCheckinInput;
+        const { questionId, content } = rawParams as AnswerCheckinInput;
         try {
           const result = await client.checkins.createAnswer(numId("question", questionId), { content });
           return toolOk({ answerId: (result as any)?.id });

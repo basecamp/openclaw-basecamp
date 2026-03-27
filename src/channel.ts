@@ -1,10 +1,6 @@
 import type { ChannelPlugin } from "openclaw/plugin-sdk";
-import {
-  buildChannelConfigSchema,
-  DEFAULT_ACCOUNT_ID,
-  deleteAccountFromConfigSection,
-  setAccountEnabledInConfigSection,
-} from "openclaw/plugin-sdk";
+import { buildChannelConfigSchema } from "openclaw/plugin-sdk/channel-config-schema";
+import { deleteAccountFromConfigSection, setAccountEnabledInConfigSection } from "openclaw/plugin-sdk/core";
 import { basecampActionsAdapter } from "./adapters/actions.js";
 import { basecampAgentPromptAdapter } from "./adapters/agent-prompt.js";
 import { basecampAgentTools } from "./adapters/agent-tools.js";
@@ -13,7 +9,6 @@ import { basecampGroupAdapter } from "./adapters/groups.js";
 import { basecampHeartbeatAdapter } from "./adapters/heartbeat.js";
 import { basecampMentionAdapter } from "./adapters/mentions.js";
 import { basecampMessagingAdapter } from "./adapters/messaging.js";
-import { basecampOnboardingAdapter } from "./adapters/onboarding.js";
 import { BASECAMP_TEXT_CHUNK_LIMIT, chunkMarkdownText, resolveOutboundTarget } from "./adapters/outbound.js";
 import { basecampPairingAdapter } from "./adapters/pairing.js";
 import { basecampResolverAdapter } from "./adapters/resolver.js";
@@ -74,8 +69,6 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
     nativeCommands: false,
     blockStreaming: false,
   },
-
-  onboarding: basecampOnboardingAdapter,
 
   pairing: basecampPairingAdapter,
 

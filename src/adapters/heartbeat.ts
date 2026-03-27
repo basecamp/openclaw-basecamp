@@ -8,7 +8,7 @@
  * is valid (auto-refreshing for OAuth accounts).
  */
 
-import type { ChannelHeartbeatAdapter } from "openclaw/plugin-sdk";
+import type { ChannelHeartbeatAdapter } from "openclaw/plugin-sdk/channel-runtime";
 import { getClient } from "../basecamp-client.js";
 import { resolveBasecampAccount } from "../config.js";
 

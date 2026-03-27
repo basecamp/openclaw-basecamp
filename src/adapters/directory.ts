@@ -5,7 +5,8 @@
  * agent targeting, and people/project lookup via the Basecamp API.
  */
 
-import type { ChannelDirectoryAdapter, ChannelDirectoryEntry, OpenClawConfig } from "openclaw/plugin-sdk";
+import type { OpenClawConfig } from "openclaw/plugin-sdk";
+import type { ChannelDirectoryAdapter, ChannelDirectoryEntry } from "openclaw/plugin-sdk/channel-runtime";
 import { getClient, numId } from "../basecamp-client.js";
 import { resolveBasecampAccount } from "../config.js";
 import type { BasecampChannelConfig, BasecampPerson, BasecampProject, ResolvedBasecampAccount } from "../types.js";
