@@ -8,6 +8,13 @@ vi.mock("openclaw/plugin-sdk", () => ({
   },
 }));
 
+vi.mock("../src/config.js", () => ({
+  resolveBasecampDmPolicy: (cfg: any) => {
+    const section = cfg?.channels?.basecamp;
+    return section?.dmPolicy ?? "allowlist";
+  },
+}));
+
 import { basecampSecurityAdapter } from "../src/adapters/security.js";
 
 function cfg(basecamp?: Record<string, unknown>) {

@@ -197,6 +197,10 @@ vi.mock("../src/config.js", () => ({
       config: acct,
     };
   },
+  resolveBasecampDmPolicy: (cfg: any) => {
+    const section = cfg?.channels?.basecamp;
+    return section?.dmPolicy ?? "allowlist";
+  },
 }));
 
 // ---------------------------------------------------------------------------

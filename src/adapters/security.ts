@@ -6,6 +6,7 @@
  */
 
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
+import { resolveBasecampDmPolicy } from "../config.js";
 import type { BasecampChannelConfig, ResolvedBasecampAccount } from "../types.js";
 
 function getBasecampSection(cfg: OpenClawConfig): BasecampChannelConfig | undefined {
@@ -23,7 +24,7 @@ export const basecampSecurityAdapter = {
     account: ResolvedBasecampAccount;
   }) => {
     const section = getBasecampSection(cfg);
-    const dmPolicy = section?.dmPolicy ?? "allowlist";
+    const dmPolicy = resolveBasecampDmPolicy(cfg);
     const allowFrom = section?.allowFrom ?? [];
     // DM policy is channel-level (channels.basecamp.dmPolicy), not per-account.
     const basePath = "channels.basecamp.";
