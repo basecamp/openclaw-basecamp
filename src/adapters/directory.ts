@@ -9,7 +9,7 @@ import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import type { ChannelDirectoryAdapter, ChannelDirectoryEntry } from "openclaw/plugin-sdk/channel-runtime";
 import { getClient, numId } from "../basecamp-client.js";
 import { resolveBasecampAccount } from "../config.js";
-import type { BasecampChannelConfig, BasecampPerson, BasecampProject, ResolvedBasecampAccount } from "../types.js";
+import type { BasecampChannelConfig } from "../types.js";
 
 function getBasecampSection(cfg: OpenClawConfig): BasecampChannelConfig | undefined {
   return cfg.channels?.basecamp as BasecampChannelConfig | undefined;
@@ -67,20 +67,18 @@ export const basecampDirectoryAdapter: ChannelDirectoryAdapter = {
   listPeersLive: async ({ cfg, accountId, query }) => {
     const account = resolveBasecampAccount(cfg, accountId);
 
-    let people: Array<{ id: number; name: string; email_address: string; avatar_url?: string }>;
+    let people;
     try {
       const client = getClient(account);
-      people = (await client.people.list()) as any;
+      people = await client.people.list();
     } catch {
       return [];
     }
 
-    if (!Array.isArray(people)) return [];
-
-    let filtered = people;
+    let filtered = [...people];
     if (query) {
       const q = query.toLowerCase();
-      filtered = people.filter((p) => p.name.toLowerCase().includes(q) || p.email_address.toLowerCase().includes(q));
+      filtered = filtered.filter((p) => p.name.toLowerCase().includes(q) || p.email_address?.toLowerCase().includes(q));
     }
 
     return filtered.map((p) => ({
@@ -114,20 +112,18 @@ export const basecampDirectoryAdapter: ChannelDirectoryAdapter = {
   listGroupsLive: async ({ cfg, accountId, query }) => {
     const account = resolveBasecampAccount(cfg, accountId);
 
-    let projects: Array<{ id: number; name: string }>;
+    let projects;
     try {
       const client = getClient(account);
-      projects = (await client.projects.list()) as any;
+      projects = await client.projects.list();
     } catch {
       return [];
     }
 
-    if (!Array.isArray(projects)) return [];
-
-    let filtered = projects;
+    let filtered = [...projects];
     if (query) {
       const q = query.toLowerCase();
-      filtered = projects.filter((p) => p.name.toLowerCase().includes(q));
+      filtered = filtered.filter((p) => p.name.toLowerCase().includes(q));
     }
 
     return filtered.map((p) => ({
@@ -144,15 +140,13 @@ export const basecampDirectoryAdapter: ChannelDirectoryAdapter = {
     const projectId = numId("project", bucketMatch[1]);
     const account = resolveBasecampAccount(cfg, accountId);
 
-    let people: Array<{ id: number; name: string; email_address: string; avatar_url?: string }>;
+    let people;
     try {
       const client = getClient(account);
-      people = (await client.people.listForProject(projectId)) as any;
+      people = await client.people.listForProject(projectId);
     } catch {
       return [];
     }
-
-    if (!Array.isArray(people)) return [];
 
     return people.map((p) => ({
       kind: "user" as const,

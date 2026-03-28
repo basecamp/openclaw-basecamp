@@ -148,7 +148,7 @@ export async function postCampfireLine(params: {
       `[basecamp:outbound] sent ok — ` +
         `type=campfire recording=${transcriptId} account=${accountId} correlation=${correlationId ?? "none"}`,
     );
-    return { ok: true, recordingId: String((result as any)?.id ?? "") };
+    return { ok: true, recordingId: String(result.id) };
   } catch (err) {
     const retryable = isRetryableError(err);
     console.warn(
@@ -192,7 +192,7 @@ export async function postComment(params: {
       `[basecamp:outbound] sent ok — ` +
         `type=comment recording=${recordingId} account=${accountId} correlation=${correlationId ?? "none"}`,
     );
-    return { ok: true, commentId: String((result as any)?.id ?? "") };
+    return { ok: true, commentId: String(result.id) };
   } catch (err) {
     const retryable = isRetryableError(err);
     console.warn(

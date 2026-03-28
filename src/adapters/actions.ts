@@ -179,7 +179,7 @@ async function handleReact(ctx: ChannelMessageActionContext) {
   try {
     const client = getClient(account);
     const result = await client.boosts.createForRecording(numId("recording", recordingId), { content: emoji });
-    return jsonResult({ ok: true, target: "boost", boostId: (result as any)?.id });
+    return jsonResult({ ok: true, target: "boost", boostId: result.id });
   } catch (err) {
     console.error(`[basecamp:${accountId}] react error: bucket=${bucketId} recording=${recordingId}`, err);
     return jsonResult({ ok: false, error: String(err) });
