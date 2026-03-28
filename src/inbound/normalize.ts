@@ -140,6 +140,7 @@ function resolveRecordableType(kind: string, recordingType?: string): BasecampRe
 
 const READINGS_TYPE_MAP: Record<string, BasecampRecordableType> = {
   Card: "Kanban::Card",
+  Chat: "Chat::Transcript",
   ChatLine: "Chat::Line",
   Ping: "Chat::Transcript",
   Message: "Message",
@@ -208,10 +209,21 @@ export function parseRecordingIdFromUrl(url: string): string | undefined {
   return match ? match[1] : undefined;
 }
 
-/** Extract recording ID from a readable_identifier (e.g., "Comment/123"). */
+/** Extract recording ID from a readable_identifier (e.g., "Comment/123" or base64-encoded GID). */
 export function parseRecordingIdFromIdentifier(identifier: string): string | undefined {
-  const match = /\/(\d+)$/.exec(identifier);
-  return match ? match[1] : undefined;
+  // Try matching directly first (plain GID like "Recording/123")
+  let match = /\/(\d+)$/.exec(identifier);
+  if (match) return match[1];
+
+  // Try base64-decoding — readings use base64-encoded GIDs
+  // (e.g., "Z2lkOi8vYmMzL1JlY29yZGluZy85NzI5MjgxMDg3" → "gid://bc3/Recording/9729281087")
+  try {
+    const decoded = Buffer.from(identifier, "base64").toString("utf-8");
+    match = /Recording\/(\d+)/.exec(decoded);
+    if (match) return match[1];
+  } catch { /* not base64 — fall through */ }
+
+  return undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -466,7 +478,7 @@ export function normalizeReadingsEvent(
     return null;
   }
 
-  const isPing = raw.type === "Ping";
+  const isPing = raw.type === "Ping" || raw.app_url?.includes("/circles/") === true;
   // readings participants uses other_circle_people() which excludes the caller — add 1.
   const participantCount = raw.participants ? raw.participants.length + 1 : undefined;
 

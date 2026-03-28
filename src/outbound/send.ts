@@ -241,7 +241,12 @@ export async function postReplyToEvent(params: {
 
   // Pings: resolve the transcript ID from the circle's bucket ID
   if (parsed.prefix === "ping") {
-    const transcriptId = await resolvePingTranscriptCached(bucketId, account);
+    let transcriptId = await resolvePingTranscriptCached(bucketId, account);
+    // Fallback: when the Circle API returns 204 (e.g., single-account setups),
+    // use the inbound recordingId as the transcript ID.
+    if (!transcriptId && recordingId) {
+      transcriptId = recordingId;
+    }
     if (!transcriptId) {
       return { ok: false, message: `Could not resolve Ping transcript for circle bucket=${bucketId}` };
     }
