@@ -65,7 +65,7 @@ vi.mock("@37signals/basecamp", () => ({}));
 // Mock basecamp-client (resolvePersonId for per-account person ID resolution)
 // ---------------------------------------------------------------------------
 
-const mockResolvePersonId = vi.fn();
+const mockResolvePersonId = vi.fn((_, __) => Promise.resolve({ id: "1", name: "Resolved" }));
 
 vi.mock("../src/basecamp-client.js", () => ({
   resolvePersonId: (...args: any[]) => mockResolvePersonId(...args),
@@ -153,7 +153,7 @@ describe("hatchIdentity — CLI path (chains into OAuth)", () => {
       identity: { id: 42, firstName: "Jeremy", lastName: "", emailAddress: "j@example.com" },
       accounts: [{ id: 99, name: "Acme", product: "bc3" }],
     });
-    mockResolvePersonId.mockResolvedValue("42");
+    mockResolvePersonId.mockResolvedValue({ id: "42", name: "Person 42" });
     mockResolveTokenFilePath.mockImplementation((id: string) => `/tmp/tokens/${id}.json`);
 
     const { prompter } = createMockPrompter({
@@ -171,7 +171,7 @@ describe("hatchIdentity — CLI path (chains into OAuth)", () => {
     const accounts = (result.cfg.channels as any).basecamp.accounts;
     expect(accounts.security).toBeDefined();
     expect(accounts.security.personId).toBe("42");
-    expect(accounts.security.displayName).toBe("Jeremy");
+    expect(accounts.security.displayName).toBe("Person 42");
     // attachableSgid is cleared because CLI SGID does not apply to the per-account person ID
     expect(accounts.security.attachableSgid).toBeUndefined();
     expect(accounts.security.cliProfile).toBe("default");
@@ -198,7 +198,7 @@ describe("hatchIdentity — CLI path (chains into OAuth)", () => {
       identity: { id: 10, firstName: "Bot", lastName: "", emailAddress: "bot@example.com" },
       accounts: [{ id: 1, name: "Co", product: "bc3" }],
     });
-    mockResolvePersonId.mockResolvedValue("10");
+    mockResolvePersonId.mockResolvedValue({ id: "10", name: "Person 10" });
     mockResolveTokenFilePath.mockImplementation((id: string) => `/tmp/tokens/${id}.json`);
 
     const { prompter } = createMockPrompter({
@@ -236,7 +236,7 @@ describe("hatchIdentity — CLI path (chains into OAuth)", () => {
       identity: { id: 1, firstName: "X", lastName: "", emailAddress: "x@x.com" },
       accounts: [],
     });
-    mockResolvePersonId.mockResolvedValue("1");
+    mockResolvePersonId.mockResolvedValue({ id: "1", name: "Person 1" });
     mockResolveTokenFilePath.mockImplementation((id: string) => `/tmp/tokens/${id}.json`);
 
     const { prompter } = createMockPrompter({
@@ -286,7 +286,7 @@ describe("hatchIdentity — CLI path (chains into OAuth)", () => {
       identity: { id: 42, firstName: "Test", lastName: "", emailAddress: "t@t.com" },
       accounts: [{ id: 1, name: "Co", product: "bc3" }],
     });
-    mockResolvePersonId.mockResolvedValue("42");
+    mockResolvePersonId.mockResolvedValue({ id: "42", name: "Person 42" });
     mockResolveTokenFilePath.mockImplementation((id: string) => `/tmp/tokens/${id}.json`);
 
     const { prompter } = createMockPrompter({
@@ -328,7 +328,7 @@ describe("hatchIdentity — CLI path (chains into OAuth)", () => {
       identity: { id: 42, firstName: "Test", lastName: "", emailAddress: "t@t.com" },
       accounts: [{ id: 1, name: "Co", product: "bc3" }],
     });
-    mockResolvePersonId.mockResolvedValue("42");
+    mockResolvePersonId.mockResolvedValue({ id: "42", name: "Person 42" });
     mockResolveTokenFilePath.mockImplementation((id: string) => `/tmp/tokens/${id}.json`);
 
     // Config has an invalid client ID with a stale secret
@@ -365,7 +365,7 @@ describe("hatchIdentity — Browser/OAuth path", () => {
       identity: { id: 55, firstName: "OAuth", lastName: "Bot", emailAddress: "bot@test.com" },
       accounts: [{ id: 200, name: "OAuth Co", product: "bc3" }],
     });
-    mockResolvePersonId.mockResolvedValue("55");
+    mockResolvePersonId.mockResolvedValue({ id: "55", name: "Person 55" });
     mockResolveTokenFilePath.mockImplementation((id: string) => `/tmp/tokens/${id}.json`);
 
     const { prompter } = createMockPrompter({
@@ -401,7 +401,7 @@ describe("hatchIdentity — Browser/OAuth path", () => {
       identity: { id: 10, firstName: "Bot", lastName: "", emailAddress: "b@t.com" },
       accounts: [{ id: 1, name: "Co", product: "bc3" }],
     });
-    mockResolvePersonId.mockResolvedValue("10");
+    mockResolvePersonId.mockResolvedValue({ id: "10", name: "Person 10" });
     mockResolveTokenFilePath.mockImplementation((id: string) => `/tmp/tokens/${id}.json`);
 
     const { prompter } = createMockPrompter({
@@ -439,7 +439,7 @@ describe("hatchIdentity — Browser/OAuth path", () => {
       identity: { id: 1, firstName: "A", lastName: "", emailAddress: "a@t.com" },
       accounts: [{ id: 1, name: "Co", product: "bc3" }],
     });
-    mockResolvePersonId.mockResolvedValue("1");
+    mockResolvePersonId.mockResolvedValue({ id: "1", name: "Person 1" });
     mockResolveTokenFilePath.mockImplementation((id: string) => `/tmp/tokens/${id}.json`);
 
     const { prompter: p1 } = createMockPrompter({
@@ -524,7 +524,7 @@ describe("hatchIdentity — token file relocation", () => {
       identity: { id: 1, firstName: "A", lastName: "", emailAddress: "a@t.com" },
       accounts: [{ id: 1, name: "Co", product: "bc3" }],
     });
-    mockResolvePersonId.mockResolvedValue("1");
+    mockResolvePersonId.mockResolvedValue({ id: "1", name: "Person 1" });
     mockResolveTokenFilePath.mockImplementation((id: string) => `/tmp/tokens/${id}.json`);
     // Both rename and copy fail
     mockRename.mockRejectedValue(new Error("EXDEV"));
@@ -555,7 +555,7 @@ describe("hatchIdentity — token file relocation", () => {
       identity: { id: 1, firstName: "A", lastName: "", emailAddress: "a@t.com" },
       accounts: [{ id: 1, name: "Co", product: "bc3" }],
     });
-    mockResolvePersonId.mockResolvedValue("1");
+    mockResolvePersonId.mockResolvedValue({ id: "1", name: "Person 1" });
     mockResolveTokenFilePath.mockImplementation((id: string) => `/tmp/tokens/${id}.json`);
     // rename fails, copy succeeds
     mockRename.mockRejectedValue(new Error("EXDEV"));

@@ -291,7 +291,9 @@ export async function hatchIdentity(cfg: OpenClawConfig, prompter: WizardPrompte
     if (basecampAccountId) {
       try {
         const { resolvePersonId } = await import("../basecamp-client.js");
-        personId = await resolvePersonId(basecampAccountId, browserResult.accessToken);
+        const resolved = await resolvePersonId(basecampAccountId, browserResult.accessToken);
+        personId = resolved.id;
+        if (resolved.name) displayName = resolved.name;
       } catch {
         // Will fall through to manual entry at step 5
       }
@@ -383,7 +385,9 @@ export async function hatchIdentity(cfg: OpenClawConfig, prompter: WizardPrompte
     if (basecampAccountId) {
       try {
         const { resolvePersonId } = await import("../basecamp-client.js");
-        personId = await resolvePersonId(basecampAccountId, cliOauthToken.accessToken);
+        const resolved = await resolvePersonId(basecampAccountId, cliOauthToken.accessToken);
+        personId = resolved.id;
+        if (resolved.name) displayName = resolved.name;
         attachableSgid = undefined; // CLI SGID does not apply to per-account person
       } catch {
         // Non-fatal: fall through to step 5 manual prompt
