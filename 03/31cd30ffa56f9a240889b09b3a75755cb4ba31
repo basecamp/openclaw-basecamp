@@ -1,0 +1,27 @@
+src/adapters/hatch.ts
+  a3af520f0e014bc0 294-296,388-390
+src/basecamp-client.ts
+  a3af520f0e014bc0 148,151-154,156-159,167
+tests/hatch.test.ts
+  a3af520f0e014bc0 68,174
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.21",
+  "base_commit_sha": "0331cd30ffa56f9a240889b09b3a75755cb4ba31",
+  "prompts": {
+    "a3af520f0e014bc0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "69f954f7-4e41-4c48-a03b-ffa15d849043",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Jeremy Daer <jeremy@37signals.com>",
+      "messages": [],
+      "total_additions": 18,
+      "total_deletions": 11,
+      "accepted_lines": 18,
+      "overriden_lines": 0
+    }
+  }
+}
