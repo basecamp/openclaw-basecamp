@@ -453,6 +453,21 @@ export const basecampSetupWizard: ChannelSetupWizard = {
       }
     }
 
+    // Normalize DM policy: the generic setup host may have written "pairing"
+    // as the default, but Basecamp has no pairing challenge flow — pairing and
+    // allowlist are identical. Rewrite to "allowlist" so the config label
+    // accurately reflects behavior.
+    const finalSection = getBasecampSection(next);
+    if (finalSection?.dmPolicy === "pairing") {
+      next = {
+        ...next,
+        channels: {
+          ...next.channels,
+          basecamp: { ...finalSection, dmPolicy: "allowlist" },
+        },
+      };
+    }
+
     return { cfg: next };
   },
 
