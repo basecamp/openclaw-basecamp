@@ -405,7 +405,7 @@ export async function hatchIdentity(cfg: OpenClawConfig, prompter: WizardPrompte
     };
   }
 
-  // Step 5: Resolve personId — prompt if not set by resolvePersonId or browser discovery
+  // Step 5: Resolve personId — prompt if not set by resolvePersonId
   if (!personId) {
     const entered = await prompter.text({
       message: "Basecamp person ID for this identity",
