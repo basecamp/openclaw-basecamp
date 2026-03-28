@@ -1,0 +1,33 @@
+src/basecamp-client.ts
+  750f64b23a368312 167
+src/outbound/send.ts
+  750f64b23a368312 195
+src/adapters/actions.ts
+  750f64b23a368312 182
+src/adapters/resolver.ts
+  750f64b23a368312 9,13,15,31,61,64,95
+src/adapters/directory.ts
+  750f64b23a368312 12,73,78,81,118,123,126,146
+src/adapters/agent-tools.ts
+  750f64b23a368312 197,286,321,337
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.21",
+  "base_commit_sha": "b771af27fcab462bec0abdb1fc6c2f6769da6333",
+  "prompts": {
+    "750f64b23a368312": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9dab20fb-c7f3-490f-8804-7678a3e38d8e",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Jeremy Daer <jeremy@37signals.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 22,
+      "overriden_lines": 0
+    }
+  }
+}
