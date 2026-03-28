@@ -144,13 +144,13 @@ export async function dispatchBasecampEvent(msg: BasecampInboundMessage, options
   if (engagement === "dm") {
     const dmPolicy = resolveBasecampDmPolicy(cfg);
     if (dmPolicy === "disabled") {
-      slog.debug("dm_policy_dropped", { correlationId, sender: msg.sender.id, policy: "disabled" });
+      slog.info("dm_policy_dropped", { correlationId, sender: msg.sender.id, policy: "disabled" });
       return false;
     }
     if (dmPolicy === "pairing" || dmPolicy === "allowlist") {
       const allowFrom = resolveBasecampAllowFrom(cfg);
       if (!allowFrom.includes(msg.sender.id)) {
-        slog.debug("dm_policy_dropped", {
+        slog.info("dm_policy_dropped", {
           correlationId,
           sender: msg.sender.id,
           policy: dmPolicy,

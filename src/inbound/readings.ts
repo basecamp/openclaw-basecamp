@@ -55,8 +55,18 @@ export async function pollReadings(opts: ReadingsPollerOptions): Promise<Reading
     ? await withCircuitBreaker(opts.circuitBreaker.instance, opts.circuitBreaker.key, fetchReadings)
     : await fetchReadings();
 
+  if (data === undefined || data === null) {
+    log?.info?.(`[${account.accountId}] readings returned no response body`);
+    return { events: [], newestAt: undefined, processedSgids: [] };
+  }
+
   const unreads = data?.unreads;
-  if (!Array.isArray(unreads) || unreads.length === 0) {
+  if (!Array.isArray(unreads)) {
+    log?.warn?.(`[${account.accountId}] readings returned unexpected unreads type: ${typeof unreads}`);
+    return { events: [], newestAt: undefined, processedSgids: [] };
+  }
+  if (unreads.length === 0) {
+    log?.debug?.(`[${account.accountId}] readings returned empty unreads array`);
     return { events: [], newestAt: undefined, processedSgids: [] };
   }
 
