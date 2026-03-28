@@ -1,0 +1,23 @@
+src/adapters/directory.ts
+  750f64b23a368312 8,71,79,116,124,144
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.21",
+  "base_commit_sha": "4de1ba2c186edb9b1acd8c8be78c49ebc6248303",
+  "prompts": {
+    "750f64b23a368312": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9dab20fb-c7f3-490f-8804-7678a3e38d8e",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Jeremy Daer <jeremy@37signals.com>",
+      "messages": [],
+      "total_additions": 6,
+      "total_deletions": 5,
+      "accepted_lines": 6,
+      "overriden_lines": 0
+    }
+  }
+}
