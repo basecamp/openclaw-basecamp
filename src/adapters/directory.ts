@@ -5,6 +5,7 @@
  * agent targeting, and people/project lookup via the Basecamp API.
  */
 
+import type { Person, Project } from "@37signals/basecamp";
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import type { ChannelDirectoryAdapter, ChannelDirectoryEntry } from "openclaw/plugin-sdk/channel-runtime";
 import { getClient, numId } from "../basecamp-client.js";
@@ -67,7 +68,7 @@ export const basecampDirectoryAdapter: ChannelDirectoryAdapter = {
   listPeersLive: async ({ cfg, accountId, query }) => {
     const account = resolveBasecampAccount(cfg, accountId);
 
-    let people;
+    let people: Person[];
     try {
       const client = getClient(account);
       people = await client.people.list();
@@ -75,7 +76,7 @@ export const basecampDirectoryAdapter: ChannelDirectoryAdapter = {
       return [];
     }
 
-    let filtered = [...people];
+    let filtered = people;
     if (query) {
       const q = query.toLowerCase();
       filtered = filtered.filter((p) => p.name.toLowerCase().includes(q) || p.email_address?.toLowerCase().includes(q));
@@ -112,7 +113,7 @@ export const basecampDirectoryAdapter: ChannelDirectoryAdapter = {
   listGroupsLive: async ({ cfg, accountId, query }) => {
     const account = resolveBasecampAccount(cfg, accountId);
 
-    let projects;
+    let projects: Project[];
     try {
       const client = getClient(account);
       projects = await client.projects.list();
@@ -120,7 +121,7 @@ export const basecampDirectoryAdapter: ChannelDirectoryAdapter = {
       return [];
     }
 
-    let filtered = [...projects];
+    let filtered = projects;
     if (query) {
       const q = query.toLowerCase();
       filtered = filtered.filter((p) => p.name.toLowerCase().includes(q));
@@ -140,7 +141,7 @@ export const basecampDirectoryAdapter: ChannelDirectoryAdapter = {
     const projectId = numId("project", bucketMatch[1]);
     const account = resolveBasecampAccount(cfg, accountId);
 
-    let people;
+    let people: Person[];
     try {
       const client = getClient(account);
       people = await client.people.listForProject(projectId);
