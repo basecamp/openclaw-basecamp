@@ -159,6 +159,12 @@ export async function startCompositePoller(opts: CompositePollerOptions): Promis
     slog.warn("cursors_load_failed", { error: String(err) });
   }
 
+  // Bootstrap flags for activity and readings: when cursors are absent
+  // (first run or cleared state), the first poll records the cursor
+  // without emitting events — same pattern as assignmentsBootstrapped.
+  let activityBootstrapped = cursors.get().activitySince !== undefined;
+  let readingsBootstrapped = cursors.get().readingsSince !== undefined;
+
   // Circuit breaker: fail fast when Basecamp API is persistently down.
   // One CB instance per account; separate keys per polling source.
   const cbConfig = resolveCircuitBreakerConfig(cfg as any);
@@ -257,6 +263,20 @@ export async function startCompositePoller(opts: CompositePollerOptions): Promis
       : { mode: "primary" }),
   });
 
+  /** Mark processed readings as read via the Basecamp API. */
+  async function markReadingsRead(sgids: string[]): Promise<void> {
+    if (sgids.length === 0) return;
+    const markRead = async () => {
+      const client = getClient(account);
+      await rawOrThrow(
+        await client.raw.PUT("/my/unreads.json" as any, {
+          body: { readables: sgids } as any,
+        }),
+      );
+    };
+    await withCircuitBreaker(cb, "readings:mark-read", markRead);
+  }
+
   while (!abortSignal?.aborted) {
     const now = Date.now();
     const activityDue = now - lastActivityPoll >= activityIntervalMs + activityBackoff;
@@ -274,38 +294,56 @@ export async function startCompositePoller(opts: CompositePollerOptions): Promis
           log,
         });
 
-        let dispatched = 0;
-        let dropped = 0;
-        for (const event of result.events) {
-          const secondaryKey = event.meta.recordingId
-            ? EventDedup.secondaryKey(event.meta.recordingId, event.meta.eventKind, event.createdAt)
-            : undefined;
-
-          if (dedup.isDuplicate(event.dedupKey, secondaryKey)) continue;
-          if (isSelfMessage(event.sender.id, account)) continue;
-
-          try {
-            const delivered = await onEvent(event);
-            if (delivered) {
-              dispatched++;
-            } else {
-              dropped++;
-            }
-          } catch (err) {
-            slog.error("dispatch_error", { feed: "activity", key: event.dedupKey, error: String(err) });
+        if (!activityBootstrapped) {
+          // First run / cleared cursor: record cursor without emitting events
+          if (result.newestAt) {
+            cursors.setActivitySince(result.newestAt);
+            await saveCursorsWithRetry(cursors, slog);
+            activityBootstrapped = true;
+            slog.info("poll_bootstrap", { feed: "activity", fetched: result.events.length, cursor: result.newestAt });
+          } else {
+            slog.info("poll_bootstrap_empty", { feed: "activity", fetched: result.events.length });
           }
+          recordPollSuccess(account.accountId, "activity", 0, 0);
+        } else {
+          let dispatched = 0;
+          let dropped = 0;
+          let deduped = 0;
+          for (const event of result.events) {
+            const secondaryKey = event.meta.recordingId
+              ? EventDedup.secondaryKey(event.meta.recordingId, event.meta.eventKind, event.createdAt)
+              : undefined;
+
+            if (dedup.isDuplicate(event.dedupKey, secondaryKey)) {
+              deduped++;
+              continue;
+            }
+            if (isSelfMessage(event.sender.id, account)) continue;
+
+            try {
+              const delivered = await onEvent(event);
+              if (delivered) {
+                dispatched++;
+              } else {
+                dropped++;
+              }
+            } catch (err) {
+              slog.error("dispatch_error", { feed: "activity", key: event.dedupKey, error: String(err) });
+            }
+          }
+
+          if (result.newestAt) {
+            cursors.setActivitySince(result.newestAt);
+            await saveCursorsWithRetry(cursors, slog);
+          }
+
+          if (result.events.length > 0) {
+            slog.info("poll_cycle", { feed: "activity", fetched: result.events.length, dispatched, dropped, deduped });
+          }
+
+          recordPollSuccess(account.accountId, "activity", dispatched, dropped);
         }
 
-        if (result.newestAt) {
-          cursors.setActivitySince(result.newestAt);
-          await saveCursorsWithRetry(cursors, slog);
-        }
-
-        if (dispatched > 0 || dropped > 0) {
-          slog.info("poll_dispatched", { feed: "activity", total: result.events.length, dispatched, dropped });
-        }
-
-        recordPollSuccess(account.accountId, "activity", dispatched, dropped);
         recordDedupSize(account.accountId, dedup.size);
         syncCircuitBreakerMetrics("activity");
         activityBackoff = 0;
@@ -333,56 +371,71 @@ export async function startCompositePoller(opts: CompositePollerOptions): Promis
           log,
         });
 
-        let dispatched = 0;
-        let dropped = 0;
-        for (const event of result.events) {
-          const secondaryKey = event.meta.recordingId
-            ? EventDedup.secondaryKey(event.meta.recordingId, event.meta.eventKind, event.createdAt)
-            : undefined;
-
-          if (dedup.isDuplicate(event.dedupKey, secondaryKey)) continue;
-          if (isSelfMessage(event.sender.id, account)) continue;
-
+        if (!readingsBootstrapped) {
+          // First run / cleared cursor: advance cursor and mark-read without emitting events
           try {
-            const delivered = await onEvent(event);
-            if (delivered) {
-              dispatched++;
-            } else {
-              dropped++;
-            }
-          } catch (err) {
-            slog.error("dispatch_error", { feed: "readings", key: event.dedupKey, error: String(err) });
-          }
-        }
-
-        // Mark processed readings as read so they don't reappear
-        if (result.processedSgids.length > 0) {
-          try {
-            const markRead = async () => {
-              const client = getClient(account);
-              await rawOrThrow(
-                await client.raw.PUT("/my/unreads.json" as any, {
-                  body: { readables: result.processedSgids } as any,
-                }),
-              );
-            };
-            await withCircuitBreaker(cb, "readings:mark-read", markRead);
-            slog.debug("readings_marked_read", { count: result.processedSgids.length });
+            await markReadingsRead(result.processedSgids);
           } catch (err) {
             slog.warn("readings_mark_read_failed", { error: String(err) });
           }
+          if (result.newestAt) {
+            cursors.setReadingsSince(result.newestAt);
+            await saveCursorsWithRetry(cursors, slog);
+            readingsBootstrapped = true;
+            slog.info("poll_bootstrap", { feed: "readings", fetched: result.events.length, cursor: result.newestAt });
+          } else {
+            slog.info("poll_bootstrap_empty", { feed: "readings", fetched: result.events.length });
+          }
+          recordPollSuccess(account.accountId, "readings", 0, 0);
+        } else {
+          let dispatched = 0;
+          let dropped = 0;
+          let deduped = 0;
+          for (const event of result.events) {
+            const secondaryKey = event.meta.recordingId
+              ? EventDedup.secondaryKey(event.meta.recordingId, event.meta.eventKind, event.createdAt)
+              : undefined;
+
+            if (dedup.isDuplicate(event.dedupKey, secondaryKey)) {
+              deduped++;
+              continue;
+            }
+            if (isSelfMessage(event.sender.id, account)) continue;
+
+            try {
+              const delivered = await onEvent(event);
+              if (delivered) {
+                dispatched++;
+              } else {
+                dropped++;
+              }
+            } catch (err) {
+              slog.error("dispatch_error", { feed: "readings", key: event.dedupKey, error: String(err) });
+            }
+          }
+
+          // Mark processed readings as read so they don't reappear
+          if (result.processedSgids.length > 0) {
+            try {
+              await markReadingsRead(result.processedSgids);
+              slog.debug("readings_marked_read", { count: result.processedSgids.length });
+            } catch (err) {
+              slog.warn("readings_mark_read_failed", { error: String(err) });
+            }
+          }
+
+          if (result.newestAt) {
+            cursors.setReadingsSince(result.newestAt);
+            await saveCursorsWithRetry(cursors, slog);
+          }
+
+          if (result.events.length > 0) {
+            slog.info("poll_cycle", { feed: "readings", fetched: result.events.length, dispatched, dropped, deduped });
+          }
+
+          recordPollSuccess(account.accountId, "readings", dispatched, dropped);
         }
 
-        if (result.newestAt) {
-          cursors.setReadingsSince(result.newestAt);
-          await saveCursorsWithRetry(cursors, slog);
-        }
-
-        if (dispatched > 0 || dropped > 0) {
-          slog.info("poll_dispatched", { feed: "readings", total: result.events.length, dispatched, dropped });
-        }
-
-        recordPollSuccess(account.accountId, "readings", dispatched, dropped);
         recordDedupSize(account.accountId, dedup.size);
         syncCircuitBreakerMetrics("readings");
         readingsBackoff = 0;
@@ -414,8 +467,12 @@ export async function startCompositePoller(opts: CompositePollerOptions): Promis
 
         let dispatched = 0;
         let dropped = 0;
+        let deduped = 0;
         for (const event of result.events) {
-          if (dedup.isDuplicate(event.dedupKey)) continue;
+          if (dedup.isDuplicate(event.dedupKey)) {
+            deduped++;
+            continue;
+          }
           if (isSelfMessage(event.sender.id, account)) continue;
 
           try {
@@ -436,8 +493,8 @@ export async function startCompositePoller(opts: CompositePollerOptions): Promis
         cursors.setCustom("assignmentIds", JSON.stringify([...result.knownIds]));
         await saveCursorsWithRetry(cursors, slog);
 
-        if (dispatched > 0 || dropped > 0) {
-          slog.info("poll_dispatched", { feed: "assignments", total: result.events.length, dispatched, dropped });
+        if (result.events.length > 0) {
+          slog.info("poll_cycle", { feed: "assignments", fetched: result.events.length, dispatched, dropped, deduped });
         }
 
         recordPollSuccess(account.accountId, "assignments", dispatched, dropped);
