@@ -6,12 +6,13 @@
  * exact name (case-insensitive), partial name, or email prefix.
  */
 
+import type { Person } from "@37signals/basecamp";
 import type { ChannelResolveResult, ChannelResolverAdapter } from "openclaw/plugin-sdk/channel-runtime";
 import { getClient } from "../basecamp-client.js";
 import { resolveBasecampAccount } from "../config.js";
-import type { BasecampPerson, BasecampProject } from "../types.js";
+import type { BasecampProject } from "../types.js";
 
-function matchPerson(input: string, people: BasecampPerson[]): BasecampPerson | undefined {
+function matchPerson(input: string, people: Person[]): Person | undefined {
   const lower = input.toLowerCase();
 
   // Exact ID match
@@ -27,7 +28,7 @@ function matchPerson(input: string, people: BasecampPerson[]): BasecampPerson | 
   if (byPartial) return byPartial;
 
   // Email prefix match
-  const byEmail = people.find((p) => p.email_address.toLowerCase().startsWith(lower));
+  const byEmail = people.find((p) => p.email_address?.toLowerCase().startsWith(lower));
   if (byEmail) return byEmail;
 
   return undefined;
@@ -57,10 +58,10 @@ export const basecampResolverAdapter: ChannelResolverAdapter = {
     const account = resolveBasecampAccount(cfg, accountId);
 
     if (kind === "user") {
-      let people: BasecampPerson[];
+      let people: Person[];
       try {
         const client = getClient(account);
-        people = (await client.people.list()) as any;
+        people = await client.people.list();
       } catch {
         return inputs.map((input) => ({
           input,
@@ -91,7 +92,7 @@ export const basecampResolverAdapter: ChannelResolverAdapter = {
       let projects: BasecampProject[];
       try {
         const client = getClient(account);
-        projects = (await client.projects.list()) as any;
+        projects = await client.projects.list();
       } catch {
         return inputs.map((input) => ({
           input,

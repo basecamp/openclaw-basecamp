@@ -194,7 +194,7 @@ function buildTools(client: BasecampClient): ChannelAgentTool[] {
             dueOn: params.dueOn,
             startsOn: params.startsOn,
           });
-          return toolOk({ todoId: (result as any)?.id, title: (result as any)?.title });
+          return toolOk({ todoId: result.id, title: result.title });
         } catch (err) {
           return toolErr(String(err));
         }
@@ -283,7 +283,7 @@ function buildTools(client: BasecampClient): ChannelAgentTool[] {
         const content = params.content || "👍";
         try {
           const result = await client.boosts.createForRecording(numId("recording", params.recordingId), { content });
-          return toolOk({ boostId: (result as any)?.id });
+          return toolOk({ boostId: result.id });
         } catch (err) {
           return toolErr(String(err));
         }
@@ -318,7 +318,7 @@ function buildTools(client: BasecampClient): ChannelAgentTool[] {
         const { messageBoardId, subject, content, categoryId } = rawParams as PostMessageInput;
         try {
           const result = await client.messages.create(numId("board", messageBoardId), { subject, content, categoryId });
-          return toolOk({ messageId: (result as any)?.id, subject: (result as any)?.subject });
+          return toolOk({ messageId: result.id, subject: result.subject });
         } catch (err) {
           return toolErr(String(err));
         }
@@ -334,7 +334,7 @@ function buildTools(client: BasecampClient): ChannelAgentTool[] {
         const { questionId, content } = rawParams as AnswerCheckinInput;
         try {
           const result = await client.checkins.createAnswer(numId("question", questionId), { content });
-          return toolOk({ answerId: (result as any)?.id });
+          return toolOk({ answerId: result.id });
         } catch (err) {
           return toolErr(String(err));
         }

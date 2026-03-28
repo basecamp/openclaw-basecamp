@@ -164,7 +164,7 @@ export async function resolvePersonId(
     enableCache: false,
   });
   const profile = await client.people.me();
-  return { id: String(profile.id), name: (profile as any).name ?? "" };
+  return { id: String(profile.id), name: profile.name };
 }
 
 // ---------------------------------------------------------------------------
