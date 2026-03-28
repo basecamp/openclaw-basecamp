@@ -351,10 +351,10 @@ export function resolveCircuitBreakerConfig(cfg: OpenClawConfig): { threshold: n
   };
 }
 
-/** Get the DM policy for Basecamp Pings. Defaults to "pairing". */
+/** Get the DM policy for Basecamp Pings. Defaults to "allowlist". */
 export function resolveBasecampDmPolicy(cfg: OpenClawConfig) {
   const section = getBasecampSection(cfg);
-  return section?.dmPolicy ?? "pairing";
+  return section?.dmPolicy ?? "allowlist";
 }
 
 /** Get the allow-from list. */

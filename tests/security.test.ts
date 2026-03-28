@@ -8,6 +8,13 @@ vi.mock("openclaw/plugin-sdk", () => ({
   },
 }));
 
+vi.mock("../src/config.js", () => ({
+  resolveBasecampDmPolicy: (cfg: any) => {
+    const section = cfg?.channels?.basecamp;
+    return section?.dmPolicy ?? "allowlist";
+  },
+}));
+
 import { basecampSecurityAdapter } from "../src/adapters/security.js";
 
 function cfg(basecamp?: Record<string, unknown>) {
@@ -22,9 +29,9 @@ const stubAccount = { accountId: "test", personId: "42" } as any;
 // ---------------------------------------------------------------------------
 
 describe("security.resolveDmPolicy", () => {
-  it("defaults to pairing when no dmPolicy is set", () => {
+  it("defaults to allowlist when no dmPolicy is set", () => {
     const result = basecampSecurityAdapter.resolveDmPolicy({ cfg: cfg({}), account: stubAccount });
-    expect(result.policy).toBe("pairing");
+    expect(result.policy).toBe("allowlist");
   });
 
   it("returns configured dmPolicy", () => {

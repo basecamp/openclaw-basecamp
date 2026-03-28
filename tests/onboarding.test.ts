@@ -197,6 +197,10 @@ vi.mock("../src/config.js", () => ({
       config: acct,
     };
   },
+  resolveBasecampDmPolicy: (cfg: any) => {
+    const section = cfg?.channels?.basecamp;
+    return section?.dmPolicy ?? "allowlist";
+  },
 }));
 
 // ---------------------------------------------------------------------------
@@ -595,6 +599,66 @@ describe("basecampSetupWizard", () => {
     });
   });
 
+  describe("finalize — DM policy normalization", () => {
+    it("rewrites pairing to allowlist in finalize output", async () => {
+      mockCliProfileListFull.mockRejectedValue(new Error("not installed"));
+      mockResolveTokenFilePath.mockReturnValue("/tmp/tokens/default.json");
+      mockInteractiveLogin.mockResolvedValue({ accessToken: "tok", refreshToken: "ref", tokenType: "Bearer" });
+      mockDiscoverIdentity.mockResolvedValue({
+        identity: { id: 1, firstName: "Bot", lastName: "", emailAddress: "b@t.com" },
+        accounts: [{ id: 100, name: "Co", product: "bc3" }],
+      });
+
+      const prompter = createPrompter({
+        textAnswers: ["client-id", ""],
+        selectAnswers: ["done"],
+      });
+
+      // Simulate the generic setup host having written dmPolicy: "pairing"
+      const inputCfg = cfg({ dmPolicy: "pairing" });
+
+      const result = await basecampSetupWizard.finalize!({
+        cfg: inputCfg,
+        accountId: "default",
+        credentialValues: {},
+        runtime: {} as any,
+        prompter,
+        forceAllowFrom: false,
+      });
+
+      // finalize should have rewritten pairing → allowlist
+      expect(result!.cfg!.channels.basecamp.dmPolicy).toBe("allowlist");
+    });
+
+    it("preserves explicit open policy", async () => {
+      mockCliProfileListFull.mockRejectedValue(new Error("not installed"));
+      mockResolveTokenFilePath.mockReturnValue("/tmp/tokens/default.json");
+      mockInteractiveLogin.mockResolvedValue({ accessToken: "tok", refreshToken: "ref", tokenType: "Bearer" });
+      mockDiscoverIdentity.mockResolvedValue({
+        identity: { id: 1, firstName: "Bot", lastName: "", emailAddress: "b@t.com" },
+        accounts: [{ id: 100, name: "Co", product: "bc3" }],
+      });
+
+      const prompter = createPrompter({
+        textAnswers: ["client-id", ""],
+        selectAnswers: ["done"],
+      });
+
+      const inputCfg = cfg({ dmPolicy: "open" });
+
+      const result = await basecampSetupWizard.finalize!({
+        cfg: inputCfg,
+        accountId: "default",
+        credentialValues: {},
+        runtime: {} as any,
+        prompter,
+        forceAllowFrom: false,
+      });
+
+      expect(result!.cfg!.channels.basecamp.dmPolicy).toBe("open");
+    });
+  });
+
   describe("dmPolicy", () => {
     it("has correct channel and keys", () => {
       const dp = basecampSetupWizard.dmPolicy!;
@@ -603,8 +667,8 @@ describe("basecampSetupWizard", () => {
       expect(dp.allowFromKey).toBe("channels.basecamp.allowFrom");
     });
 
-    it("getCurrent returns 'pairing' by default", () => {
-      expect(basecampSetupWizard.dmPolicy!.getCurrent({} as any)).toBe("pairing");
+    it("getCurrent returns 'allowlist' by default", () => {
+      expect(basecampSetupWizard.dmPolicy!.getCurrent({} as any)).toBe("allowlist");
     });
 
     it("getCurrent returns configured policy", () => {

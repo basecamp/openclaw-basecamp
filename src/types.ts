@@ -455,13 +455,13 @@ export type BasecampChannelConfig = {
   /**
    * DM policy for Ping conversations.
    * Uses the SDK's standard vocabulary:
-   *   pairing  — DMs allowed through the pairing flow (default)
-   *   allowlist — DMs allowed only from sender IDs in allowFrom
+   *   allowlist — DMs allowed only from sender IDs in allowFrom (default)
+   *   pairing  — alias for allowlist (Basecamp has no pairing challenge flow)
    *   open     — DMs allowed from anyone
    *   disabled — DMs completely blocked
    */
   dmPolicy?: "pairing" | "allowlist" | "open" | "disabled";
-  /** Allowed sender person IDs for DM/pairing. */
+  /** Allowed sender person IDs for DM allowlist. */
   allowFrom?: Array<string | number>;
   /** Per-bucket behavior overrides. Key is bucket ID or "*" for wildcard. */
   buckets?: Record<string, BasecampBucketConfig>;

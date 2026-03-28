@@ -18,7 +18,7 @@ import {
   exportCliCredentials,
   extractCliBootstrapToken,
 } from "../basecamp-cli.js";
-import { listBasecampAccountIds, resolveBasecampAccount } from "../config.js";
+import { listBasecampAccountIds, resolveBasecampAccount, resolveBasecampDmPolicy } from "../config.js";
 import { isValidLaunchpadClientId, OAUTH_SETUP_GUIDANCE } from "../oauth-credentials.js";
 import type { BasecampChannelConfig } from "../types.js";
 
@@ -114,7 +114,7 @@ const dmPolicy: ChannelSetupDmPolicy = {
   channel,
   policyKey: "channels.basecamp.dmPolicy",
   allowFromKey: "channels.basecamp.allowFrom",
-  getCurrent: (cfg) => (getBasecampSection(cfg)?.dmPolicy as DmPolicy) ?? "pairing",
+  getCurrent: (cfg) => resolveBasecampDmPolicy(cfg) as DmPolicy,
   setPolicy: (cfg, policy) => setBasecampDmPolicy(cfg, policy),
   promptAllowFrom: async ({ cfg, prompter }) => {
     const section = getBasecampSection(cfg) ?? {};
@@ -451,6 +451,21 @@ export const basecampSetupWizard: ChannelSetupWizard = {
           "Hatch error",
         );
       }
+    }
+
+    // Normalize DM policy: the generic setup host may have written "pairing"
+    // as the default, but Basecamp has no pairing challenge flow — pairing and
+    // allowlist are identical. Rewrite to "allowlist" so the config label
+    // accurately reflects behavior.
+    const finalSection = getBasecampSection(next);
+    if (finalSection?.dmPolicy === "pairing") {
+      next = {
+        ...next,
+        channels: {
+          ...next.channels,
+          basecamp: { ...finalSection, dmPolicy: "allowlist" },
+        },
+      };
     }
 
     return { cfg: next };
