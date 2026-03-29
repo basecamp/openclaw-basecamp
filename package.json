@@ -32,7 +32,7 @@
   "devDependencies": {
     "@biomejs/biome": "^2.4.8",
     "@vitest/coverage-v8": "^4.1.0",
-    "openclaw": "2026.3.23",
+    "openclaw": "2026.3.28",
     "typescript": "^5.0.0",
     "vitest": "^4.0.18"
   },
