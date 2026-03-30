@@ -55,7 +55,7 @@
   },
   "dependencies": {
     "@37signals/basecamp": "0.7.2",
-    "@sinclair/typebox": "^0.34.0",
+    "@sinclair/typebox": "^0.34.49",
     "zod": "^4.3.6"
   },
   "overrides": {
