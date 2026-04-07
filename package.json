@@ -33,7 +33,7 @@
     "@biomejs/biome": "^2.4.10",
     "@vitest/coverage-v8": "^4.1.0",
     "openclaw": "2026.4.2",
-    "typescript": "^5.0.0",
+    "typescript": "^6.0.2",
     "vitest": "^4.0.18"
   },
   "openclaw": {
