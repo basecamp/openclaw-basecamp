@@ -31,8 +31,8 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.16",
-    "@vitest/coverage-v8": "^4.1.7",
-    "openclaw": "2026.5.28",
+    "@vitest/coverage-v8": "^4.1.8",
+    "openclaw": "2026.6.1",
     "typescript": "^6.0.3",
     "vitest": "^4.0.18"
   },
