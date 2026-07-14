@@ -1,0 +1,19 @@
+src/adapters/heartbeat.ts
+  s_dded7873563c1c::t_87fae2c0b1c874 4
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.13",
+  "base_commit_sha": "fea9dcd30d055b4dbad31feeab5756995e98ae2a",
+  "prompts": {},
+  "sessions": {
+    "s_dded7873563c1c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "19e700c6-96e9-428e-ae9e-45b2a4d43bdf",
+        "model": "unknown"
+      },
+      "human_author": "Jeremy Daer <jeremy@37signals.com>"
+    }
+  }
+}
