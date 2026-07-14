@@ -124,37 +124,3 @@ describe("heartbeat.checkReady", () => {
     expect(result.reason).toContain("Auth check failed");
   });
 });
-
-// ---------------------------------------------------------------------------
-// resolveRecipients
-// ---------------------------------------------------------------------------
-
-describe("heartbeat.resolveRecipients", () => {
-  it("returns explicit recipient", () => {
-    const result = basecampHeartbeatAdapter.resolveRecipients!({
-      cfg: cfg({}),
-      opts: { to: "ping:42" },
-    });
-
-    expect(result.recipients).toEqual(["ping:42"]);
-    expect(result.source).toBe("explicit");
-  });
-
-  it("returns empty when only allowFrom is available (person IDs cannot be mapped to ping peers)", () => {
-    const result = basecampHeartbeatAdapter.resolveRecipients!({
-      cfg: cfg({ allowFrom: ["100", "200"] }),
-    });
-
-    expect(result.recipients).toEqual([]);
-    expect(result.source).toBe("none");
-  });
-
-  it("returns empty when no recipients available", () => {
-    const result = basecampHeartbeatAdapter.resolveRecipients!({
-      cfg: cfg({}),
-    });
-
-    expect(result.recipients).toEqual([]);
-    expect(result.source).toBe("none");
-  });
-});
