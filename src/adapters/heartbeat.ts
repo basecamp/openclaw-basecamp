@@ -1,8 +1,7 @@
 /**
  * Basecamp heartbeat adapter — delivery health checks.
  *
- * Implements ChannelHeartbeatAdapter for verifying auth readiness
- * and resolving heartbeat message recipients.
+ * Implements ChannelHeartbeatAdapter for verifying auth readiness.
  *
  * For all token sources, uses the SDK client to verify the access token
  * is valid (auto-refreshing for OAuth accounts).
@@ -27,21 +26,5 @@ export const basecampHeartbeatAdapter: ChannelHeartbeatAdapter = {
     } catch (err) {
       return { ok: false, reason: `Auth check failed: ${String(err)}` };
     }
-  },
-
-  resolveRecipients: ({ cfg, opts }) => {
-    // Explicit recipients from opts
-    if (opts?.to) {
-      return {
-        recipients: [opts.to],
-        source: "explicit",
-      };
-    }
-
-    // allowFrom contains person IDs, but ping peer IDs require circle bucket
-    // IDs (not person IDs). We cannot map person IDs to ping targets without
-    // an API call to discover the circle. Return empty — heartbeat delivery
-    // for Basecamp requires an explicit --to flag with a valid peer ID.
-    return { recipients: [], source: "none" };
   },
 };
