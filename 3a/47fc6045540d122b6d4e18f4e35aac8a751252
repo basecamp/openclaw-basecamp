@@ -1,0 +1,41 @@
+.editorconfig
+  s_b1b525335083d5::t_a6ddf4f4e6c6cc 1-37
+biome.json
+  s_b1b525335083d5::t_79a7041f64ac97 2
+package.json
+  s_b1b525335083d5::t_a7564c20305825 5-7,9-12
+  s_b1b525335083d5::t_63b119c2d2b379 8
+  s_b1b525335083d5::t_05bd3db8d034de 41,45
+  s_b1b525335083d5::t_a886f81a8f99ad 65-66
+.mise.toml
+  s_b1b525335083d5::t_94b4c1ea4ca073 1-2
+LICENSE
+  s_b1b525335083d5::t_4b055fe89d169e 1-21
+.github/workflows/release.yml
+  s_b1b525335083d5::t_9a579c1d975d21 61-63,66
+RELEASING.md
+  s_b1b525335083d5::t_b4d4d032923e65 1-13,15-26,28-30,34-35,42-44,49-50,52-55,57-59,61-68
+  s_b1b525335083d5::t_03046b2817d020 14
+  s_b1b525335083d5::t_5d4cf0694af597 32-33,36-41,46-48,51
+  s_b1b525335083d5::t_4e4839c7323a58 56,60
+  s_b1b525335083d5::t_8b1efa89b4f725 45
+  s_b1b525335083d5::t_4778cc4b07b867 27,31
+package-lock.json
+  s_b1b525335083d5::t_668a8f16cda7a1 10,12-13,17,21,28-30,103-105,119-126,130-132,147-149,164-166,181-183,198-200,215-217,232-234,249-251,621-623
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.15",
+  "base_commit_sha": "3a47fc6045540d122b6d4e18f4e35aac8a751252",
+  "prompts": {},
+  "sessions": {
+    "s_b1b525335083d5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7eed2f6e-8506-44d4-9afd-bae990b2c900",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Jeremy Daer <jeremy@37signals.com>"
+    }
+  }
+}
