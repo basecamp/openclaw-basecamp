@@ -24,10 +24,18 @@ does that.
 
 Held under separate authorization. Do **not** run these as part of merging this PR.
 
-4. **Create and protect the `release` GitHub environment** in repo settings.
-   `release.yml`'s `publish` job declares `environment: release`; that
-   environment does not exist yet (only `copilot` is defined), so the job cannot
-   gate a publish until it is created.
+4. **Create and protect the `release` GitHub environment** in repo settings,
+   with required reviewers / a deployment branch rule, **before any `v*` tag is
+   pushed**.
+
+   > ⚠️ A missing environment does **not** block the job. GitHub auto-creates a
+   > referenced-but-missing environment on first use **without protection rules
+   > or secrets** ([docs](https://docs.github.com/actions/deployment/targeting-different-environments/using-environments-for-deployment)).
+   > So a `v*` tag pushed before this step completes would run the publish job
+   > against an unprotected `release` environment — the absent environment is
+   > **not** a gate. Treat "environment created and protected" as a hard
+   > precondition for pushing any release tag, and do not push tags until
+   > steps 4–6 are done.
 5. **Authorized first publication** by a maintainer from a clean checkout at an
    exact reviewed commit SHA, after all gates pass. Run through `mise` so the
    pinned dev Node is used:
@@ -43,12 +51,11 @@ Held under separate authorization. Do **not** run these as part of merging this 
 
    This **only creates the package** on npm. It does not validate OIDC.
 6. **Configure the npm trusted publisher** (GitHub Actions OIDC): this repo, the
-   `release.yml` workflow, and the `release` environment. Verify with `npm trust
-   list` — note it needs **npm ≥ 11.5.1**, which the pinned dev Node (22.23.1,
-   npm 10.9.8) does not ship, so run it under Node 24:
+   `release.yml` workflow, and the `release` environment. Verify with (needs
+   **npm ≥ 11.5.1**, which the pinned dev Node ships):
 
    ```bash
-   mise x node@24 -- npm trust list
+   mise exec -- npm trust list
    ```
 
 ## Later release (first real OIDC proof)
@@ -64,5 +71,7 @@ Held under separate authorization. Do **not** run these as part of merging this 
 - `openclaw.plugin.json` also carries a `version` field, kept in sync with
   `package.json` manually. `release.yml` only checks `package.json` against the
   tag.
-- The `publish` job runs on Node 24 for npm ≥ 11.5.1; `test`/`security` stay on
-  Node 22, matching the runtime floor (`engines.node >= 22.5`).
+- The dev toolchain (`.mise.toml`) and the `publish` job both run on Node 24
+  (latest LTS; bundles npm ≥ 11.16 for OIDC trusted publishing). The CI
+  `test`/`security` jobs stay on Node 22 to exercise the package's runtime floor
+  (`engines.node >= 22.5`).
