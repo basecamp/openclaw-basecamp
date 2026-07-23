@@ -69,12 +69,29 @@ jobs:
             exit 1
           fi
 
-          if [ "$(jq '.deployment_branch_policy == null' <<<"$env_json")" = "true" ]; then
-            echo "::error::The 'release' environment has no deployment branch/tag policy. Restrict deployments to a v* tag policy (see RELEASING.md)."
+          # Require a *custom* deployment policy (specific selected patterns).
+          # null => any ref may deploy; protected_branches-only can't match a tag
+          # and would silently block the release. Only custom_branch_policies
+          # supports the tag rule this tag-triggered workflow needs.
+          policy="$(jq -r '.deployment_branch_policy | if . == null then "none" elif .custom_branch_policies == true then "custom" else "protected-branches" end' <<<"$env_json")"
+          if [ "$policy" != "custom" ]; then
+            echo "::error::The 'release' environment must restrict deployments to selected tags via a custom deployment policy (Settings → Environments → release → Deployment branches and tags → 'Selected branches and tags'); found: ${policy}. See RELEASING.md."
             exit 1
           fi
 
-          echo "release environment is protected: ${reviewers} required reviewer(s), deployment policy present."
+          # Verify at least one *tag* rule exists, so only release tags can
+          # deploy — not an arbitrary branch pattern.
+          if ! policies_json="$(gh api "repos/${GITHUB_REPOSITORY}/environments/release/deployment-branch-policies" 2>/dev/null)"; then
+            echo "::error::Could not read the 'release' environment's deployment policies. See RELEASING.md."
+            exit 1
+          fi
+          tag_rules="$(jq '[.branch_policies[]? | select(.type == "tag")] | length' <<<"$policies_json")"
+          if [ "${tag_rules:-0}" -lt 1 ]; then
+            echo "::error::The 'release' environment has no tag deployment rule. Add a tag rule (set it to 'v*') so only release tags can deploy. See RELEASING.md."
+            exit 1
+          fi
+
+          echo "release environment is protected: ${reviewers} required reviewer(s), ${tag_rules} tag deployment rule(s)."
 
       - name: Dry-run note
         if: github.event_name != 'push'

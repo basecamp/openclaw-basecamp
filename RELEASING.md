@@ -23,16 +23,21 @@ does that.
    before `publish` (and is in `publish.needs`). On a tag push it reads the
    `release` environment via the API (`actions: read`, no `id-token`) and fails
    the release if the environment is missing, has no required reviewer, or has
-   no deployment policy — so the OIDC-capable publish job never starts against
-   an unprotected environment. Dry-runs (`workflow_dispatch`) skip the check.
+   no custom **tag** deployment rule (it reads the deployment-branch-policies
+   API and requires at least one `type: tag` rule — a `null` or
+   protected-branches-only policy fails) — so the OIDC-capable publish job never
+   starts against an unprotected environment. Dry-runs (`workflow_dispatch`)
+   skip the check.
 
 ## Post-merge bootstrap (maintainer / operator — a human, not CI)
 
 Held under separate authorization. Do **not** run these as part of merging this PR.
 
 5. **Create and protect the `release` GitHub environment** in repo settings,
-   with **at least one required reviewer** and a **deployment policy restricted
-   to `v*` tags**, **before any `v*` tag is pushed**.
+   **before any `v*` tag is pushed**, with:
+   - **at least one required reviewer**, and
+   - **"Selected branches and tags"** (a custom deployment policy) with a **tag
+     rule set to `v*`** — so only release tags can deploy.
 
    > ⚠️ A missing environment does **not** block the job. GitHub auto-creates a
    > referenced-but-missing environment on first use **without protection rules
@@ -40,9 +45,11 @@ Held under separate authorization. Do **not** run these as part of merging this 
    > so `environment: release` on the publish job is not itself a gate. The
    > `release-preflight` job (step 4) enforces this: on a tag push it fails the
    > release closed unless the environment exists with a required reviewer and a
-   > deployment policy, before any credential is minted. Configuring the
-   > environment as described here is what makes that gate pass — do not push a
-   > `v*` tag until steps 5–7 are done.
+   > custom tag deployment rule, before any credential is minted. The automation
+   > requires a tag rule to exist; setting its pattern to `v*` (rather than a
+   > broader glob) is the recommended value. Configuring the environment as
+   > described here is what makes that gate pass — do not push a `v*` tag until
+   > steps 5–7 are done.
 6. **Authorized first publication** by a maintainer from a clean checkout at an
    exact reviewed commit SHA, after all gates pass. Run through `mise` so the
    pinned dev Node is used:
