@@ -38,9 +38,51 @@ jobs:
       - run: npm test
       - run: npm run build
 
+  # Fail the release closed if the `release` environment is not configured to
+  # gate publishing. GitHub auto-creates a referenced-but-missing environment
+  # WITHOUT protection rules, so `environment: release` on the publish job is not
+  # itself a gate. This job runs before the OIDC-capable publish job and never
+  # requests id-token, so a misconfigured environment blocks publication before
+  # any credential is minted. Skipped for workflow_dispatch dry-runs, which do
+  # not publish.
+  release-preflight:
+    name: Verify release environment is protected
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+    steps:
+      # Only tag pushes publish. Enforce the gate there; leave the job a no-op
+      # for workflow_dispatch dry-runs so publish's `needs` is still satisfied.
+      - name: Require a protected release environment
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! env_json="$(gh api "repos/${GITHUB_REPOSITORY}/environments/release" 2>/dev/null)"; then
+            echo "::error::The 'release' environment does not exist or is not readable. Create and protect it before tagging a release (see RELEASING.md)."
+            exit 1
+          fi
+
+          reviewers="$(jq '[.protection_rules[]? | select(.type == "required_reviewers") | .reviewers[]?] | length' <<<"$env_json")"
+          if [ "${reviewers:-0}" -lt 1 ]; then
+            echo "::error::The 'release' environment has no required reviewers. Add at least one required reviewer (see RELEASING.md)."
+            exit 1
+          fi
+
+          if [ "$(jq '.deployment_branch_policy == null' <<<"$env_json")" = "true" ]; then
+            echo "::error::The 'release' environment has no deployment branch/tag policy. Restrict deployments to a v* tag policy (see RELEASING.md)."
+            exit 1
+          fi
+
+          echo "release environment is protected: ${reviewers} required reviewer(s), deployment policy present."
+
+      - name: Dry-run note
+        if: github.event_name != 'push'
+        run: echo "::notice::workflow_dispatch dry-run — skipping release-environment protection check."
+
   publish:
     name: Publish to npm
-    needs: [security, test]
+    needs: [security, test, release-preflight]
     runs-on: ubuntu-latest
     environment: release
     permissions:

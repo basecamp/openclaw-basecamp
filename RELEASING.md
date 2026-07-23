@@ -19,24 +19,31 @@ does that.
 3. `release.yml` `publish` job pinned to **Node 24** (bundles npm ≥ 11.16, past
    the 11.5.1 that OIDC trusted publishing requires). The `test`/`security` jobs
    stay on Node 22.
+4. `release.yml` `release-preflight` job — a hard, fail-closed gate that runs
+   before `publish` (and is in `publish.needs`). On a tag push it reads the
+   `release` environment via the API (`actions: read`, no `id-token`) and fails
+   the release if the environment is missing, has no required reviewer, or has
+   no deployment policy — so the OIDC-capable publish job never starts against
+   an unprotected environment. Dry-runs (`workflow_dispatch`) skip the check.
 
 ## Post-merge bootstrap (maintainer / operator — a human, not CI)
 
 Held under separate authorization. Do **not** run these as part of merging this PR.
 
-4. **Create and protect the `release` GitHub environment** in repo settings,
-   with required reviewers / a deployment branch rule, **before any `v*` tag is
-   pushed**.
+5. **Create and protect the `release` GitHub environment** in repo settings,
+   with **at least one required reviewer** and a **deployment policy restricted
+   to `v*` tags**, **before any `v*` tag is pushed**.
 
    > ⚠️ A missing environment does **not** block the job. GitHub auto-creates a
    > referenced-but-missing environment on first use **without protection rules
-   > or secrets** ([docs](https://docs.github.com/actions/deployment/targeting-different-environments/using-environments-for-deployment)).
-   > So a `v*` tag pushed before this step completes would run the publish job
-   > against an unprotected `release` environment — the absent environment is
-   > **not** a gate. Treat "environment created and protected" as a hard
-   > precondition for pushing any release tag, and do not push tags until
-   > steps 4–6 are done.
-5. **Authorized first publication** by a maintainer from a clean checkout at an
+   > or secrets** ([docs](https://docs.github.com/actions/deployment/targeting-different-environments/using-environments-for-deployment)),
+   > so `environment: release` on the publish job is not itself a gate. The
+   > `release-preflight` job (step 4) enforces this: on a tag push it fails the
+   > release closed unless the environment exists with a required reviewer and a
+   > deployment policy, before any credential is minted. Configuring the
+   > environment as described here is what makes that gate pass — do not push a
+   > `v*` tag until steps 5–7 are done.
+6. **Authorized first publication** by a maintainer from a clean checkout at an
    exact reviewed commit SHA, after all gates pass. Run through `mise` so the
    pinned dev Node is used:
 
@@ -50,7 +57,7 @@ Held under separate authorization. Do **not** run these as part of merging this 
    ```
 
    This **only creates the package** on npm. It does not validate OIDC.
-6. **Configure the npm trusted publisher** (GitHub Actions OIDC): this repo, the
+7. **Configure the npm trusted publisher** (GitHub Actions OIDC): this repo, the
    `release.yml` workflow, and the `release` environment. Verify with (needs
    **npm ≥ 11.5.1**, which the pinned dev Node ships):
 
@@ -60,11 +67,12 @@ Held under separate authorization. Do **not** run these as part of merging this 
 
 ## Later release (first real OIDC proof)
 
-7. Bump `package.json` `version`, tag `vX.Y.Z`, and push the tag. `release.yml`
-   builds, runs `scripts/verify-pack.sh`, and publishes via OIDC with
-   `--provenance`. **This tag-driven publish is the first real proof the OIDC
-   pipeline works** — a green `workflow_dispatch` dry-run does not exercise
-   authentication, and the bootstrap publish (step 5) only created the package.
+8. Bump `package.json` `version`, tag `vX.Y.Z`, and push the tag. `release.yml`
+   runs `release-preflight`, builds, runs `scripts/verify-pack.sh`, and
+   publishes via OIDC with `--provenance`. **This tag-driven publish is the
+   first real proof the OIDC pipeline works** — a green `workflow_dispatch`
+   dry-run does not exercise authentication, and the bootstrap publish (step 6)
+   only created the package.
 
 ## Notes
 
