@@ -40,7 +40,7 @@
   "devDependencies": {
     "@biomejs/biome": "2.5.4",
     "@vitest/coverage-v8": "^4.1.10",
-    "openclaw": "2026.6.11",
+    "openclaw": "2026.7.1",
     "typescript": "^7.0.2",
     "vitest": "^4.1.10"
   },
@@ -63,7 +63,6 @@
   },
   "dependencies": {
     "@37signals/basecamp": "0.8.0",
-    "@sinclair/typebox": "^0.34.52",
-    "zod": "^4.4.3"
+    "@sinclair/typebox": "^0.34.52"
   }
 }
