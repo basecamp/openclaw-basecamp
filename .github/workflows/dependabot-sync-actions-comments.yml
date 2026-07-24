@@ -1,0 +1,215 @@
+name: Sync Dependabot action pin comments
+
+# Dependabot's github-actions updater bumps SHA pins but cannot rewrite the
+# `# vX.Y.Z` comment on lines that carry a second trailing comment (e.g. a
+# zizmor suppression), so those comments go stale on every actions-group PR.
+#
+# This workflow runs trusted default-branch code after CI completes on a
+# Dependabot actions branch and rewrites the stale comments in place:
+# head-branch files are edited as *data* only — no head-branch code is ever
+# executed, no `uses:` steps run, and the updater script is loaded from this
+# run's immutable trusted commit.
+
+on:
+  workflow_run: # zizmor: ignore[dangerous-triggers] -- runs only trusted default-branch code; the untrusted head branch is fetched as data, never executed (no checkout into an executing context, no `uses:` steps)
+    workflows: [CI]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: Dependabot branch to sync (dependabot/github_actions/...)
+        required: true
+        type: string
+      e2e:
+        description: "E2E proof mode: expect a draft PR authored by the dispatcher on a dependabot/github_actions/e2e-proof-* branch"
+        required: false
+        default: false
+        type: boolean
+
+permissions: {}
+
+jobs:
+  sync:
+    name: Sync action pin comments
+    runs-on: ubuntu-latest
+    # Two explicit event paths:
+    #   - workflow_dispatch: must run from main so GITHUB_SHA points at
+    #     reviewed code (a non-main dispatch would execute unreviewed script
+    #     content with contents:write).
+    #   - workflow_run: only same-repo Dependabot-actored pull_request CI runs
+    #     on dependabot/github_actions/* branches. The pull_request gate also
+    #     breaks the re-trigger loop: the CI run this workflow dispatches after
+    #     pushing is a workflow_dispatch run and is filtered out here.
+    if: >-
+      (
+        github.event_name == 'workflow_dispatch' &&
+        github.ref == 'refs/heads/main'
+      ) || (
+        github.event_name == 'workflow_run' &&
+        github.event.workflow_run.event == 'pull_request' &&
+        github.event.workflow_run.actor.login == 'dependabot[bot]' &&
+        github.event.workflow_run.head_repository.full_name == github.repository &&
+        startsWith(github.event.workflow_run.head_branch, 'dependabot/github_actions/')
+      )
+    permissions:
+      contents: write # push the comment-sync commit to the dependabot branch
+      actions: write # dispatch ci.yml on the new head so required checks attach
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Set up git authentication
+        run: |
+          gh auth setup-git
+          git ls-remote "https://github.com/${GITHUB_REPOSITORY}" HEAD > /dev/null
+
+      - name: Resolve and validate the target branch and head SHA
+        id: target
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          RUN_HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          RUN_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          INPUT_BRANCH: ${{ inputs.branch }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            BRANCH="$INPUT_BRANCH"
+          else
+            BRANCH="$RUN_HEAD_BRANCH"
+          fi
+          if ! printf '%s' "$BRANCH" | grep -qE '^dependabot/github_actions/[A-Za-z0-9._/-]+$'; then
+            echo "::error::branch is not an allowed dependabot/github_actions/* branch"
+            exit 1
+          fi
+
+          # The captured SHA is both the detached checkout and the push-lease
+          # expectation. For workflow_run it is the audited head_sha; for
+          # dispatch it is resolved from the remote exactly once, here.
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            HEAD_SHA="$(git ls-remote "https://github.com/${GITHUB_REPOSITORY}" "refs/heads/${BRANCH}" | cut -f1)"
+            if [ -z "$HEAD_SHA" ]; then
+              echo "::error::branch not found on the remote"
+              exit 1
+            fi
+          else
+            HEAD_SHA="$RUN_HEAD_SHA"
+          fi
+          if ! printf '%s' "$HEAD_SHA" | grep -qE '^[0-9a-f]{40}$'; then
+            echo "::error::resolved head SHA is not a 40-hex commit id"
+            exit 1
+          fi
+
+          { echo "branch=$BRANCH"; echo "sha=$HEAD_SHA"; } >> "$GITHUB_OUTPUT"
+
+      # Exactly one open same-repo PR for the branch, base main, head still at
+      # the captured SHA. Normal paths additionally require the Dependabot App
+      # as PR author (gh reports it as app/dependabot — distinct from the
+      # dependabot[bot] *actor* checked in the job `if:`). E2E dispatch instead
+      # requires a draft PR authored by the dispatching human on a dedicated
+      # e2e-proof branch. Gate mismatches exit cleanly without writing.
+      - name: Verify the pull request gate
+        id: gate
+        env:
+          BRANCH: ${{ steps.target.outputs.branch }}
+          HEAD_SHA: ${{ steps.target.outputs.sha }}
+          INPUT_E2E: ${{ inputs.e2e }}
+          DISPATCHER: ${{ github.actor }}
+        run: |
+          skip() { echo "::notice::$1"; echo "proceed=false" >> "$GITHUB_OUTPUT"; exit 0; }
+
+          prs="$(gh pr list --repo "$GITHUB_REPOSITORY" --state open --base main --head "$BRANCH" \
+            --json number,headRefOid,isCrossRepository,isDraft,author)"
+          count="$(jq 'length' <<<"$prs")"
+          [ "$count" = "1" ] || skip "expected exactly one open PR for the branch, found $count"
+
+          cross="$(jq -r '.[0].isCrossRepository' <<<"$prs")"
+          oid="$(jq -r '.[0].headRefOid' <<<"$prs")"
+          author="$(jq -r '.[0].author.login' <<<"$prs")"
+          draft="$(jq -r '.[0].isDraft' <<<"$prs")"
+
+          [ "$cross" = "false" ] || skip "PR head is not in this repository"
+          [ "$oid" = "$HEAD_SHA" ] || skip "PR head has moved past the captured SHA; a later run will pick it up"
+
+          if [ "$INPUT_E2E" = "true" ]; then
+            case "$BRANCH" in
+              dependabot/github_actions/e2e-proof-*) ;;
+              *) echo "::error::e2e mode requires a dependabot/github_actions/e2e-proof-* branch"; exit 1 ;;
+            esac
+            if [ "$draft" != "true" ] || [ "$author" != "$DISPATCHER" ]; then
+              echo "::error::e2e mode requires a draft PR authored by the dispatcher"
+              exit 1
+            fi
+          else
+            [ "$author" = "app/dependabot" ] || skip "PR is not authored by the Dependabot app"
+          fi
+
+          echo "proceed=true" >> "$GITHUB_OUTPUT"
+
+      # Fresh clone pinned to the captured head SHA (not the mutable branch).
+      # The updater script comes from GITHUB_SHA — the immutable commit of the
+      # reviewed default-branch code this run was triggered from — never from
+      # the head branch.
+      - name: Fetch the head commit and the trusted updater script
+        if: steps.gate.outputs.proceed == 'true'
+        env:
+          HEAD_SHA: ${{ steps.target.outputs.sha }}
+        run: |
+          git init -q repo
+          cd repo
+          git remote add origin "https://github.com/${GITHUB_REPOSITORY}"
+          git fetch -q --no-tags --depth 1 origin "$HEAD_SHA" "$GITHUB_SHA"
+          git show "$GITHUB_SHA:scripts/sync-action-pin-comments.mjs" > "$RUNNER_TEMP/sync.mjs"
+          git checkout -q --detach "$HEAD_SHA"
+
+      - name: Sync action pin comments
+        if: steps.gate.outputs.proceed == 'true'
+        working-directory: repo
+        run: node "$RUNNER_TEMP/sync.mjs"
+
+      - name: Commit and push behind a lease
+        if: steps.gate.outputs.proceed == 'true'
+        id: push
+        working-directory: repo
+        env:
+          BRANCH: ${{ steps.target.outputs.branch }}
+          HEAD_SHA: ${{ steps.target.outputs.sha }}
+        run: |
+          finish() { echo "::notice::$1"; echo "pushed=false" >> "$GITHUB_OUTPUT"; exit 0; }
+
+          git diff --quiet && finish "action pin comments already in sync; nothing to push"
+
+          # The ID-based noreply address associates the commit with
+          # github-actions[bot]; [dependabot skip] lets Dependabot keep
+          # force-rebasing the branch above our commit.
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add -- .github/workflows
+
+          # Belt and braces: every staged diff line must be a SHA-pinned
+          # `uses:` line — the only thing the updater may touch.
+          bad="$(git diff --cached -U0 \
+            | grep -E '^[+-]' \
+            | grep -vE '^(\+\+\+|---)' \
+            | grep -vE '^[+-][[:space:]]*(-[[:space:]]+)?uses:[[:space:]]+[A-Za-z0-9._-]+/[A-Za-z0-9./_-]+@[0-9a-f]{40}[[:space:]]+#' \
+            || true)"
+          if [ -n "$bad" ]; then
+            echo "::error::staged diff touches lines other than pinned uses lines"
+            printf '%s\n' "$bad"
+            exit 1
+          fi
+          git diff --cached --quiet && finish "no workflow changes staged; nothing to push"
+
+          git commit -q -m "chore(actions): sync action pin comments [dependabot skip]"
+
+          # Compare-and-swap: succeeds only if the remote branch still equals
+          # the SHA we fixed. If Dependabot rebased mid-run this fails cleanly
+          # and the next CI completion re-triggers us.
+          git push origin "HEAD:refs/heads/${BRANCH}" --force-with-lease="refs/heads/${BRANCH}:${HEAD_SHA}"
+          echo "pushed=true" >> "$GITHUB_OUTPUT"
+
+      # Pushes made with GITHUB_TOKEN do not trigger pull_request workflows, so
+      # required checks would never attach to the new head without this.
+      - name: Dispatch CI on the new head
+        if: steps.push.outputs.pushed == 'true'
+        env:
+          BRANCH: ${{ steps.target.outputs.branch }}
+        run: gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref "$BRANCH"

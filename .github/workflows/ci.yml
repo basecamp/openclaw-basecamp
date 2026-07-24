@@ -5,6 +5,9 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # Lets dependabot-sync-actions-comments.yml re-run required checks on a head
+  # it pushed with GITHUB_TOKEN (such pushes emit no pull_request events).
+  workflow_dispatch:
 
 permissions: {}
 
