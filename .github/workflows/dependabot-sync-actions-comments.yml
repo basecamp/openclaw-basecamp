@@ -54,6 +54,7 @@ jobs:
     permissions:
       contents: read # fetch the repo over https; the push itself uses the deploy key
       actions: write # dispatch ci.yml / approve held runs so required checks attach
+      pull-requests: read # `gh pr list` in the pull request gate
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
@@ -226,9 +227,10 @@ jobs:
           { echo "pushed=true"; echo "new_head=$(git rev-parse HEAD)"; } >> "$GITHUB_OUTPUT"
 
       # A deploy-key push fires normal pull_request synchronize events, so CI
-      # should start on its own. Dispatch ci.yml only if no pull_request CI
-      # run has appeared for the new head after a grace period — a fallback,
-      # not the norm.
+      # should start on its own. Dispatch ci.yml — and security.yml, whose
+      # checks also gate Dependabot PRs — only if no pull_request CI run has
+      # appeared for the new head after a grace period: a fallback, not the
+      # norm.
       - name: Dispatch CI on the new head if none started
         if: steps.push.outputs.pushed == 'true'
         env:
@@ -237,7 +239,7 @@ jobs:
         run: |
           for _ in 1 2 3 4 5 6; do
             count="$(gh api -X GET "repos/${GITHUB_REPOSITORY}/actions/runs" \
-              -f event=pull_request -f branch="$BRANCH" \
+              -f event=pull_request -f branch="$BRANCH" -f per_page=100 \
               --jq '[.workflow_runs[] | select(.head_sha == env.NEW_HEAD and .name == "CI")] | length')"
             if [ "${count:-0}" -gt 0 ]; then
               echo "::notice::CI already running for ${NEW_HEAD}; no dispatch needed"
@@ -247,6 +249,7 @@ jobs:
           done
           echo "::notice::no pull_request CI run appeared for ${NEW_HEAD}; dispatching"
           gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref "$BRANCH"
+          gh workflow run security.yml --repo "$GITHUB_REPOSITORY" --ref "$BRANCH"
 
       # If the pushed head's pull_request runs get held for approval (the repo
       # requires Actions approval for first-time contributors), a held run
@@ -260,22 +263,27 @@ jobs:
           BRANCH: ${{ steps.target.outputs.branch }}
           NEW_HEAD: ${{ steps.push.outputs.new_head }}
         run: |
-          approved=0
+          # Poll the full window: held runs for the different pull_request
+          # workflows can materialize in staggered batches, so an empty
+          # snapshot is not proof there is nothing left to approve. Track
+          # already-approved run ids — the API can keep reporting them as
+          # action_required for a while, and re-approving would double-count
+          # or emit spurious warnings.
+          approved=""
           for _ in 1 2 3 4 5 6; do
             run_ids="$(gh api -X GET "repos/${GITHUB_REPOSITORY}/actions/runs" \
-              -f event=pull_request -f branch="$BRANCH" \
+              -f event=pull_request -f branch="$BRANCH" -f per_page=100 \
               --jq '.workflow_runs[] | select(.head_sha == env.NEW_HEAD and .conclusion == "action_required") | .id')"
-            if [ -z "$run_ids" ] && [ "$approved" -gt 0 ]; then
-              break
-            fi
             for run_id in $run_ids; do
+              case " $approved " in *" $run_id "*) continue ;; esac
               if gh api -X POST "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/approve" > /dev/null; then
                 echo "::notice::approved held run ${run_id} for ${NEW_HEAD}"
-                approved=$((approved + 1))
+                approved="$approved $run_id"
               else
                 echo "::warning::could not approve held run ${run_id}; approve it manually from the PR page to unblock merging"
               fi
             done
             sleep 10
           done
-          echo "::notice::approved ${approved} held run(s) for ${NEW_HEAD}"
+          count="$(echo "$approved" | wc -w | tr -d ' ')"
+          echo "::notice::approved ${count} held run(s) for ${NEW_HEAD}"

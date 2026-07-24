@@ -249,12 +249,16 @@ async function listWorkflowFiles(root) {
     });
 }
 
+function errorMessage(error) {
+  return error instanceof Error ? error.message : String(error);
+}
+
 async function resolveRepoTags(repoKey) {
   let out;
   try {
     out = await git(["ls-remote", "--tags", `https://github.com/${repoKey}`]);
   } catch (error) {
-    throw new SyncError(`git ls-remote failed for ${repoKey}: ${error.message}`);
+    throw new SyncError(`git ls-remote failed for ${repoKey}: ${errorMessage(error)}`);
   }
   return parseLsRemoteOutput(out);
 }
@@ -301,7 +305,7 @@ async function main() {
     for (const { path, content } of files) {
       if (newContents.has(path)) writeFileSync(join(root, path), content);
     }
-    throw new SyncError(`post-write verification failed, original files restored: ${error.message}`);
+    throw new SyncError(`post-write verification failed, original files restored: ${errorMessage(error)}`);
   }
   console.log(`updated ${edits.length} comment${edits.length === 1 ? "" : "s"}`);
   return 0;
