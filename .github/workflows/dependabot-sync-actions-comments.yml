@@ -214,14 +214,15 @@ jobs:
           BRANCH: ${{ steps.target.outputs.branch }}
         run: gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref "$BRANCH"
 
-      # The push can also surface a pull_request CI run held for approval: the
-      # repo requires Actions approval for first-time contributors, and
-      # github-actions[bot] has no merged commits, so its runs are held — and a
-      # held run blocks the PR's merge state. Approve only the CI run for the
-      # exact commit this workflow just pushed. If approval is denied for
-      # GITHUB_TOKEN, surface a warning so a maintainer can approve from the
-      # PR page; required checks still attach via the dispatched run above.
-      - name: Approve the held pull_request CI run for the pushed head
+      # The push also surfaces pull_request runs held for approval: the repo
+      # requires Actions approval for first-time contributors, and
+      # github-actions[bot] has no merged commits, so every pull_request
+      # workflow its push triggers (CI, Security, auto-merge) is held — and
+      # held runs block the PR's merge state. Approve every held run for the
+      # exact commit this workflow just pushed, and only those. If approval is
+      # denied for GITHUB_TOKEN, surface a warning so a maintainer can approve
+      # from the PR page; required checks still attach via the dispatched run.
+      - name: Approve held pull_request runs for the pushed head
         if: steps.push.outputs.pushed == 'true'
         working-directory: repo
         env:
@@ -229,18 +230,22 @@ jobs:
         run: |
           NEW_HEAD="$(git rev-parse HEAD)"
           export NEW_HEAD
+          approved=0
           for _ in 1 2 3 4 5 6; do
-            run_id="$(gh api -X GET "repos/${GITHUB_REPOSITORY}/actions/runs" \
+            run_ids="$(gh api -X GET "repos/${GITHUB_REPOSITORY}/actions/runs" \
               -f event=pull_request -f branch="$BRANCH" \
-              --jq '[.workflow_runs[] | select(.head_sha == env.NEW_HEAD and .conclusion == "action_required" and .actor.login == "github-actions[bot]")] | first | .id // empty')"
-            if [ -n "$run_id" ]; then
-              if gh api -X POST "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/approve" > /dev/null; then
-                echo "::notice::approved held CI run ${run_id} for ${NEW_HEAD}"
-              else
-                echo "::warning::could not approve held CI run ${run_id}; approve it manually from the PR page to unblock merging"
-              fi
-              exit 0
+              --jq '.workflow_runs[] | select(.head_sha == env.NEW_HEAD and .conclusion == "action_required" and .actor.login == "github-actions[bot]") | .id')"
+            if [ -z "$run_ids" ] && [ "$approved" -gt 0 ]; then
+              break
             fi
+            for run_id in $run_ids; do
+              if gh api -X POST "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/approve" > /dev/null; then
+                echo "::notice::approved held run ${run_id} for ${NEW_HEAD}"
+                approved=$((approved + 1))
+              else
+                echo "::warning::could not approve held run ${run_id}; approve it manually from the PR page to unblock merging"
+              fi
+            done
             sleep 10
           done
-          echo "::notice::no held CI run appeared for ${NEW_HEAD}"
+          echo "::notice::approved ${approved} held run(s) for ${NEW_HEAD}"
