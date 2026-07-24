@@ -28,7 +28,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6.4.0 # zizmor: ignore[cache-poisoning] -- workflow only triggers on tag push and workflow_dispatch; cache is keyed by lockfile hash and default branch
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0 # zizmor: ignore[cache-poisoning] -- workflow only triggers on tag push and workflow_dispatch; cache is keyed by lockfile hash and default branch
         with:
           node-version: 22
           cache: npm
@@ -120,7 +120,7 @@ jobs:
       # Node 24 bundles npm 11.16, past the 11.5.1 that OIDC trusted publishing
       # requires. Publishing therefore uses the npm shipped in the verified Node
       # tarball rather than installing one from the registry at release time.
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6.4.0 # zizmor: ignore[cache-poisoning] -- workflow only triggers on tag push and workflow_dispatch; cache is keyed by lockfile hash and default branch
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0 # zizmor: ignore[cache-poisoning] -- workflow only triggers on tag push and workflow_dispatch; cache is keyed by lockfile hash and default branch
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
@@ -192,7 +192,7 @@ jobs:
 
       - name: Create GitHub Release
         if: github.event_name == 'push'
-        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.1 # zizmor: ignore[superfluous-actions] -- action is more maintainable than inline gh release commands
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2 # zizmor: ignore[superfluous-actions] -- action is more maintainable than inline gh release commands
         with:
           generate_release_notes: true
           prerelease: ${{ contains(steps.version.outputs.version, '-') }}
