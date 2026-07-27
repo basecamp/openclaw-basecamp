@@ -38,7 +38,7 @@
     "lint:fix": "biome check --write ."
   },
   "devDependencies": {
-    "@biomejs/biome": "2.5.4",
+    "@biomejs/biome": "2.5.5",
     "@vitest/coverage-v8": "^4.1.10",
     "openclaw": "2026.7.1",
     "typescript": "^7.0.2",
