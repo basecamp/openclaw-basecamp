@@ -38,8 +38,8 @@
     "lint:fix": "biome check --write ."
   },
   "devDependencies": {
-    "@biomejs/biome": "2.5.7",
-    "@vitest/coverage-v8": "^4.1.10",
+    "@biomejs/biome": "2.5.10",
+    "@vitest/coverage-v8": "^4.1.11",
     "openclaw": "2026.7.1",
     "typescript": "^7.0.2",
     "vitest": "^4.1.10"
@@ -62,7 +62,7 @@
     }
   },
   "dependencies": {
-    "@37signals/basecamp": "0.13.0",
+    "@37signals/basecamp": "0.14.0",
     "@sinclair/typebox": "^0.34.52"
   }
 }
