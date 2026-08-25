@@ -15,12 +15,12 @@ import {
   normalizeWebhookPayload,
   parseBucketIdFromUrl,
   parseRecordingIdFromIdentifier,
+  parseRecordingIdFromUrl,
   resolveBasecampPeer,
   resolveParentPeer,
 } from "../src/inbound/normalize.js";
 import type {
   BasecampActivityEvent,
-  BasecampPeer,
   BasecampReadingsEntry,
   BasecampWebhookPayload,
   ResolvedBasecampAccount,
@@ -123,6 +123,16 @@ describe("parseRecordingIdFromIdentifier", () => {
 
   it("extracts the last numeric segment", () => {
     expect(parseRecordingIdFromIdentifier("Nested/Path/67890")).toBe("67890");
+  });
+
+  it("decodes Basecamp's base64 readable identifier", () => {
+    expect(parseRecordingIdFromIdentifier("Q2hhdDo6VHJhbnNjcmlwdC8xMjM0NQ==")).toBe("12345");
+  });
+});
+
+describe("parseRecordingIdFromUrl", () => {
+  it("uses the child line ID in a chat line URL", () => {
+    expect(parseRecordingIdFromUrl("https://3.basecamp.com/buckets/100/chats/10/lines/20")).toBe("20");
   });
 });
 
@@ -512,6 +522,45 @@ describe("normalizeReadingsEvent", () => {
 
     expect(msg).not.toBeNull();
     expect(msg!.meta.recordableType).toBe("Chat::Line");
+  });
+
+  it("delivers a generic Mention on a todo as an agent mention", () => {
+    const raw = makeReadingsEntry({
+      type: "Mention",
+      app_url: "https://3.basecamp.com/2914079/buckets/100/todos/777",
+    });
+    const msg = normalizeReadingsEvent(raw, mockAccount);
+
+    expect(msg).not.toBeNull();
+    expect(msg!.meta.recordableType).toBe("Todo");
+    expect(msg!.meta.mentionsAgent).toBe(true);
+    expect(msg!.meta.recordingId).toBe("777");
+  });
+
+  it("delivers a generic Mention on a chat line to its transcript", () => {
+    const raw = makeReadingsEntry({
+      type: "Mention",
+      app_url: "https://3.basecamp.com/2914079/buckets/100/chats/10/lines/20",
+    });
+    const msg = normalizeReadingsEvent(raw, mockAccount);
+
+    expect(msg).not.toBeNull();
+    expect(msg!.meta.recordableType).toBe("Chat::Line");
+    expect(msg!.meta.recordingId).toBe("20");
+    expect(msg!.peer).toEqual({ kind: "group", id: "recording:10" });
+  });
+
+  it("recognizes Chat readings and circle URLs as Pings", () => {
+    const raw = makeReadingsEntry({
+      type: "Chat",
+      app_url: "https://3.basecamp.com/2914079/circles/100/chats/777",
+      participants: [{ id: 1, name: "Alice" }],
+    });
+    const msg = normalizeReadingsEvent(raw, mockAccount);
+
+    expect(msg).not.toBeNull();
+    expect(msg!.meta.recordableType).toBe("Chat::Transcript");
+    expect(msg!.peer).toEqual({ kind: "dm", id: "ping:100" });
   });
 
   it("Ping type with 1 other participant (2 total) resolves to dm peer", () => {

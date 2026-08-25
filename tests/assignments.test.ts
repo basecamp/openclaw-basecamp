@@ -188,6 +188,32 @@ describe("pollAssignments", () => {
     expect(result.knownIds).toEqual(new Set(["1", "2", "3"]));
   });
 
+  it("hydrates a newly assigned todo so the agent receives its full description", async () => {
+    const summary = makeTodo({ id: 2, content: "Write the implementation plan..." });
+    mockClient.raw.GET.mockImplementation(async (path: string) => {
+      if (path === "/my/assignments.json") {
+        return { data: { priorities: [summary] }, response: { ok: true, headers: new Headers() } };
+      }
+      if (path === "/buckets/500/todos/2.json") {
+        return {
+          data: {
+            ...summary,
+            content: "Write the implementation plan",
+            description: "<p>Include risks and rollout.</p>",
+          },
+          response: { ok: true, headers: new Headers() },
+        };
+      }
+      throw new Error(`Unexpected path ${path}`);
+    });
+
+    const result = await pollAssignments({ account: mockAccount, knownIds: new Set(), isBootstrap: false, log });
+
+    expect(result.events).toHaveLength(1);
+    expect(result.events[0].text).toBe("Write the implementation plan\n\nInclude risks and rollout.");
+    expect(mockClient.raw.GET).toHaveBeenCalledWith("/buckets/500/todos/2.json", {});
+  });
+
   it("emits nothing when all todos are already known", async () => {
     mockAssignmentsResponse({
       priorities: [makeTodo({ id: 1 })],
@@ -330,5 +356,12 @@ describe("pollAssignments", () => {
     const msg2 = normalizeAssignmentTodo(todo2, mockAccount);
     // Same recording ID but different updated_at → different dedup keys
     expect(msg1.dedupKey).not.toBe(msg2.dedupKey);
+  });
+
+  it("uses a new occurrence ID when the same todo is assigned again without updated_at", () => {
+    const todo = makeTodo({ id: 100, updated_at: undefined, created_at: undefined });
+    const first = normalizeAssignmentTodo(todo, mockAccount, "100:first");
+    const second = normalizeAssignmentTodo(todo, mockAccount, "100:second");
+    expect(first.dedupKey).not.toBe(second.dedupKey);
   });
 });

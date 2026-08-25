@@ -330,6 +330,8 @@ export type BasecampAssignmentTodo = {
   id: number;
   content?: string;
   title?: string;
+  /** Full HTML description returned by GET /buckets/:bucketId/todos/:id.json (absent from /my/assignments). */
+  description?: string;
   app_url?: string;
   starts_on?: string | null;
   due_on?: string | null;

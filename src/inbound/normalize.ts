@@ -140,6 +140,7 @@ function resolveRecordableType(kind: string, recordingType?: string): BasecampRe
 
 const READINGS_TYPE_MAP: Record<string, BasecampRecordableType> = {
   Card: "Kanban::Card",
+  Chat: "Chat::Transcript",
   ChatLine: "Chat::Line",
   Ping: "Chat::Transcript",
   Message: "Message",
@@ -200,18 +201,53 @@ export function parseBucketIdFromUrl(url: string): string | undefined {
  *   /buckets/123/recordings/456 → "456"
  */
 export function parseRecordingIdFromUrl(url: string): string | undefined {
-  // Match the last /<resource-type>/<numeric-id> in the URL
-  const match =
-    /\/(?:messages|todos|todolists|cards|chats|recordings|comments|documents|uploads|vaults|questions|question_answers|schedule_entries|lines|forwards|replies)\/(\d+)/.exec(
-      url,
-    );
-  return match ? match[1] : undefined;
+  // A chat line URL has both /chats/<id> and /lines/<id>; use the last
+  // recordable segment, rather than the first one matched by RegExp.exec().
+  const matches = [
+    ...url.matchAll(
+      /\/(?:messages|todos|todolists|cards|chats|recordings|comments|documents|uploads|vaults|questions|question_answers|schedule_entries|lines|forwards|replies)\/(\d+)/g,
+    ),
+  ];
+  return matches.at(-1)?.[1];
 }
 
 /** Extract recording ID from a readable_identifier (e.g., "Comment/123"). */
 export function parseRecordingIdFromIdentifier(identifier: string): string | undefined {
-  const match = /\/(\d+)$/.exec(identifier);
+  const decoded = (() => {
+    try {
+      const value = Buffer.from(identifier, "base64").toString("utf8");
+      return /\/\d+$/.test(value) ? value : identifier;
+    } catch {
+      return identifier;
+    }
+  })();
+  const match = /\/(\d+)$/.exec(decoded);
   return match ? match[1] : undefined;
+}
+
+/** Return the parent recording when a readings URL identifies a child event. */
+function parseParentRecordingIdFromUrl(url: string): string | undefined {
+  const chatLine = /\/chats\/(\d+)\/lines\/\d+/.exec(url);
+  if (chatLine) return chatLine[1];
+
+  const comment =
+    /\/(?:messages|todos|todolists|cards|recordings|documents|uploads|vaults|questions|schedule_entries)\/(\d+)\/comments\/\d+/.exec(
+      url,
+    );
+  return comment?.[1];
+}
+
+/** Infer the actual recordable type carried by a generic Hey! Mention item. */
+function recordableTypeForMention(url: string): BasecampRecordableType {
+  if (/\/chats\/\d+\/lines\/\d+/.test(url)) return "Chat::Line";
+  if (/\/comments\/\d+/.test(url)) return "Comment";
+  if (/\/cards\/\d+/.test(url)) return "Kanban::Card";
+  if (/\/todos\/\d+/.test(url)) return "Todo";
+  if (/\/messages\/\d+/.test(url)) return "Message";
+  if (/\/documents\/\d+/.test(url)) return "Document";
+  if (/\/uploads\/\d+/.test(url)) return "Upload";
+  if (/\/questions\/\d+/.test(url)) return "Question";
+  return "Comment";
 }
 
 // ---------------------------------------------------------------------------
@@ -458,7 +494,8 @@ export function normalizeReadingsEvent(
     recordingId = String(raw.id);
   }
 
-  const recordableType = normalizeRecordingType(raw.type);
+  const recordableType =
+    raw.type === "Mention" ? recordableTypeForMention(raw.app_url ?? "") : normalizeRecordingType(raw.type);
 
   // Unknown type → drop with metric rather than misclassifying as Document
   if (!recordableType) {
@@ -466,7 +503,7 @@ export function normalizeReadingsEvent(
     return null;
   }
 
-  const isPing = raw.type === "Ping";
+  const isPing = raw.type === "Ping" || raw.app_url?.includes("/circles/") === true;
   // readings participants uses other_circle_people() which excludes the caller — add 1.
   const participantCount = raw.participants ? raw.participants.length + 1 : undefined;
 
@@ -474,7 +511,10 @@ export function normalizeReadingsEvent(
   const html = raw.content_excerpt ?? "";
 
   const sgids = extractAttachmentSgids(html);
-  const isAgentMentioned = mentionsAgent(html, account.attachableSgid, account.personId) || raw.section === "mentions";
+  const isAgentMentioned =
+    raw.type === "Mention" ||
+    mentionsAgent(html, account.attachableSgid, account.personId) ||
+    raw.section === "mentions";
 
   const sender: BasecampSender = raw.creator
     ? {
@@ -488,6 +528,7 @@ export function normalizeReadingsEvent(
   const peer = resolveBasecampPeer({
     recordableType,
     recordingId,
+    parentRecordingId: raw.app_url ? parseParentRecordingIdFromUrl(raw.app_url) : undefined,
     bucketId,
     isPing,
     participantCount,
@@ -541,11 +582,13 @@ export function normalizeReadingsEvent(
 export function normalizeAssignmentTodo(
   raw: BasecampAssignmentTodo,
   account: ResolvedBasecampAccount,
+  assignmentEventId?: string,
 ): BasecampInboundMessage {
   const bucketId = String(raw.bucket.id);
   const recordingId = String(raw.id);
-  const text = raw.content ?? raw.title ?? "";
-  const html = text;
+  const description = raw.description ? htmlToPlainText(raw.description) : "";
+  const text = [raw.content ?? raw.title ?? "", description].filter(Boolean).join("\n\n");
+  const html = raw.description ?? raw.content ?? raw.title ?? "";
 
   const sender: BasecampSender = raw.creator
     ? {
@@ -582,10 +625,11 @@ export function normalizeAssignmentTodo(
     sources: ["assignments"],
   };
 
-  // Include updated_at in the dedup key so re-assignments after a previous
-  // unassign→reassign cycle within the 24h TTL produce distinct keys.
-  const updatedSuffix = raw.updated_at ? `:${raw.updated_at}` : "";
-  const dedupPrimary = EventDedup.primaryKey("direct", `assign:${recordingId}${updatedSuffix}`);
+  // /my/assignments is a current-state snapshot and commonly omits updated_at.
+  // The poller supplies a new occurrence ID for every absent→present transition,
+  // so an unassign→reassign cycle is not suppressed by the 24-hour dedup TTL.
+  const occurrence = assignmentEventId ?? raw.updated_at ?? raw.created_at ?? recordingId;
+  const dedupPrimary = EventDedup.primaryKey("direct", `assign:${recordingId}:${occurrence}`);
 
   return {
     channel: "basecamp",

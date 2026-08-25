@@ -82,6 +82,18 @@ function extractTodos(data: unknown): BasecampAssignmentTodo[] {
   return flattenTodos(items);
 }
 
+/** Load the Todo detail because /my/assignments deliberately omits descriptions. */
+async function hydrateTodo(
+  client: ReturnType<typeof getClient>,
+  todo: BasecampAssignmentTodo,
+): Promise<BasecampAssignmentTodo> {
+  if (todo.type && todo.type !== "Todo") return todo;
+  const detail = await rawOrThrow<Partial<BasecampAssignmentTodo>>(
+    await client.raw.GET(`/buckets/${todo.bucket.id}/todos/${todo.id}.json` as any, {}),
+  );
+  return { ...todo, ...detail, bucket: detail.bucket ?? todo.bucket, assignees: detail.assignees ?? todo.assignees };
+}
+
 /**
  * Poll assignments for newly-assigned todos.
  */
@@ -90,10 +102,8 @@ export async function pollAssignments(opts: AssignmentsPollerOptions): Promise<A
 
   log?.debug?.(`[${account.accountId}] polling assignments via SDK`);
 
-  const fetchAssignments = async () => {
-    const client = getClient(account);
-    return rawOrThrow(await client.raw.GET("/my/assignments.json" as any, {}));
-  };
+  const client = getClient(account);
+  const fetchAssignments = async () => rawOrThrow(await client.raw.GET("/my/assignments.json" as any, {}));
 
   const data = opts.circuitBreaker
     ? await withCircuitBreaker(opts.circuitBreaker.instance, opts.circuitBreaker.key, fetchAssignments)
@@ -124,7 +134,16 @@ export async function pollAssignments(opts: AssignmentsPollerOptions): Promise<A
     if (!newIds.has(todoId)) continue;
 
     try {
-      const normalized = normalizeAssignmentTodo(todo, account);
+      let detailedTodo = todo;
+      try {
+        detailedTodo = await hydrateTodo(client, todo);
+      } catch (err) {
+        // A transient detail request must not make a valid assignment disappear.
+        log?.warn?.(
+          `[${account.accountId}] failed to hydrate assignment todo id=${todo.id}; using summary: ${String(err)}`,
+        );
+      }
+      const normalized = normalizeAssignmentTodo(detailedTodo, account, `${todoId}:${Date.now()}`);
       events.push(normalized);
     } catch (err) {
       log?.warn?.(`[${account.accountId}] failed to normalize assignment todo id=${todo.id}: ${String(err)}`);
