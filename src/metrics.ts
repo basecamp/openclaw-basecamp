@@ -39,6 +39,13 @@ export interface ReconciliationMetrics {
   promotedTypes: string[];
 }
 
+/** Webhook-ingress health: set when the webhook route or secret store is broken. */
+export interface IngressMetrics {
+  unavailable: boolean;
+  reason: string | null;
+  since: number | null;
+}
+
 export interface AccountMetrics {
   poller: {
     activity: PollerSourceMetrics;
@@ -49,6 +56,7 @@ export interface AccountMetrics {
   webhook: WebhookMetrics & { authMethods: Record<string, number> };
   circuitBreaker: Record<string, CircuitBreakerMetrics>;
   reconciliation: ReconciliationMetrics;
+  ingress: IngressMetrics;
   dedupSize: number;
   webhookDedupSize: number;
   dispatchFailureCount: number;
@@ -97,6 +105,7 @@ function getOrCreate(accountId: string): AccountMetrics {
       webhook: { ...emptyWebhookMetrics(), authMethods: {} },
       circuitBreaker: {},
       reconciliation: { lastRunAt: null, replayed: 0, unseen: 0, promotedTypes: [] },
+      ingress: { unavailable: false, reason: null, since: null },
       dedupSize: 0,
       webhookDedupSize: 0,
       dispatchFailureCount: 0,
@@ -199,6 +208,22 @@ export function recordReconciliationRun(
   m.reconciliation.replayed = result.replayed;
   m.reconciliation.unseen = result.unseen;
   m.reconciliation.promotedTypes = result.promotedTypes;
+}
+
+/** Mark webhook ingress as broken (route unreachable, secret store failure, reconciliation dead). */
+export function recordIngressUnavailable(accountId: string, reason: string): void {
+  const m = getOrCreate(accountId);
+  if (!m.ingress.unavailable) m.ingress.since = Date.now();
+  m.ingress.unavailable = true;
+  m.ingress.reason = reason;
+}
+
+/** Clear the webhook-ingress failure flag after a successful reconciliation/delivery. */
+export function recordIngressAvailable(accountId: string): void {
+  const m = getOrCreate(accountId);
+  m.ingress.unavailable = false;
+  m.ingress.reason = null;
+  m.ingress.since = null;
 }
 
 export function recordUnknownKind(accountId: string, rawKind: string): void {
