@@ -103,25 +103,19 @@ describe("basecampSetupContract", () => {
   describe("applyAccountConfig", () => {
     it("drops a stale inline token when a tokenFile is supplied (and vice versa)", () => {
       const existing = cfg({ accounts: { default: { personId: "9", token: "old-inline" } } });
-      const parsed = basecampSetupContract.parseInput({ tokenFile: "/tmp/tok" });
-      if (!parsed.ok) throw new Error("parse failed");
-      const result = basecampSetupContract.adapter.applyAccountConfig({
+      const result = basecampSetupContract.applyAccountConfig({
         cfg: existing,
         accountId: "default",
-        input: parsed.value,
+        input: { tokenFile: "/tmp/tok" },
       });
       const account = (result.channels as any).basecamp.accounts.default;
       expect(account.tokenFile).toBe("/tmp/tok");
       expect(account.token).toBeUndefined();
 
-      const back = basecampSetupContract.adapter.applyAccountConfig({
+      const back = basecampSetupContract.applyAccountConfig({
         cfg: result,
         accountId: "default",
-        input: (() => {
-          const p = basecampSetupContract.parseInput({ token: "new-inline" });
-          if (!p.ok) throw new Error("parse");
-          return p.value;
-        })(),
+        input: { token: "new-inline" },
       });
       const account2 = (back.channels as any).basecamp.accounts.default;
       expect(account2.token).toBe("new-inline");
