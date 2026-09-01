@@ -422,7 +422,7 @@ describe("outbound.sendBasecampMedia", () => {
       50000,
       expect.objectContaining({ content: expect.stringContaining("hi") }),
     );
-    expect(result.conversationId).toBe("recording:50000");
+    expect(result.target).toEqual({ kind: "conversation", id: "recording:50000" });
   });
 
   it("rejects local media larger than the account's media limit", async () => {
