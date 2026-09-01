@@ -229,22 +229,35 @@ export const basecampConfigAdapter = {
   }),
   deleteAccount: ({ cfg, accountId }) => {
     const updated = scopedConfigAdapter.deleteAccount!({ cfg, accountId });
-    // Clean up persona entries pointing to the deleted account
     const section = getBasecampSection(updated);
-    if (section?.personas) {
-      const cleaned = { ...section.personas };
-      for (const [agentId, targetId] of Object.entries(cleaned)) {
-        if (targetId === accountId) delete cleaned[agentId];
+    if (!section) return updated;
+
+    // Aliases backed by the deleted account are dead config; personas that
+    // point at the account or at a removed alias would dangle.
+    const virtualAccounts = { ...(section.virtualAccounts ?? {}) };
+    const removedAliases = new Set<string>();
+    for (const [alias, va] of Object.entries(virtualAccounts)) {
+      if (va.accountId === accountId) {
+        delete virtualAccounts[alias];
+        removedAliases.add(alias);
       }
-      return {
-        ...updated,
-        channels: {
-          ...updated.channels,
-          basecamp: { ...section, personas: cleaned },
-        },
-      };
     }
-    return updated;
+    const personas = { ...(section.personas ?? {}) };
+    for (const [agentId, targetId] of Object.entries(personas)) {
+      if (targetId === accountId || removedAliases.has(targetId)) delete personas[agentId];
+    }
+
+    return {
+      ...updated,
+      channels: {
+        ...updated.channels,
+        basecamp: {
+          ...section,
+          ...(section.virtualAccounts ? { virtualAccounts } : {}),
+          ...(section.personas ? { personas } : {}),
+        },
+      },
+    };
   },
 } satisfies ChannelPlugin<ResolvedBasecampAccount>["config"];
 

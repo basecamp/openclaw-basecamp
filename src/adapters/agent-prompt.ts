@@ -39,8 +39,7 @@ const INBOUND_FORMATTING_RULES = [
   "Messages are delivered to Basecamp as rich-text HTML converted from Markdown.",
   "Supported Markdown: **bold**, *italic*, ~~strikethrough~~, `inline code`, fenced code blocks, " +
     "[links](url), unordered/ordered lists, > blockquotes, and # headings (rendered as h1).",
-  "Markdown tables are supported and render as native tables in rich-text surfaces (comments, messages); " +
-    "plain Campfire lines cannot render them. Raw HTML is not reliably supported.",
+  "Markdown tables are supported and render as native tables on every surface. Raw HTML is not reliably supported.",
   'To @mention a person, emit <bc-attachment sgid="..."></bc-attachment> using their attachable SGID; ' +
     "plain @name text does not notify.",
   "Campfire and Ping messages are chat lines; every other surface receives flat comments on the recording " +

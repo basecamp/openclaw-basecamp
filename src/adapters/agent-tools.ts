@@ -157,9 +157,15 @@ const toolErr = (error: string): BasecampToolResult => jsonResult({ ok: false as
 // ---------------------------------------------------------------------------
 
 const API_PATH_RE = /^\/[^\s]*$/;
+/** Literal or percent-encoded dot segments and backslashes — URL resolution collapses them past scope checks. */
+const API_PATH_TRAVERSAL_RE = /(^|\/)\.\.?(\/|$)|%2e|\\/i;
 
 function validateApiPath(path: string): string | undefined {
-  return API_PATH_RE.test(path) ? undefined : "Invalid API path: must start with '/' and contain no whitespace";
+  if (!API_PATH_RE.test(path)) return "Invalid API path: must start with '/' and contain no whitespace";
+  if (API_PATH_TRAVERSAL_RE.test(path)) {
+    return "Invalid API path: dot segments, encoded dots, and backslashes are not allowed";
+  }
+  return undefined;
 }
 
 // ---------------------------------------------------------------------------

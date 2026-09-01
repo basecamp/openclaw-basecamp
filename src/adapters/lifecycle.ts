@@ -51,6 +51,14 @@ async function evictAccountCaches(accountId: string): Promise<void> {
   clearClient(accountId);
 }
 
+/** virtualAccounts aliases backed by the given concrete account — their clients cache the same credentials. */
+function aliasesBackedBy(cfg: OpenClawConfig, accountId: string): string[] {
+  const virtualAccounts = getBasecampSection(cfg)?.virtualAccounts ?? {};
+  return Object.entries(virtualAccounts)
+    .filter(([, va]) => va.accountId === accountId)
+    .map(([alias]) => alias);
+}
+
 /** Best-effort file removal — missing files and permission noise are ignored. */
 async function removeQuietly(path: string): Promise<void> {
   await rm(path, { force: true }).catch(() => {});
@@ -60,11 +68,19 @@ export const basecampLifecycleAdapter: ChannelLifecycleAdapter = {
   onAccountConfigChanged: async ({ prevCfg, nextCfg, accountId }) => {
     if (credentialSignature(prevCfg, accountId) !== credentialSignature(nextCfg, accountId)) {
       await evictAccountCaches(accountId);
+      // Clients used through virtualAccounts aliases cache the same (now
+      // stale) credentials under the alias key.
+      for (const alias of new Set([...aliasesBackedBy(prevCfg, accountId), ...aliasesBackedBy(nextCfg, accountId)])) {
+        await evictAccountCaches(alias);
+      }
     }
   },
 
   onAccountRemoved: async ({ prevCfg, accountId }) => {
     await evictAccountCaches(accountId);
+    for (const alias of aliasesBackedBy(prevCfg, accountId)) {
+      await evictAccountCaches(alias);
+    }
     // Replay-guard entries are namespaced per account and expire on their
     // 24h TTL; there is no per-account store to drop.
     await closeRecordingIndex(accountId);
@@ -86,10 +102,21 @@ export const basecampLifecycleAdapter: ChannelLifecycleAdapter = {
     // OAuth token files: the configured path when set, else the default
     // location — plus the companion .client.json either way.
     const { resolveClientFilePath, resolveTokenFilePath } = await import("../oauth-credentials.js");
-    const configuredTokenFile = getBasecampSection(prevCfg)?.accounts?.[accountId]?.oauthTokenFile;
-    const tokenFile = configuredTokenFile ?? resolveTokenFilePath(accountId);
-    await removeQuietly(tokenFile);
-    await removeQuietly(resolveClientFilePath(tokenFile));
+    const prevSection = getBasecampSection(prevCfg);
+    const configuredTokenFile = prevSection?.accounts?.[accountId]?.oauthTokenFile;
+    // An explicit path may be shared between accounts (the schema doesn't
+    // require uniqueness) — only delete it when no remaining account
+    // references it. Default per-account paths are always safe to remove.
+    const sharedWithRemaining =
+      configuredTokenFile !== undefined &&
+      Object.entries(prevSection?.accounts ?? {}).some(
+        ([otherId, other]) => otherId !== accountId && other?.oauthTokenFile === configuredTokenFile,
+      );
+    if (!sharedWithRemaining) {
+      const tokenFile = configuredTokenFile ?? resolveTokenFilePath(accountId);
+      await removeQuietly(tokenFile);
+      await removeQuietly(resolveClientFilePath(tokenFile));
+    }
   },
 
   runStartupMaintenance: ({ cfg, log }) => {

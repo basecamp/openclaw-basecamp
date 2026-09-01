@@ -57,6 +57,24 @@ afterEach(() => {
 
 // ---------------------------------------------------------------------------
 // onAccountConfigChanged
+
+describe("virtual-account alias eviction", () => {
+  it("evicts alias caches when the backing account's credentials change", async () => {
+    const prevCfg = cfg({
+      accounts: { main: { personId: "1", token: "old" } },
+      virtualAccounts: { "proj-a": { accountId: "main", bucketId: "42" } },
+    });
+    const nextCfg = cfg({
+      accounts: { main: { personId: "1", token: "new" } },
+      virtualAccounts: { "proj-a": { accountId: "main", bucketId: "42" } },
+    });
+    await basecampLifecycleAdapter.onAccountConfigChanged!({ prevCfg, nextCfg, accountId: "main", runtime });
+    expect(clearClient).toHaveBeenCalledWith("main");
+    expect(clearClient).toHaveBeenCalledWith("proj-a");
+    expect(clearTokenManager).toHaveBeenCalledWith("proj-a");
+  });
+});
+
 // ---------------------------------------------------------------------------
 
 describe("onAccountConfigChanged", () => {

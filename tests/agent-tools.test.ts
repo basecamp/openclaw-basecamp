@@ -833,3 +833,16 @@ describe("scoped resource ownership verification", () => {
     expect(mockClient.todos.complete).toHaveBeenCalled();
   });
 });
+
+describe("API path traversal hardening", () => {
+  it("rejects dot segments, encoded dots, and backslashes", async () => {
+    const tool = buildBasecampTools(toolCtx()).find((t) => t.name === "basecamp_api_read")!;
+    for (const path of ["/buckets/111/../222/todos/9.json", "/buckets/111/%2e%2e/222.json", "/buckets\\111.json"]) {
+      const result = await tool.execute(`call-path-${path.length}`, { path });
+      const payload = JSON.parse((result.content[0] as { text: string }).text);
+      expect(payload.ok, path).toBe(false);
+      expect(payload.error, path).toContain("not allowed");
+    }
+    expect(mockClient.raw.GET).not.toHaveBeenCalled();
+  });
+});

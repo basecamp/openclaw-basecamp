@@ -35,6 +35,19 @@ describe("repairBasecampConfig", () => {
     expect(result.config).toBe(healthy);
   });
 
+  it("adds the wildcard for account allowFrom overrides under an inherited open policy", () => {
+    const result = repairBasecampConfig({
+      cfg: cfg({
+        dmPolicy: "open",
+        allowFrom: ["*"],
+        accounts: { main: { personId: "1", allowFrom: ["7"] } },
+      }),
+    });
+    const section = (result.config.channels as any).basecamp;
+    expect(section.accounts.main.allowFrom).toEqual(["7", "*"]);
+    expect(result.changes.some((c: string) => c.includes("accounts.main.allowFrom"))).toBe(true);
+  });
+
   it("keeps personas that target virtualAccounts aliases", () => {
     const result = repairBasecampConfig({
       cfg: cfg({

@@ -11,6 +11,7 @@
 import { recordOutboundMessageIdentity } from "openclaw/plugin-sdk/channel-outbound";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import { PlatformMessageNotDispatchedError } from "openclaw/plugin-sdk/error-runtime";
+import { MediaFetchError, readRemoteMediaBuffer } from "openclaw/plugin-sdk/media-runtime";
 import { parseOutboundTarget } from "../adapters/outbound.js";
 import { getClient, isBasecampError, numId, rawOrThrow } from "../basecamp-client.js";
 import type { CircuitBreaker } from "../circuit-breaker.js";
@@ -594,36 +595,6 @@ function mediaNameAndType(mediaUrl: string): { name: string; contentType: string
 /** Default remote-media cap when the account sets no mediaMaxMb. */
 const DEFAULT_MEDIA_MAX_MB = 25;
 
-async function readBoundedBody(response: Response, maxBytes: number, mediaUrl: string): Promise<Uint8Array> {
-  const reader = response.body?.getReader();
-  if (!reader) {
-    const buffer = new Uint8Array(await response.arrayBuffer());
-    if (buffer.byteLength > maxBytes) {
-      notDispatched(`Media from ${mediaUrl} exceeds the ${Math.floor(maxBytes / 1024 / 1024)} MB limit`);
-    }
-    return buffer;
-  }
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    total += value.byteLength;
-    if (total > maxBytes) {
-      await reader.cancel().catch(() => {});
-      notDispatched(`Media from ${mediaUrl} exceeds the ${Math.floor(maxBytes / 1024 / 1024)} MB limit`);
-    }
-    chunks.push(value);
-  }
-  const out = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    out.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return out;
-}
-
 async function loadMediaBytes(params: {
   mediaUrl: string;
   maxBytes: number;
@@ -632,20 +603,28 @@ async function loadMediaBytes(params: {
   const { mediaUrl, maxBytes, mediaReadFile } = params;
   const { name, contentType } = mediaNameAndType(mediaUrl);
   if (/^https?:\/\//.test(mediaUrl)) {
-    const response = await fetch(mediaUrl);
-    if (!response.ok) {
-      notDispatched(`Failed to fetch media from ${mediaUrl}: HTTP ${response.status}`, { retryable: true });
+    // The SDK's guarded media fetch: SSRF policy (private/loopback/link-local
+    // targets and redirect hops are rejected), plus a hard byte cap.
+    try {
+      const result = await readRemoteMediaBuffer({
+        url: mediaUrl,
+        maxBytes,
+        fetchImpl: (...args: Parameters<typeof fetch>) => fetch(...args),
+      });
+      return {
+        data: new Uint8Array(result.buffer),
+        contentType: result.contentType?.split(";")[0]?.trim() || contentType,
+        name: result.fileName ?? name,
+      };
+    } catch (err) {
+      if (err instanceof MediaFetchError && err.code === "max_bytes") {
+        notDispatched(`Media from ${mediaUrl} exceeds the ${Math.floor(maxBytes / 1024 / 1024)} MB limit`);
+      }
+      if (err instanceof MediaFetchError && err.code === "http_error") {
+        notDispatched(`Failed to fetch media from ${mediaUrl}: HTTP ${err.status ?? "error"}`, { retryable: true });
+      }
+      notDispatched(`Failed to fetch media from ${mediaUrl}: ${String(err)}`, { retryable: true });
     }
-    const declared = Number(response.headers.get("content-length") ?? "");
-    if (Number.isFinite(declared) && declared > maxBytes) {
-      notDispatched(`Media from ${mediaUrl} exceeds the ${Math.floor(maxBytes / 1024 / 1024)} MB limit`);
-    }
-    const headerType = response.headers.get("content-type")?.split(";")[0]?.trim();
-    return {
-      data: await readBoundedBody(response, maxBytes, mediaUrl),
-      contentType: headerType || contentType,
-      name,
-    };
   }
   const buffer = mediaReadFile
     ? await mediaReadFile(mediaUrl)

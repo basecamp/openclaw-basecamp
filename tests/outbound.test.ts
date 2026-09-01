@@ -449,22 +449,38 @@ describe("outbound.sendBasecampMedia", () => {
     index.record("779", { bucketId: "10", recordableType: "Todo" });
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => new Response("x", { status: 200, headers: { "content-length": String(999 * 1024 * 1024) } })),
+      vi.fn(async () => new Response(Buffer.alloc(2 * 1024 * 1024), { status: 200 })),
     );
     try {
       await expect(
         sendBasecampMedia({
-          cfg: makeCfg(accountId),
+          cfg: makeCfg(accountId, { mediaMaxMb: 1 }),
           to: "recording:779",
           text: "huge",
           mediaUrl: "https://example.com/huge.png",
           accountId,
         }),
-      ).rejects.toThrow(/exceeds the 25 MB limit/);
+      ).rejects.toThrow(/exceeds the 1 MB limit/);
       expect(mockClient.attachments.create).not.toHaveBeenCalled();
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+
+  it("rejects loopback media URLs (SSRF guard)", async () => {
+    const accountId = nextAccountId();
+    const index = await getRecordingIndex(accountId, stateDir);
+    index.record("781", { bucketId: "10", recordableType: "Todo" });
+    await expect(
+      sendBasecampMedia({
+        cfg: makeCfg(accountId),
+        to: "recording:781",
+        text: "ssrf",
+        mediaUrl: "http://127.0.0.1:1/secret",
+        accountId,
+      }),
+    ).rejects.toThrow(/Failed to fetch media/);
+    expect(mockClient.attachments.create).not.toHaveBeenCalled();
   });
 
   it("sends caption + URL as a line for campfire targets (no native chat embeds)", async () => {

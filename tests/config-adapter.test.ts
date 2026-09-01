@@ -145,6 +145,27 @@ describe("config.setAccountEnabled", () => {
 // ---------------------------------------------------------------------------
 
 describe("config.deleteAccount", () => {
+  it("removes virtualAccounts backed by the deleted account and personas targeting them", () => {
+    const updated = basecampChannel.config.deleteAccount!({
+      cfg: {
+        channels: {
+          basecamp: {
+            accounts: { gone: { personId: "1" }, keep: { personId: "2" } },
+            virtualAccounts: {
+              "proj-gone": { accountId: "gone", bucketId: "1" },
+              "proj-keep": { accountId: "keep", bucketId: "2" },
+            },
+            personas: { a: "gone", b: "proj-gone", c: "proj-keep" },
+          },
+        },
+      } as any,
+      accountId: "gone",
+    });
+    const section = (updated.channels as any).basecamp;
+    expect(section.virtualAccounts).toEqual({ "proj-keep": { accountId: "keep", bucketId: "2" } });
+    expect(section.personas).toEqual({ c: "proj-keep" });
+  });
+
   it("removes account entry", () => {
     const original = cfg({
       accounts: {

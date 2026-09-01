@@ -69,6 +69,7 @@ export function repairBasecampConfig({ cfg }: { cfg: OpenClawConfig }): DoctorMu
   if (section.accounts) {
     const repairedAccounts: Record<string, Record<string, unknown>> = {};
     let accountsChanged = false;
+    const channelPolicy = (next.dmPolicy ?? section.dmPolicy) as string | undefined;
     for (const [accountId, account] of Object.entries(accounts)) {
       const entry: Record<string, unknown> = { ...account };
       const before = changes.length;
@@ -78,6 +79,17 @@ export function repairBasecampConfig({ cfg }: { cfg: OpenClawConfig }): DoctorMu
         pathPrefix: `channels.basecamp.accounts.${accountId}.`,
         changes,
       });
+      // The helper only sees explicit per-account policies; an account that
+      // overrides allowFrom under an inherited channel-level "open" policy
+      // still needs the wildcard the schema requires.
+      const effectivePolicy = (entry.dmPolicy as string | undefined) ?? channelPolicy;
+      const allowFrom = entry.allowFrom as Array<string | number> | undefined;
+      if (effectivePolicy === "open" && Array.isArray(allowFrom) && !allowFrom.map(String).includes("*")) {
+        entry.allowFrom = [...allowFrom, "*"];
+        changes.push(
+          `channels.basecamp.accounts.${accountId}.allowFrom: added "*" (inherited dmPolicy "open" requires it)`,
+        );
+      }
       repairedAccounts[accountId] = changes.length > before ? entry : account;
       accountsChanged = accountsChanged || changes.length > before;
     }
