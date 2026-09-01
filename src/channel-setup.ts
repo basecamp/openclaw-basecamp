@@ -53,7 +53,7 @@ export const basecampChannelCapabilities = {
   chatTypes: ["direct", "group"],
   threads: false,
   reactions: true,
-  media: false,
+  media: true,
   nativeCommands: false,
   blockStreaming: false,
 } satisfies ChannelPlugin["capabilities"];

@@ -27,6 +27,10 @@ export const basecampMessagingAdapter: ChannelMessagingAdapter = {
   /** Provider prefixes accepted in explicit targets (SPEC §2.20). */
   targetPrefixes: ["basecamp", "bc"],
 
+  // Basecamp rich text accepts <table> (probed against a sandbox project,
+  // SPEC §8 Q4), so agent tables render natively instead of degrading.
+  defaultMarkdownTableMode: "block",
+
   normalizeTarget: (raw) => normalizeBasecampTarget(raw),
 
   /**
