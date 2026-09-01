@@ -150,7 +150,6 @@ export default defineChannelPluginEntry({
 });
 ```
 
-<!-- WP6 -->
 `registerBasecampTools` registers the ten `basecamp_*` tools with `api.registerTool`; each factory resolves the acting account from `ctx.agentId` via `channels.basecamp.personas` at call time and must not touch the runtime at registration (tool-discovery mode has none).
 
 **`setup-entry.ts`** (import-light entry, `package.json#openclaw.setupEntry`): `export default defineSetupPluginEntry(basecampSetupPlugin)` where `basecampSetupPlugin` (in `src/channel-setup.ts`) carries only `id, meta, capabilities, configSchema, config, setupWizard, setupContract, secrets`. The host loads it for `channels status`, `channels list`, and SecretRef scans without the Basecamp SDK client, webhooks, or poller; `tests/setup-entry-imports.test.ts` asserts the import graph stays light.
@@ -245,7 +244,7 @@ Document/Upload      Document, Upload, Vault      group       recording:<recordi
 
 Comments and chat lines are **child recordings** — they map to `meta.messageId`/`meta.eventId`, not peer identity. The peer is always the parent recording (the thread).
 
-**Project-level routing** goes through the canonical messaging grammar rather than an ad-hoc `parentPeer` on the inbound message. `messaging.resolveSessionConversation({ rawId: "recording:<r>" })` returns `{ id: "recording:<r>", baseConversationId: "bucket:<b>", parentConversationCandidates: ["bucket:<b>"] }`, looking the bucket up in the plugin-owned recording→bucket index (`src/inbound/recording-index.ts`, populated by every inbound path). <!-- WP4b --> The `bindings` adapter compiles a configured `bucket:<id>` binding so it matches any recording inside that project, with a direct `recording:<id>` binding winning on match priority. The `parentPeer` column above is therefore informational — it names the parent conversation the index will supply. `inferTargetChatType` maps `ping:` → direct and `recording:`/`bucket:` → group before any directory lookup.
+**Project-level routing** goes through the canonical messaging grammar rather than an ad-hoc `parentPeer` on the inbound message. `messaging.resolveSessionConversation({ rawId: "recording:<r>" })` returns `{ id: "recording:<r>", baseConversationId: "bucket:<b>", parentConversationCandidates: ["bucket:<b>"] }`, looking the bucket up in the plugin-owned recording→bucket index (`src/inbound/recording-index.ts`, populated by every inbound path). The `bindings` adapter compiles a configured `bucket:<id>` binding so it matches any recording inside that project, with a direct `recording:<id>` binding winning on match priority. The `parentPeer` column above is therefore informational — it names the parent conversation the index will supply. `inferTargetChatType` maps `ping:` → direct and `recording:`/`bucket:` → group before any directory lookup.
 
 ### 2.3 Account Mapping (Dual Strategy)
 
@@ -924,8 +923,7 @@ An index miss on a bare `recording:` target throws an error naming the explicit 
 
 ### Q23: Engagement → Turn Classification → **`conversation`/`activity` become ambient room events**
 
-<!-- WP4b -->
-`engage` still decides which events reach an agent at all. What changes is how they arrive: events admitted only because of `engage: ["conversation"]` (unmentioned Campfire lines, comments) or `["activity"]` (card moves, todo changes) are classified `room_event` by the turn adapter, while `dm`, `mention`, `assignment`, and `checkin` remain full user turns. With `messages.groupChat.unmentionedInbound: "room_event"` and `visibleReplies: "message_tool"`, ambient traffic is recorded as session context and the agent speaks only through the `message` tool — the "every card move wakes a full turn" cost of Phase 1 goes away for always-on projects. Bucket-level `requireMention: true` drops unmentioned traffic before classification. Bot-loop facts are attached whenever the sender is another configured persona.
+`engage` still decides which events reach an agent at all. What changes is how they arrive: events admitted only because of `engage: ["conversation"]` (unmentioned Campfire lines, comments) or `["activity"]` (card moves, todo changes) carry `inboundEventKind: room_event` (the SDK's `MessageFacts` contract — `ChannelEventClass.kind` has no room-event member), while `dm`, `mention`, `assignment`, and `checkin` remain `user_request`. Basecamp defaults the unmentioned-group policy to `room_event`; an explicit `messages.groupChat.unmentionedInbound` or per-agent `groupChat.unmentionedInbound` wins. Ambient traffic is recorded as session context and the agent speaks only through the `message` tool — the "every card move wakes a full turn" cost of Phase 1 goes away for always-on projects. Bucket-level `requireMention: true` drops unmentioned traffic before classification. Bot-loop facts are attached whenever the sender is another configured persona.
 
 ### Q24: Host Surfaces Off-Limits Until Catalogued → **Plugin-owned equivalents behind swappable seams**
 

@@ -831,6 +831,20 @@ export function resolveEngagePolicy(cfg: OpenClawConfig, bucketId: string): Base
   return DEFAULT_ENGAGE;
 }
 
+/**
+ * Basecamp defaults unmentioned project chatter to ambient room events
+ * (PLAN Q23): with `engage: conversation/activity`, every Campfire line and
+ * card move would otherwise wake a full agent turn. An explicit operator
+ * setting still wins — `messages.groupChat.unmentionedInbound` globally, or
+ * the routed agent's `groupChat.unmentionedInbound` (the SDK resolver gives
+ * the per-agent value precedence).
+ */
+function withBasecampAmbientDefault(cfg: OpenClawConfig): OpenClawConfig {
+  const groupChat = cfg.messages?.groupChat;
+  if (groupChat?.unmentionedInbound !== undefined) return cfg;
+  return { ...cfg, messages: { ...cfg.messages, groupChat: { ...groupChat, unmentionedInbound: "room_event" } } };
+}
+
 /** Engagements that are room activity rather than something addressed to the agent. */
 const AMBIENT_ENGAGEMENTS: ReadonlySet<BasecampEngagementType> = new Set(["conversation", "activity"]);
 
@@ -855,7 +869,7 @@ export function classifyBasecampInboundEventKind(params: {
   const { cfg, agentId, chatKind, engagement } = params;
   return classifyChannelInboundEvent({
     conversation: { kind: chatKind },
-    unmentionedGroupPolicy: resolveUnmentionedGroupInboundPolicy({ cfg, agentId }),
+    unmentionedGroupPolicy: resolveUnmentionedGroupInboundPolicy({ cfg: withBasecampAmbientDefault(cfg), agentId }),
     // Directed engagements address the agent the way a mention does.
     wasMentioned: !AMBIENT_ENGAGEMENTS.has(engagement),
   });

@@ -16,7 +16,7 @@ This plugin is developed independently by the 37signals team and can later be no
 - **Outbound:** `createChatChannelPlugin` outbound slot with real `sendText`/`sendMedia`; targets `recording:<id>`, `bucket:<id>` (default Campfire), `bucket:<b>/recording:<r>` (cold send), `ping:<id>`; presentation blocks rendered to Basecamp HTML (tables, dividers, headings accepted; buttons/selects/charts degrade to text).
 - **Auth:** OAuth browser-based login with automatic token refresh; tokens under `<stateDir>/plugins/basecamp/tokens/`. Onboarding imports credentials from the Basecamp CLI if available. Secret-bearing config fields accept SecretRefs.
 - **Resilience:** Per-source circuit breakers on polling (surfaced as `lifecycle: "recovering"`), exponential backoff retry on outbound sends, bounded webhook in-flight limiter, graceful shutdown with webhook deactivation and state flush.
-- **Agent tools:** 10 channel-specific tools (create/complete/reopen todos, boost, move cards, post messages, answer check-ins, read history, generic API read/write). <!-- WP6 --> Registered via `api.registerTool` factories in `registerFull`, declared in the manifest's `contracts.tools`, and executed under the persona account resolved from `ctx.agentId`.
+- **Agent tools:** 10 channel-specific tools (create/complete/reopen todos, boost, move cards, post messages, answer check-ins, read history, generic API read/write). Registered via `api.registerTool` factories in `registerFull`, declared in the manifest's `contracts.tools`, and executed under the persona account resolved from `ctx.agentId`.
 
 ## Source Layout
 
@@ -49,7 +49,7 @@ src/adapters/               SDK adapter implementations
   lifecycle.ts              onAccountConfigChanged / onAccountRemoved / startup maintenance
   directory.ts              People lookup and resolution
   messaging.ts              Target prefixes, chat-type inference, resolveSessionConversation, session routes
-  agent-tools.ts            10 Basecamp-specific agent tools
+  agent-tools.ts            10 Basecamp-specific agent tools (api.registerTool factory, persona via ctx.agentId)
   agent-prompt.ts           Channel-specific prompt hints (peer ids, mentions, surfaces, reactions)
   actions.ts                Message-level actions (send, react, etc.)
   outbound.ts               Target grammar parsing and chunk limit
@@ -79,6 +79,9 @@ src/inbound/                Event fabric
   dock-cache.ts             Project dock structure cache
   state-dir.ts              Plugin state directory (<stateDir>/plugins/basecamp)
 
+src/tools/
+  catalog.ts                Canonical basecamp_* tool names + toolMetadata (import-free; feeds the manifest)
+
 src/outbound/               Message sending
   send.ts                   Target resolution, chat lines, comments, media via Basecamp SDK
   format.ts                 HTML/Markdown formatting
@@ -90,7 +93,7 @@ src/mentions/               bc-attachment SGID parsing
 scripts/generate-manifest.ts  Emits openclaw.plugin.json (channelConfigs, contracts.tools) from code
 scripts/verify-pack.sh        Asserts the npm pack ships manifest + both entries
 
-tests/                      1360 tests across 76 files
+tests/                      1416 tests across 78 files
 ```
 
 ## For the Dev Agent
@@ -155,7 +158,7 @@ Coworker skills (54 SKILL.md files across security, bugs, support, exceptions, p
 ### Testing
 
 - `npm run check` -- typecheck + lint + tests (what CI runs).
-- `npm test` -- 1360 tests across 76 files; `npx vitest run --coverage` enforces >85% coverage thresholds.
+- `npm test` -- 1416 tests across 78 files; `npx vitest run --coverage` enforces >85% coverage thresholds.
 - `npm run typecheck` -- zero-error TypeScript.
 - `npm run manifest:gen` -- regenerate `openclaw.plugin.json` after touching the config schema, uiHints, or tool names; the manifest contract test fails otherwise.
 - `bash scripts/verify-pack.sh` -- confirms the pack ships `openclaw.plugin.json`, `dist/index.js`, and `dist/setup-entry.js`.

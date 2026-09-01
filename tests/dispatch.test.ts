@@ -588,8 +588,17 @@ describe("ambient room events", () => {
     expect(kernel.lastCtx().InboundEventKind).toBe("user_request");
   });
 
-  it("defaults ambient traffic to user_request when no unmentioned-group policy is configured", async () => {
+  it("defaults ambient traffic to room_event when no unmentioned-group policy is configured", async () => {
     mockCfg.messages = undefined;
+    mockCfg.channels.basecamp.engage = ["conversation"];
+
+    await dispatchBasecampEvent(ambient({ recordableType: "Chat::Line" }), { account: mockAccount, cfg: mockCfg });
+
+    expect(kernel.lastCtx().InboundEventKind).toBe("room_event");
+  });
+
+  it("honors an explicit global user_request policy over the Basecamp ambient default", async () => {
+    mockCfg.messages = { groupChat: { unmentionedInbound: "user_request" } };
     mockCfg.channels.basecamp.engage = ["conversation"];
 
     await dispatchBasecampEvent(ambient({ recordableType: "Chat::Line" }), { account: mockAccount, cfg: mockCfg });

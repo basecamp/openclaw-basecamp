@@ -79,8 +79,9 @@ channels:
 
 messages:
   groupChat:
-    # <!-- WP4b --> Unmentioned project chatter (engage: conversation/activity)
-    # becomes quiet context; the agent speaks only by calling the message tool.
+    # Unmentioned project chatter (engage: conversation/activity) becomes quiet
+    # context; the agent speaks only by calling the message tool. This is the
+    # Basecamp default — set user_request to make every engaged event a turn.
     unmentionedInbound: room_event
     visibleReplies: message_tool
 

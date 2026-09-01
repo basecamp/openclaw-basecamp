@@ -99,13 +99,12 @@ channels:
 
 ### Ambient project chatter
 
-<!-- WP4b -->
-Events that reach an agent because of `engage: ["conversation", "activity"]` -- unmentioned Campfire lines, comments, card moves -- are classified as room events rather than user turns. With OpenClaw's ambient room-event settings the agent sees them as quiet context and speaks only by calling the `message` tool:
+Events that reach an agent because of `engage: ["conversation", "activity"]` -- unmentioned Campfire lines, comments, card moves -- are classified as room events rather than user turns by default: the agent sees them as quiet context and speaks only by calling the `message` tool. Set `messages.groupChat.unmentionedInbound: user_request` (globally, or per agent under `groupChat`) to make every engaged event a full turn again; `visibleReplies: message_tool` keeps ambient replies on the tool path:
 
 ```yaml
 messages:
   groupChat:
-    unmentionedInbound: room_event
+    unmentionedInbound: room_event   # Basecamp default; user_request opts out
     visibleReplies: message_tool
 ```
 
@@ -167,8 +166,7 @@ Agents connected through this channel have access to the following tools:
 | `basecamp_api_read` | GET any Basecamp 3 API resource (projects, people, todos, documents, schedules, etc.) |
 | `basecamp_api_write` | POST/PUT/DELETE any Basecamp 3 API resource |
 
-<!-- WP6 -->
-Tools are registered through `api.registerTool` and listed in the manifest's `contracts.tools`, so they appear on the capability-consent screen and can be allowlisted per agent with `tools.allow: ["basecamp"]` (every tool from the plugin) or by name. A tool call runs under the account mapped for the calling agent in `channels.basecamp.personas`, falling back to the default account.
+Tools are registered through `api.registerTool` and listed in the manifest's `contracts.tools`, so they appear on the capability-consent screen and can be allowlisted per agent with `tools.allow: ["basecamp"]` (every tool from the plugin) or by name. A tool call runs under the account mapped for the calling agent in `channels.basecamp.personas`, falling back to the default account. Without any configured account the tools still register and return `{ ok: false, error }` naming the missing config instead of silently disappearing.
 
 ## State and backups
 
