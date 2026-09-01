@@ -3,7 +3,6 @@ import { type ChannelPlugin, createChannelPluginBase, createChatChannelPlugin } 
 import { channelBlockedPatch, channelReadyPatch, channelStoppedPatch } from "openclaw/plugin-sdk/gateway-runtime";
 import { basecampActionsAdapter } from "./adapters/actions.js";
 import { basecampAgentPromptAdapter } from "./adapters/agent-prompt.js";
-import { basecampAgentTools } from "./adapters/agent-tools.js";
 import { basecampDirectoryAdapter } from "./adapters/directory.js";
 import { basecampDoctorAdapter } from "./adapters/doctor.js";
 import { basecampGroupAdapter } from "./adapters/groups.js";
@@ -132,7 +131,9 @@ const basecampChannelBase = {
 
   actions: basecampActionsAdapter,
 
-  agentTools: basecampAgentTools,
+  // Agent tools are registered via api.registerTool in the entry's
+  // registerFull (src/adapters/agent-tools.ts), not the channel slot — the
+  // tool context carries agentId, which is what persona mapping needs.
 
   elevated: {
     allowFromFallback: () => undefined,
@@ -196,13 +197,6 @@ const basecampChannelBase = {
       if (configJson !== lastValidatedConfigJson) {
         lastValidatedConfigJson = configJson;
         if (startupSection?.personas) {
-          // Warn about persona limitation with agent tools
-          if (Object.keys(startupSection.personas).length > 0) {
-            ctx.log?.warn(
-              "Agent tools execute under the default account; " +
-                "persona-mapped accounts are not yet supported for tool calls",
-            );
-          }
           for (const [agentId, targetAccountId] of Object.entries(startupSection.personas)) {
             const targetAccounts = startupSection.accounts ?? {};
             if (!targetAccounts[targetAccountId]) {
