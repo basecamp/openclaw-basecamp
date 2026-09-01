@@ -94,6 +94,17 @@ describe("presentation.render", () => {
     expect(md).toContain("a \\| b");
   });
 
+  it("escapes backslashes before pipes so a trailing backslash cannot unescape the pipe", () => {
+    const md = renderBasecampPresentationMarkdown({
+      blocks: [{ type: "table", caption: "", headers: ["Path", "Note"], rows: [["C:\\", "x|y"]] }],
+    });
+    expect(md).toContain("| C:\\\\ | x\\|y |");
+    const html = markdownToBasecampHtml(md!);
+    expect(html).toContain("<td>C:\\</td>");
+    expect(html).toContain("<td>x|y</td>");
+    expect(html).not.toContain("<td>x</td>");
+  });
+
   it("renders button blocks as fallback text with URLs, never callback IDs", () => {
     const md = renderBasecampPresentationMarkdown({
       blocks: [

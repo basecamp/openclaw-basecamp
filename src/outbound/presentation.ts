@@ -41,9 +41,13 @@ export const BASECAMP_PRESENTATION_CAPABILITIES: ChannelPresentationCapabilities
   },
 };
 
-/** Escape pipe characters so cell content cannot break Markdown table rows. */
+/**
+ * Escape cell content so it cannot break Markdown table rows: backslashes
+ * first (so a trailing "\" cannot neutralize the pipe escape), then pipes;
+ * newlines collapse to spaces. `markdownToBasecampHtml` reverses the escapes.
+ */
 function escapeTableCell(cell: string | number): string {
-  return String(cell).replace(/\|/g, "\\|").replace(/\n/g, " ");
+  return String(cell).replace(/\\/g, "\\\\").replace(/\|/g, "\\|").replace(/\n/g, " ");
 }
 
 function renderTableMarkdown(block: {
