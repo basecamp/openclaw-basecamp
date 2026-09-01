@@ -24,7 +24,7 @@
     "openclaw.plugin.json"
   ],
   "engines": {
-    "node": ">=22.5"
+    "node": ">=22.22.3 <23 || >=24.15.0 <25 || >=25.9.0"
   },
   "scripts": {
     "build": "tsc",
@@ -40,7 +40,7 @@
   "devDependencies": {
     "@biomejs/biome": "2.5.7",
     "@vitest/coverage-v8": "^4.1.10",
-    "openclaw": "2026.7.1",
+    "openclaw": "2026.8.1",
     "typescript": "^7.0.2",
     "vitest": "^4.1.10"
   },
@@ -58,11 +58,28 @@
     },
     "install": {
       "npmSpec": "@37signals/openclaw-basecamp",
-      "defaultChoice": "npm"
+      "defaultChoice": "npm",
+      "minHostVersion": ">=2026.8.1"
+    },
+    "compat": {
+      "pluginApi": ">=2026.8.1"
+    },
+    "build": {
+      "openclawVersion": "2026.8.1",
+      "pluginSdkVersion": "2026.8.1"
     }
   },
   "dependencies": {
     "@37signals/basecamp": "0.13.0",
-    "@sinclair/typebox": "^0.34.52"
+    "zod": "4.4.3",
+    "typebox": "1.3.16"
+  },
+  "peerDependencies": {
+    "openclaw": ">=2026.8.1"
+  },
+  "peerDependenciesMeta": {
+    "openclaw": {
+      "optional": true
+    }
   }
 }
