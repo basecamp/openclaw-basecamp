@@ -1,37 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // ---------------------------------------------------------------------------
-// Mock openclaw/plugin-sdk
-// ---------------------------------------------------------------------------
-
-vi.mock("openclaw/plugin-sdk/setup", () => ({
-  applyAccountNameToChannelSection: (params: { cfg: any; channelKey: string; accountId: string; name?: string }) => {
-    if (!params.name?.trim()) return params.cfg;
-    const section = params.cfg.channels?.[params.channelKey] ?? {};
-    const accounts = section.accounts ?? {};
-    return {
-      ...params.cfg,
-      channels: {
-        ...params.cfg.channels,
-        [params.channelKey]: {
-          ...section,
-          accounts: {
-            ...accounts,
-            [params.accountId]: {
-              ...accounts[params.accountId],
-              name: params.name.trim(),
-            },
-          },
-        },
-      },
-    };
-  },
-}));
-vi.mock("openclaw/plugin-sdk/channel-status", () => ({
-  PAIRING_APPROVED_MESSAGE: "You have been approved to message this agent.",
-}));
-
-// ---------------------------------------------------------------------------
 // Mock Basecamp CLI module
 // ---------------------------------------------------------------------------
 
@@ -91,68 +60,11 @@ vi.mock("@37signals/basecamp/oauth", () => ({
 }));
 
 // ---------------------------------------------------------------------------
-// Mock config module
-// ---------------------------------------------------------------------------
-
-vi.mock("../src/config.js", () => ({
-  listBasecampAccountIds: (cfg: any) => {
-    const accounts = cfg.channels?.basecamp?.accounts;
-    if (!accounts || Object.keys(accounts).length === 0) return ["default"];
-    return Object.keys(accounts).sort();
-  },
-  resolveDefaultBasecampAccountId: (cfg: any) => {
-    const accounts = cfg.channels?.basecamp?.accounts;
-    if (!accounts || Object.keys(accounts).length === 0) return "default";
-    const ids = Object.keys(accounts).sort();
-    return ids.includes("default") ? "default" : ids[0];
-  },
-  resolveBasecampAccount: (cfg: any, accountId?: string) => {
-    const id = accountId ?? "default";
-    const accounts = cfg.channels?.basecamp?.accounts ?? {};
-    const section = cfg.channels?.basecamp ?? {};
-    const acct = accounts[id];
-    if (!acct) {
-      return {
-        accountId: id,
-        enabled: false,
-        personId: "",
-        token: "",
-        tokenSource: "none",
-        oauthClientId: section.oauth?.clientId,
-        oauthClientSecret: section.oauth?.clientSecret,
-        config: { personId: "" },
-      };
-    }
-    let tokenSource = "none";
-    if (acct.token) tokenSource = "config";
-    else if (acct.tokenFile) tokenSource = "tokenFile";
-    else if (acct.oauthTokenFile) tokenSource = "oauth";
-    return {
-      accountId: id,
-      enabled: acct.enabled !== false,
-      personId: acct.personId ?? "",
-      displayName: acct.displayName,
-      token: acct.token ?? "",
-      tokenSource,
-      cliProfile: acct.cliProfile,
-      oauthClientId: acct.oauthClientId ?? section.oauth?.clientId,
-      oauthClientSecret: acct.oauthClientSecret ?? section.oauth?.clientSecret,
-      config: acct,
-    };
-  },
-  resolveBasecampDmPolicy: (cfg: any) => {
-    const section = cfg?.channels?.basecamp;
-    return section?.dmPolicy ?? "allowlist";
-  },
-}));
-
-// ---------------------------------------------------------------------------
-// Import adapters under test
+// Import adapters under test (real config + SDK wizard helpers, un-mocked)
 // ---------------------------------------------------------------------------
 
 import { basecampSetupWizard } from "../src/adapters/onboarding.js";
 import { basecampPairingAdapter } from "../src/adapters/pairing.js";
-import { basecampSetupAdapter } from "../src/adapters/setup.js";
 import { basecampStatusAdapter } from "../src/adapters/status.js";
 
 // ---------------------------------------------------------------------------
@@ -168,8 +80,8 @@ function cfgWithAccounts(accounts: Record<string, Record<string, unknown>>) {
   return cfg({ accounts });
 }
 
-/** Mock listAccountIds matching the mock config module's behavior. */
-function mockListAccountIds(c: any) {
+/** listAccountIds callback matching the real config module's behavior. */
+function listAccountIds(c: any) {
   const accounts = c.channels?.basecamp?.accounts;
   if (!accounts || Object.keys(accounts).length === 0) return ["default"];
   return Object.keys(accounts).sort();
@@ -212,13 +124,17 @@ describe("basecampSetupWizard", () => {
     });
   });
 
-  describe("status.resolveConfigured", () => {
-    it("returns false for empty config", () => {
-      const result = basecampSetupWizard.status.resolveConfigured({ cfg: {} as any });
-      expect(result).toBe(false);
+  describe("status (createStandardChannelSetupStatus)", () => {
+    it("labels configured and unconfigured states", () => {
+      expect(basecampSetupWizard.status.configuredLabel).toBe("configured");
+      expect(basecampSetupWizard.status.unconfiguredLabel).toBe("needs setup");
     });
 
-    it("returns true when account has token and personId", () => {
+    it("resolveConfigured returns false for empty config", () => {
+      expect(basecampSetupWizard.status.resolveConfigured({ cfg: {} as any })).toBe(false);
+    });
+
+    it("resolveConfigured returns true when account has token and personId", () => {
       const result = basecampSetupWizard.status.resolveConfigured({
         cfg: cfgWithAccounts({
           default: { personId: "123", token: "tok" },
@@ -227,7 +143,7 @@ describe("basecampSetupWizard", () => {
       expect(result).toBe(true);
     });
 
-    it("returns false when account uses only cliProfile (no runtime auth)", () => {
+    it("resolveConfigured returns false when account uses only cliProfile (no runtime auth)", () => {
       const result = basecampSetupWizard.status.resolveConfigured({
         cfg: cfgWithAccounts({
           default: { personId: "123", cliProfile: "dev" },
@@ -236,7 +152,7 @@ describe("basecampSetupWizard", () => {
       expect(result).toBe(false);
     });
 
-    it("returns false when personId is missing", () => {
+    it("resolveConfigured returns false when personId is missing", () => {
       const result = basecampSetupWizard.status.resolveConfigured({
         cfg: cfgWithAccounts({
           default: { token: "tok" },
@@ -253,7 +169,7 @@ describe("basecampSetupWizard", () => {
         cfg: {} as any,
         prompter,
         shouldPromptAccountIds: false,
-        listAccountIds: mockListAccountIds,
+        listAccountIds,
         defaultAccountId: "default",
       });
       expect(result).toBe("default");
@@ -266,7 +182,7 @@ describe("basecampSetupWizard", () => {
         prompter,
         accountOverride: "My Custom ID",
         shouldPromptAccountIds: false,
-        listAccountIds: mockListAccountIds,
+        listAccountIds,
         defaultAccountId: "default",
       });
       expect(result).toBe("my-custom-id");
@@ -281,7 +197,7 @@ describe("basecampSetupWizard", () => {
         cfg: {} as any,
         prompter,
         shouldPromptAccountIds: true,
-        listAccountIds: mockListAccountIds,
+        listAccountIds,
         defaultAccountId: "default",
       });
       expect(result).toBe("staging-bot");
@@ -295,7 +211,7 @@ describe("basecampSetupWizard", () => {
         cfg: cfgWithAccounts({ work: { personId: "1" } }),
         prompter,
         shouldPromptAccountIds: true,
-        listAccountIds: mockListAccountIds,
+        listAccountIds,
         defaultAccountId: "default",
       });
       expect(result).toBe("work");
@@ -317,7 +233,7 @@ describe("basecampSetupWizard", () => {
       });
 
       const prompter = createPrompter({
-        textAnswers: ["client-id", ""],
+        textAnswers: ["aabbccdd00112233445566778899aabbccddeeff", ""],
         selectAnswers: ["done"],
       });
 
@@ -327,7 +243,7 @@ describe("basecampSetupWizard", () => {
         prompter: createPrompter(),
         accountOverride: "My Custom ID",
         shouldPromptAccountIds: false,
-        listAccountIds: mockListAccountIds,
+        listAccountIds,
         defaultAccountId: "default",
       });
       expect(accountId).toBe("my-custom-id");
@@ -343,7 +259,7 @@ describe("basecampSetupWizard", () => {
       });
 
       const nextCfg = result!.cfg!;
-      const accounts = nextCfg.channels.basecamp.accounts;
+      const accounts = (nextCfg.channels as any).basecamp.accounts;
 
       // Config key is normalized — no raw "My Custom ID" key
       expect(accounts["My Custom ID"]).toBeUndefined();
@@ -367,7 +283,7 @@ describe("basecampSetupWizard", () => {
       });
 
       const prompter = createPrompter({
-        textAnswers: ["test-client-id", ""],
+        textAnswers: ["aabbccdd00112233445566778899aabbccddeeff", ""],
         selectAnswers: ["done"],
       });
 
@@ -381,15 +297,15 @@ describe("basecampSetupWizard", () => {
       });
 
       const nextCfg = result!.cfg!;
-      expect(nextCfg.channels.basecamp.enabled).toBe(true);
-      const account = nextCfg.channels.basecamp.accounts.default;
+      expect((nextCfg.channels as any).basecamp.enabled).toBe(true);
+      const account = (nextCfg.channels as any).basecamp.accounts.default;
       expect(account.personId).toBe("99");
       expect(account.oauthTokenFile).toBe("/tmp/tokens/default.json");
       expect(account.basecampAccountId).toBe("12345");
       expect(account.cliProfile).toBeUndefined();
       expect(account.oauthClientId).toBeUndefined();
       expect(account.oauthClientSecret).toBeUndefined();
-      expect(nextCfg.channels.basecamp.oauth?.clientId).toBe("test-client-id");
+      expect((nextCfg.channels as any).basecamp.oauth?.clientId).toBe("aabbccdd00112233445566778899aabbccddeeff");
     });
 
     it("uses existing channel-level OAuth clientId without prompting", async () => {
@@ -415,10 +331,41 @@ describe("basecampSetupWizard", () => {
         forceAllowFrom: false,
       });
 
-      const account = result!.cfg!.channels.basecamp.accounts.default;
+      const account = (result!.cfg!.channels as any).basecamp.accounts.default;
       expect(account.personId).toBe("42");
       expect(account.oauthTokenFile).toBe("/tmp/tokens/default.json");
       expect(prompter.note).not.toHaveBeenCalledWith(expect.stringContaining("OAuth app"), expect.any(String));
+    });
+
+    it("passes prompter.openUrl through to interactiveLogin when present", async () => {
+      mockCliProfileListFull.mockRejectedValue(new Error("not installed"));
+      mockResolveTokenFilePath.mockReturnValue("/tmp/tokens/default.json");
+      mockInteractiveLogin.mockResolvedValue({ accessToken: "tok", tokenType: "Bearer" });
+      mockDiscoverIdentity.mockResolvedValue({
+        identity: { id: 42, firstName: "J", lastName: "", emailAddress: "j@test.com" },
+        accounts: [{ id: 100, name: "Acme", product: "bc3" }],
+      });
+
+      const prompter = createPrompter({ selectAnswers: ["done"] });
+      prompter.openUrl = vi.fn(async () => {});
+      const existingCfg = cfg({
+        oauth: { clientId: "aabbccdd00112233445566778899aabbccddeeff" },
+      });
+
+      await basecampSetupWizard.finalize!({
+        cfg: existingCfg,
+        accountId: "default",
+        credentialValues: {},
+        runtime: {} as any,
+        prompter,
+        forceAllowFrom: false,
+      });
+
+      expect(mockInteractiveLogin).toHaveBeenCalledTimes(1);
+      const overrides = mockInteractiveLogin.mock.calls[0]![1];
+      expect(typeof overrides.openUrl).toBe("function");
+      await overrides.openUrl("https://launchpad.example/authorize");
+      expect(prompter.openUrl).toHaveBeenCalledWith("https://launchpad.example/authorize");
     });
 
     it("preserves per-account oauthClientId when not prompting for new credentials", async () => {
@@ -452,9 +399,35 @@ describe("basecampSetupWizard", () => {
         forceAllowFrom: false,
       });
 
-      const account = result!.cfg!.channels.basecamp.accounts.work;
+      const account = (result!.cfg!.channels as any).basecamp.accounts.work;
       expect(account.oauthClientId).toBe("1122334455667788990011223344556677889900");
       expect(account.oauthClientSecret).toBe("per-account-secret");
+    });
+
+    it("leaves dmPolicy untouched (pairing is honored by the ingress resolver)", async () => {
+      mockCliProfileListFull.mockRejectedValue(new Error("not installed"));
+      mockResolveTokenFilePath.mockReturnValue("/tmp/tokens/default.json");
+      mockInteractiveLogin.mockResolvedValue({ accessToken: "tok", tokenType: "Bearer" });
+      mockDiscoverIdentity.mockResolvedValue({
+        identity: { id: 1, firstName: "Bot", lastName: "", emailAddress: "b@t.com" },
+        accounts: [{ id: 100, name: "Co", product: "bc3" }],
+      });
+
+      const prompter = createPrompter({
+        textAnswers: ["aabbccdd00112233445566778899aabbccddeeff", ""],
+        selectAnswers: ["done"],
+      });
+
+      const result = await basecampSetupWizard.finalize!({
+        cfg: cfg({ dmPolicy: "pairing" }),
+        accountId: "default",
+        credentialValues: {},
+        runtime: {} as any,
+        prompter,
+        forceAllowFrom: false,
+      });
+
+      expect((result!.cfg!.channels as any).basecamp.dmPolicy).toBe("pairing");
     });
   });
 
@@ -492,7 +465,7 @@ describe("basecampSetupWizard", () => {
       });
 
       const nextCfg = result!.cfg!;
-      const account = nextCfg.channels.basecamp.accounts.default;
+      const account = (nextCfg.channels as any).basecamp.accounts.default;
       expect(account.cliProfile).toBe("dev");
       expect(account.personId).toBe("5");
       expect(account.basecampAccountId).toBe("100");
@@ -508,7 +481,7 @@ describe("basecampSetupWizard", () => {
         }),
       );
       expect(mockExportCliCredentials).toHaveBeenCalledWith("http://3.basecamp.localhost:3001");
-      expect(nextCfg.channels.basecamp.oauth).toBeUndefined();
+      expect((nextCfg.channels as any).basecamp.oauth).toBeUndefined();
     });
 
     it("falls back to OAuth when CLI credential import fails", async () => {
@@ -524,7 +497,10 @@ describe("basecampSetupWizard", () => {
         accounts: [{ id: 100, name: "Co", product: "bc3" }],
       });
 
-      const prompter = createPrompter({ selectAnswers: ["cli", "done"], textAnswers: ["fallback-client", ""] });
+      const prompter = createPrompter({
+        selectAnswers: ["cli", "done"],
+        textAnswers: ["aabbccdd00112233445566778899aabbccddeeff", ""],
+      });
 
       const result = await basecampSetupWizard.finalize!({
         cfg: {} as any,
@@ -535,96 +511,67 @@ describe("basecampSetupWizard", () => {
         forceAllowFrom: false,
       });
 
-      const account = result!.cfg!.channels.basecamp.accounts.default;
+      const account = (result!.cfg!.channels as any).basecamp.accounts.default;
       expect(mockInteractiveLogin).toHaveBeenCalled();
       expect(account.oauthTokenFile).toBe("/tmp/tokens/default.json");
       expect(account.personId).toBe("42");
     });
   });
 
-  describe("finalize — DM policy normalization", () => {
-    it("rewrites pairing to allowlist in finalize output", async () => {
-      mockCliProfileListFull.mockRejectedValue(new Error("not installed"));
-      mockResolveTokenFilePath.mockReturnValue("/tmp/tokens/default.json");
-      mockInteractiveLogin.mockResolvedValue({ accessToken: "tok", refreshToken: "ref", tokenType: "Bearer" });
-      mockDiscoverIdentity.mockResolvedValue({
-        identity: { id: 1, firstName: "Bot", lastName: "", emailAddress: "b@t.com" },
-        accounts: [{ id: 100, name: "Co", product: "bc3" }],
-      });
-
-      const prompter = createPrompter({
-        textAnswers: ["client-id", ""],
-        selectAnswers: ["done"],
-      });
-
-      // Simulate the generic setup host having written dmPolicy: "pairing"
-      const inputCfg = cfg({ dmPolicy: "pairing" });
-
-      const result = await basecampSetupWizard.finalize!({
-        cfg: inputCfg,
-        accountId: "default",
-        credentialValues: {},
-        runtime: {} as any,
-        prompter,
-        forceAllowFrom: false,
-      });
-
-      // finalize should have rewritten pairing → allowlist
-      expect(result!.cfg!.channels.basecamp.dmPolicy).toBe("allowlist");
-    });
-
-    it("preserves explicit open policy", async () => {
-      mockCliProfileListFull.mockRejectedValue(new Error("not installed"));
-      mockResolveTokenFilePath.mockReturnValue("/tmp/tokens/default.json");
-      mockInteractiveLogin.mockResolvedValue({ accessToken: "tok", refreshToken: "ref", tokenType: "Bearer" });
-      mockDiscoverIdentity.mockResolvedValue({
-        identity: { id: 1, firstName: "Bot", lastName: "", emailAddress: "b@t.com" },
-        accounts: [{ id: 100, name: "Co", product: "bc3" }],
-      });
-
-      const prompter = createPrompter({
-        textAnswers: ["client-id", ""],
-        selectAnswers: ["done"],
-      });
-
-      const inputCfg = cfg({ dmPolicy: "open" });
-
-      const result = await basecampSetupWizard.finalize!({
-        cfg: inputCfg,
-        accountId: "default",
-        credentialValues: {},
-        runtime: {} as any,
-        prompter,
-        forceAllowFrom: false,
-      });
-
-      expect(result!.cfg!.channels.basecamp.dmPolicy).toBe("open");
-    });
-  });
-
-  describe("dmPolicy", () => {
-    it("has correct channel and keys", () => {
+  describe("dmPolicy (createChannelDmPolicy)", () => {
+    it("has correct channel and default keys", () => {
       const dp = basecampSetupWizard.dmPolicy!;
       expect(dp.channel).toBe("basecamp");
       expect(dp.policyKey).toBe("channels.basecamp.dmPolicy");
       expect(dp.allowFromKey).toBe("channels.basecamp.allowFrom");
     });
 
+    it("resolveConfigKeys targets the channel root for the default account", () => {
+      const keys = basecampSetupWizard.dmPolicy!.resolveConfigKeys!({} as any, "default");
+      expect(keys.policyKey).toBe("channels.basecamp.dmPolicy");
+      expect(keys.allowFromKey).toBe("channels.basecamp.allowFrom");
+    });
+
+    it("resolveConfigKeys targets the account section for named accounts", () => {
+      const config = cfgWithAccounts({ work: { personId: "1", token: "t" } });
+      const keys = basecampSetupWizard.dmPolicy!.resolveConfigKeys!(config, "work");
+      expect(keys.policyKey).toBe("channels.basecamp.accounts.work.dmPolicy");
+      expect(keys.allowFromKey).toBe("channels.basecamp.accounts.work.allowFrom");
+    });
+
     it("getCurrent returns 'allowlist' by default", () => {
       expect(basecampSetupWizard.dmPolicy!.getCurrent({} as any)).toBe("allowlist");
     });
 
-    it("getCurrent returns configured policy", () => {
+    it("getCurrent returns configured channel-level policy", () => {
       expect(basecampSetupWizard.dmPolicy!.getCurrent(cfg({ dmPolicy: "disabled" }))).toBe("disabled");
     });
 
-    it("setPolicy applies the policy to config", () => {
-      const result = basecampSetupWizard.dmPolicy!.setPolicy({} as any, "pairing");
-      expect(result.channels.basecamp.dmPolicy).toBe("pairing");
+    it("getCurrent returns per-account policy for named accounts", () => {
+      const config = cfg({
+        dmPolicy: "open",
+        accounts: { work: { personId: "1", token: "t", dmPolicy: "disabled" } },
+      });
+      expect(basecampSetupWizard.dmPolicy!.getCurrent(config, "work")).toBe("disabled");
     });
 
-    it("promptAllowFrom is defined", () => {
-      expect(basecampSetupWizard.dmPolicy!.promptAllowFrom).toBeDefined();
+    it("setPolicy writes the channel root for the default account", () => {
+      const result = basecampSetupWizard.dmPolicy!.setPolicy({} as any, "disabled");
+      expect((result.channels as any).basecamp.dmPolicy).toBe("disabled");
+    });
+
+    it("setPolicy 'open' adds the wildcard allowFrom entry", () => {
+      const result = basecampSetupWizard.dmPolicy!.setPolicy(cfg({ allowFrom: ["42"] }), "open");
+      expect((result.channels as any).basecamp.dmPolicy).toBe("open");
+      expect((result.channels as any).basecamp.allowFrom).toContain("*");
+      expect((result.channels as any).basecamp.allowFrom).toContain("42");
+    });
+
+    it("setPolicy writes the account section for named accounts", () => {
+      const config = cfgWithAccounts({ work: { personId: "1", token: "t" } });
+      const result = basecampSetupWizard.dmPolicy!.setPolicy(config, "disabled", "work");
+      expect((result.channels as any).basecamp.accounts.work.dmPolicy).toBe("disabled");
+      expect((result.channels as any).basecamp.dmPolicy).toBeUndefined();
     });
 
     it("promptAllowFrom merges entered person IDs into allowFrom", async () => {
@@ -633,7 +580,7 @@ describe("basecampSetupWizard", () => {
         cfg: cfg({ allowFrom: ["42"] }),
         prompter,
       });
-      expect(result.channels.basecamp.allowFrom).toEqual(["42", "111", "222"]);
+      expect((result.channels as any).basecamp.allowFrom).toEqual(["42", "111", "222"]);
     });
 
     it("promptAllowFrom strips basecamp:/bc: prefixes and filters non-numeric", async () => {
@@ -642,7 +589,7 @@ describe("basecampSetupWizard", () => {
         cfg: cfg({ allowFrom: ["42"] }),
         prompter,
       });
-      expect(result.channels.basecamp.allowFrom).toEqual(["42", "111", "222", "333"]);
+      expect((result.channels as any).basecamp.allowFrom).toEqual(["42", "111", "222", "333"]);
     });
 
     it("promptAllowFrom preserves config when input is empty", async () => {
@@ -658,89 +605,57 @@ describe("basecampSetupWizard", () => {
       const result = await basecampSetupWizard.dmPolicy!.promptAllowFrom!({ cfg: input, prompter });
       expect(result).toBe(input);
     });
+
+    it("promptAllowFrom targets the account section for named accounts", async () => {
+      const prompter = createPrompter({ textAnswers: ["111"] });
+      const config = cfgWithAccounts({ work: { personId: "1", token: "t" } });
+      const result = await basecampSetupWizard.dmPolicy!.promptAllowFrom!({
+        cfg: config,
+        prompter,
+        accountId: "work",
+      });
+      expect((result.channels as any).basecamp.accounts.work.allowFrom).toEqual(["111"]);
+    });
+  });
+
+  describe("allowFrom section (createAllowFromSection)", () => {
+    it("parses numeric person IDs, stripping prefixes", () => {
+      const section = basecampSetupWizard.allowFrom!;
+      expect(section.parseId("basecamp:123")).toBe("123");
+      expect(section.parseId("BC:456")).toBe("456");
+      expect(section.parseId("789")).toBe("789");
+      expect(section.parseId("nope")).toBeNull();
+    });
+
+    it("apply merges entries into the channel-level allowFrom for the default account", async () => {
+      const result = await basecampSetupWizard.allowFrom!.apply({
+        cfg: cfg({ allowFrom: ["42"] }),
+        accountId: "default",
+        allowFrom: ["111", "42"],
+      });
+      expect(((result as any).channels as any).basecamp.allowFrom).toEqual(["42", "111"]);
+    });
+
+    it("apply writes per-account allowFrom for named accounts", async () => {
+      const result = await basecampSetupWizard.allowFrom!.apply({
+        cfg: cfgWithAccounts({ work: { personId: "1", token: "t" } }),
+        accountId: "work",
+        allowFrom: ["111"],
+      });
+      expect(((result as any).channels as any).basecamp.accounts.work.allowFrom).toEqual(["111"]);
+    });
   });
 
   describe("disable", () => {
     it("sets enabled to false", () => {
       const result = basecampSetupWizard.disable!(cfg({ enabled: true, accounts: { default: { personId: "1" } } }));
-      expect(result.channels.basecamp.enabled).toBe(false);
+      expect((result.channels as any).basecamp.enabled).toBe(false);
     });
   });
 
   describe("credentials", () => {
     it("is an empty array", () => {
       expect(basecampSetupWizard.credentials).toEqual([]);
-    });
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Setup adapter tests
-// ---------------------------------------------------------------------------
-
-describe("basecampSetupAdapter", () => {
-  describe("resolveAccountId", () => {
-    it("normalizes account ID", () => {
-      expect(basecampSetupAdapter.resolveAccountId!({ cfg: {} as any, accountId: "  foo  " })).toBe("foo");
-    });
-
-    it("returns 'default' for empty input", () => {
-      expect(basecampSetupAdapter.resolveAccountId!({ cfg: {} as any, accountId: "" })).toBe("default");
-    });
-  });
-
-  describe("applyAccountName", () => {
-    it("applies name to channel section", () => {
-      const result = basecampSetupAdapter.applyAccountName!({
-        cfg: cfg({ accounts: { default: { personId: "1" } } }),
-        accountId: "default",
-        name: "Bot",
-      });
-      expect(result.channels.basecamp.accounts.default.name).toBe("Bot");
-    });
-
-    it("does nothing when name is empty", () => {
-      const input = cfg({ accounts: { default: { personId: "1" } } });
-      const result = basecampSetupAdapter.applyAccountName!({ cfg: input, accountId: "default", name: "" });
-      expect(result).toBe(input);
-    });
-  });
-
-  describe("validateInput", () => {
-    it("returns null for any input", () => {
-      expect(
-        basecampSetupAdapter.validateInput!({ cfg: {} as any, accountId: "default", input: {} as any }),
-      ).toBeNull();
-    });
-  });
-
-  describe("applyAccountConfig", () => {
-    it("applies token to account config", () => {
-      const result = basecampSetupAdapter.applyAccountConfig({
-        cfg: cfg({ accounts: { default: { personId: "1" } } }),
-        accountId: "default",
-        input: { token: "secret" } as any,
-      });
-      expect(result.channels.basecamp.accounts.default.token).toBe("secret");
-      expect(result.channels.basecamp.enabled).toBe(true);
-    });
-
-    it("applies tokenFile to account config", () => {
-      const result = basecampSetupAdapter.applyAccountConfig({
-        cfg: cfg({ accounts: { prod: { personId: "1" } } }),
-        accountId: "prod",
-        input: { tokenFile: "/path/to/token" } as any,
-      });
-      expect(result.channels.basecamp.accounts.prod.tokenFile).toBe("/path/to/token");
-    });
-
-    it("applies name via applyAccountNameToChannelSection", () => {
-      const result = basecampSetupAdapter.applyAccountConfig({
-        cfg: cfg({ accounts: { default: { personId: "1" } } }),
-        accountId: "default",
-        input: { name: "My Bot" } as any,
-      });
-      expect(result.channels.basecamp.accounts.default.name).toBe("My Bot");
     });
   });
 });
