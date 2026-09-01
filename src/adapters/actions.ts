@@ -44,7 +44,8 @@ const SUPPORTED_ACTIONS: ChannelMessageActionName[] = ["send", "react"];
 // ---------------------------------------------------------------------------
 
 export const basecampActionsAdapter: ChannelMessageActionAdapter = {
-  describeMessageTool: () => ({ actions: SUPPORTED_ACTIONS }),
+  // "presentation" advertises the renderPresentation path (SPEC §2.7/§3.1).
+  describeMessageTool: () => ({ actions: SUPPORTED_ACTIONS, capabilities: ["presentation"] }),
 
   supportsAction: ({ action }) => SUPPORTED_ACTIONS.includes(action),
 
