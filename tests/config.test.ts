@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  BasecampConfigSchema,
+  inspectSecretValue,
   listBasecampAccountIds,
   resolveAccountForBucket,
   resolveBasecampAccount,
@@ -11,6 +13,10 @@ import {
   resolveDefaultBasecampAccountId,
   resolvePersonaAccountId,
   resolvePollingIntervals,
+  resolveReconciliationConfig,
+  resolveSafetyNetConfig,
+  resolveWebhookSecret,
+  resolveWebhooksConfig,
 } from "../src/config.js";
 
 // ---------------------------------------------------------------------------
@@ -579,5 +585,206 @@ describe("resolveAccountForBucket", () => {
     });
     expect(resolveAccountForBucket(config, "100")).toBe("a1");
     expect(resolveAccountForBucket(config, "200")).toBe("a2");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Poller/webhook resolver defaults
+// ---------------------------------------------------------------------------
+
+describe("resolveWebhooksConfig", () => {
+  it("returns defaults for empty config", () => {
+    expect(resolveWebhooksConfig(cfg({}))).toEqual({
+      payloadUrl: undefined,
+      projects: [],
+      types: [],
+      autoRegister: true,
+      deactivateOnStop: false,
+    });
+  });
+
+  it("returns configured values", () => {
+    const result = resolveWebhooksConfig(
+      cfg({ webhooks: { payloadUrl: "https://x.test/hook", projects: ["1"], deactivateOnStop: true } }),
+    );
+    expect(result.payloadUrl).toBe("https://x.test/hook");
+    expect(result.projects).toEqual(["1"]);
+    expect(result.deactivateOnStop).toBe(true);
+  });
+});
+
+describe("resolveSafetyNetConfig", () => {
+  it("returns defaults and configured overrides", () => {
+    expect(resolveSafetyNetConfig(cfg({}))).toEqual({ projects: [], intervalMs: 600_000 });
+    expect(resolveSafetyNetConfig(cfg({ safetyNet: { projects: ["9"], intervalMs: 5 } }))).toEqual({
+      projects: ["9"],
+      intervalMs: 5,
+    });
+  });
+});
+
+describe("resolveReconciliationConfig", () => {
+  it("returns defaults and configured overrides", () => {
+    expect(resolveReconciliationConfig(cfg({}))).toEqual({
+      enabled: true,
+      intervalMs: 21_600_000,
+      gapThreshold: 3,
+    });
+    expect(resolveReconciliationConfig(cfg({ reconciliation: { enabled: false, gapThreshold: 9 } }))).toMatchObject({
+      enabled: false,
+      gapThreshold: 9,
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// SecretRef support (SPEC §2.10)
+// ---------------------------------------------------------------------------
+
+describe("SecretRef config values", () => {
+  const envRef = { source: "env", provider: "default", id: "BASECAMP_TOKEN" };
+
+  it("treats a SecretRef token as configured (tokenSource 'config') even when unresolved", () => {
+    const result = resolveBasecampAccount(cfgWithAccounts({ prod: { personId: "1", token: envRef } as any }), "prod");
+    expect(result.tokenSource).toBe("config");
+    expect(result.token).toBe("");
+  });
+
+  it("resolves a literal token string normally", () => {
+    const result = resolveBasecampAccount(cfgWithAccounts({ prod: { personId: "1", token: "tok" } }), "prod");
+    expect(result.tokenSource).toBe("config");
+    expect(result.token).toBe("tok");
+  });
+
+  it("SecretRef token wins over tokenFile precedence-wise", () => {
+    const result = resolveBasecampAccount(
+      cfgWithAccounts({ prod: { personId: "1", token: envRef, tokenFile: "/tmp/tok" } as any }),
+      "prod",
+    );
+    expect(result.tokenSource).toBe("config");
+  });
+
+  it("resolveWebhookSecret returns literal strings and hides unresolved refs", () => {
+    expect(resolveWebhookSecret(cfg({ webhookSecret: "shh" }))).toBe("shh");
+    expect(resolveWebhookSecret(cfg({ webhookSecret: envRef }))).toBeUndefined();
+    expect(resolveWebhookSecret(cfg({}))).toBeUndefined();
+  });
+
+  it("channel-level oauth.clientSecret SecretRef resolves to undefined until materialized", () => {
+    const result = resolveBasecampAccount(
+      cfg({
+        accounts: { work: { personId: "1", oauthTokenFile: "/tmp/t.json" } },
+        oauth: { clientId: "channel-id", clientSecret: envRef },
+      }),
+      "work",
+    );
+    expect(result.oauthClientId).toBe("channel-id");
+    expect(result.oauthClientSecret).toBeUndefined();
+  });
+
+  it("inspectSecretValue reports available / configured_unavailable / missing", () => {
+    expect(inspectSecretValue("shh", "p")).toEqual({ status: "available", value: "shh" });
+    expect(inspectSecretValue(envRef, "p").status).toBe("configured_unavailable");
+    expect(inspectSecretValue(undefined, "p").status).toBe("missing");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// BasecampConfigSchema (SPEC §2.10 schema stack)
+// ---------------------------------------------------------------------------
+
+describe("BasecampConfigSchema", () => {
+  it("accepts a config with common per-account policy leaves", () => {
+    const result = BasecampConfigSchema.safeParse({
+      accounts: {
+        work: {
+          personId: "1",
+          token: "tok",
+          dmPolicy: "allowlist",
+          allowFrom: ["42"],
+          groupPolicy: "allowlist",
+          historyLimit: 10,
+          markdown: { tables: "bullets" },
+        },
+      },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts SecretRef values for token, oauthClientSecret, webhookSecret, and oauth.clientSecret", () => {
+    const ref = { source: "env", provider: "default", id: "SECRET" };
+    const result = BasecampConfigSchema.safeParse({
+      webhookSecret: ref,
+      oauth: { clientId: "abc", clientSecret: ref },
+      accounts: { work: { personId: "1", token: ref, oauthClientSecret: ref } },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects unknown account keys (strict accounts)", () => {
+    const result = BasecampConfigSchema.safeParse({
+      accounts: { work: { personId: "1", token: "t", nonsense: true } },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects unknown root keys", () => {
+    expect(BasecampConfigSchema.safeParse({ nonsense: true }).success).toBe(false);
+  });
+
+  it("defaults dmPolicy to 'pairing' and groupPolicy to 'allowlist' in parsed output", () => {
+    const result = BasecampConfigSchema.parse({});
+    expect(result.dmPolicy).toBe("pairing");
+    expect(result.groupPolicy).toBe("allowlist");
+  });
+
+  it("requires '*' in allowFrom for dmPolicy 'open' at the root", () => {
+    expect(BasecampConfigSchema.safeParse({ dmPolicy: "open" }).success).toBe(false);
+    expect(BasecampConfigSchema.safeParse({ dmPolicy: "open", allowFrom: ["*"] }).success).toBe(true);
+  });
+
+  it("requires '*' in effective allowFrom for per-account dmPolicy 'open'", () => {
+    const bad = BasecampConfigSchema.safeParse({
+      accounts: { work: { personId: "1", token: "t", dmPolicy: "open" } },
+    });
+    expect(bad.success).toBe(false);
+
+    const inheritedWildcard = BasecampConfigSchema.safeParse({
+      allowFrom: ["*"],
+      accounts: { work: { personId: "1", token: "t", dmPolicy: "open" } },
+    });
+    expect(inheritedWildcard.success).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Per-account dmPolicy / allowFrom resolution (SPEC §2.10)
+// ---------------------------------------------------------------------------
+
+describe("per-account dmPolicy and allowFrom", () => {
+  it("per-account dmPolicy overrides the channel-level policy", () => {
+    const config = cfg({
+      dmPolicy: "open",
+      accounts: { work: { personId: "1", token: "t", dmPolicy: "disabled" } },
+    });
+    expect(resolveBasecampDmPolicy(config, "work")).toBe("disabled");
+    expect(resolveBasecampDmPolicy(config)).toBe("open");
+  });
+
+  it("account without a policy inherits the channel-level policy", () => {
+    const config = cfg({
+      dmPolicy: "disabled",
+      accounts: { work: { personId: "1", token: "t" } },
+    });
+    expect(resolveBasecampDmPolicy(config, "work")).toBe("disabled");
+  });
+
+  it("per-account allowFrom overrides the channel-level list", () => {
+    const config = cfg({
+      allowFrom: ["1"],
+      accounts: { work: { personId: "1", token: "t", allowFrom: [7, "8"] } },
+    });
+    expect(resolveBasecampAllowFrom(config, "work")).toEqual(["7", "8"]);
+    expect(resolveBasecampAllowFrom(config)).toEqual(["1"]);
   });
 });
