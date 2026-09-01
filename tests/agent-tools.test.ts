@@ -802,3 +802,34 @@ describe("resolveToolScopeViolation", () => {
     expect(resolveToolScopeViolation(scoped, { path: "/projects.json" })).toContain("/buckets/111/");
   });
 });
+
+describe("scoped resource ownership verification", () => {
+  const scopedCfg = cfgWithAccounts(
+    { ops: { token: "tok-ops", personId: "9", basecampAccountId: "99" } },
+    {
+      virtualAccounts: { "proj-a": { accountId: "ops", bucketId: "111" } },
+      personas: { "scoped-agent": "proj-a" },
+    },
+  );
+  const ctx = () => toolCtx({ agentId: "scoped-agent", getRuntimeConfig: () => scopedCfg });
+  const completeTool = () => buildBasecampTools(ctx()).find((t) => t.name === "basecamp_complete_todo")!;
+
+  it("rejects a resource the scoped bucket does not own", async () => {
+    mockClient.raw.GET.mockResolvedValue({ error: { code: "not_found" } });
+    const result = await completeTool().execute("call-scope-1", { bucketId: "111", todoId: "777" });
+    const payload = JSON.parse((result.content[0] as { text: string }).text);
+    expect(payload.ok).toBe(false);
+    expect(payload.error).toContain("todoId 777 does not belong");
+    expect(mockClient.raw.GET).toHaveBeenCalledWith("/buckets/111/recordings/777/events.json", expect.anything());
+    expect(mockClient.todos.complete).not.toHaveBeenCalled();
+  });
+
+  it("runs the tool when the resource belongs to the scoped bucket", async () => {
+    mockClient.raw.GET.mockResolvedValue({ data: [] });
+    mockClient.todos.complete.mockResolvedValue(undefined);
+    const result = await completeTool().execute("call-scope-2", { bucketId: "111", todoId: "778" });
+    const payload = JSON.parse((result.content[0] as { text: string }).text);
+    expect(payload.ok).toBe(true);
+    expect(mockClient.todos.complete).toHaveBeenCalled();
+  });
+});

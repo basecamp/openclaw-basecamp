@@ -92,9 +92,18 @@ describe("resolveTokenFilePath", () => {
     }
   });
 
-  it("falls back to the legacy home path when no runtime is available", () => {
-    const result = resolveTokenFilePath("acme");
-    expect(result).toBe(join(legacyDir, "acme.json"));
+  it("resolves under the canonical state dir even without a runtime (setup-only contexts)", () => {
+    const prev = process.env.OPENCLAW_STATE_DIR;
+    const base = mkdtempSync(join(tmpdir(), "bc-oauth-standalone-"));
+    process.env.OPENCLAW_STATE_DIR = base;
+    try {
+      const result = resolveTokenFilePath("acme");
+      expect(result).toBe(join(base, "plugins", "basecamp", "tokens", "acme.json"));
+    } finally {
+      if (prev === undefined) delete process.env.OPENCLAW_STATE_DIR;
+      else process.env.OPENCLAW_STATE_DIR = prev;
+      rmSync(base, { recursive: true, force: true });
+    }
   });
 
   it("migrates a legacy token (and companion client file) to the new default path once", () => {
@@ -187,13 +196,21 @@ describe("createTokenManager", () => {
     expect(TokenManager).toHaveBeenCalledTimes(2);
   });
 
-  it("uses default path when oauthTokenFile is not set", () => {
-    const account = makeAccount({
-      config: { personId: "42" },
-    });
-    createTokenManager(account);
-    const expectedPath = join(legacyDir, "work.json");
-    expect(FileTokenStore).toHaveBeenCalledWith(expectedPath);
+  it("uses the canonical state-dir default path when oauthTokenFile is not set", () => {
+    const prev = process.env.OPENCLAW_STATE_DIR;
+    const base = mkdtempSync(join(tmpdir(), "bc-oauth-default-"));
+    process.env.OPENCLAW_STATE_DIR = base;
+    try {
+      const account = makeAccount({
+        config: { personId: "42" },
+      });
+      createTokenManager(account);
+      expect(FileTokenStore).toHaveBeenCalledWith(join(base, "plugins", "basecamp", "tokens", "work.json"));
+    } finally {
+      if (prev === undefined) delete process.env.OPENCLAW_STATE_DIR;
+      else process.env.OPENCLAW_STATE_DIR = prev;
+      rmSync(base, { recursive: true, force: true });
+    }
   });
 });
 

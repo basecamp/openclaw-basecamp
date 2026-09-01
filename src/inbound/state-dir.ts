@@ -1,17 +1,19 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { getBasecampRuntime } from "../runtime.js";
+import { resolveStateDir } from "openclaw/plugin-sdk/state-paths";
+import { tryGetBasecampRuntime } from "../runtime.js";
 
 /**
- * Resolve the plugin-specific state directory from the OpenClaw runtime.
+ * Resolve the plugin-specific state directory.
  *
- * Fails closed (throws) when the runtime is unavailable: the webhook route
- * is only registered in full-runtime mode, after setRuntime has run, so this
- * only fires on genuine programming errors — never write secrets or dedup
- * state to a fallback path.
+ * Prefers the installed runtime's resolver (tests stub it; the host may scope
+ * it), falling back to the SDK's standalone resolver — the same env/homedir
+ * logic — so setup-only contexts (onboarding through the import-light setup
+ * entry, before setRuntime runs) still land on the canonical state dir
+ * covered by `backupResources`, never a legacy home path.
  */
 export function resolvePluginStateDir(): string {
-  const runtime = getBasecampRuntime();
-  const baseDir = runtime.state.resolveStateDir(process.env, homedir);
+  const runtime = tryGetBasecampRuntime();
+  const baseDir = runtime ? runtime.state.resolveStateDir(process.env, homedir) : resolveStateDir(process.env, homedir);
   return join(baseDir, "plugins", "basecamp");
 }

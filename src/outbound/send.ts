@@ -437,6 +437,22 @@ async function resolveSendTarget(to: string, account: ResolvedBasecampAccount): 
           `recording ${parsed.recordingId} belongs to bucket ${entry.bucketId}`,
       );
     }
+    // A Chat::Line is a child of its transcript: createLine takes the
+    // transcript id, so resolve through the indexed parent.
+    if (entry.recordableType === "Chat::Line") {
+      if (!entry.parentRecordingId) {
+        notDispatched(
+          `Recording ${parsed.recordingId} is a chat line; target its Campfire transcript instead ` +
+            `(bucket:${entry.bucketId}, or recording:<transcriptId>)`,
+        );
+      }
+      return {
+        surface: "campfire",
+        bucketId: entry.bucketId,
+        targetId: entry.parentRecordingId,
+        conversationId: `recording:${entry.parentRecordingId}`,
+      };
+    }
     return {
       surface: isChatSurface(entry.recordableType) ? "campfire" : "comment",
       bucketId: entry.bucketId,
@@ -634,6 +650,9 @@ async function loadMediaBytes(params: {
   const buffer = mediaReadFile
     ? await mediaReadFile(mediaUrl)
     : await (await import("node:fs/promises")).readFile(mediaUrl);
+  if (buffer.byteLength > maxBytes) {
+    notDispatched(`Media from ${mediaUrl} exceeds the ${Math.floor(maxBytes / 1024 / 1024)} MB limit`);
+  }
   return { data: new Uint8Array(buffer), contentType, name };
 }
 

@@ -410,6 +410,39 @@ describe("outbound.sendBasecampMedia", () => {
     expect(result.messageId).toBe("7001");
   });
 
+  it("resolves a chat-line target to its parent transcript", async () => {
+    const accountId = nextAccountId();
+    const index = await getRecordingIndex(accountId, stateDir);
+    index.record("50001", { bucketId: "10", recordableType: "Chat::Line", parentRecordingId: "50000" });
+    mockClient.campfires.createLine.mockResolvedValue({ id: 9101 });
+
+    const result = await sendBasecampText({ cfg: makeCfg(accountId), to: "recording:50001", text: "hi", accountId });
+
+    expect(mockClient.campfires.createLine).toHaveBeenCalledWith(
+      50000,
+      expect.objectContaining({ content: expect.stringContaining("hi") }),
+    );
+    expect(result.conversationId).toBe("recording:50000");
+  });
+
+  it("rejects local media larger than the account's media limit", async () => {
+    const accountId = nextAccountId();
+    const index = await getRecordingIndex(accountId, stateDir);
+    index.record("780", { bucketId: "10", recordableType: "Todo" });
+    const mediaReadFile = vi.fn(async () => Buffer.alloc(26 * 1024 * 1024));
+    await expect(
+      sendBasecampMedia({
+        cfg: makeCfg(accountId),
+        to: "recording:780",
+        text: "big local",
+        mediaUrl: "/tmp/big.bin",
+        accountId,
+        mediaReadFile,
+      }),
+    ).rejects.toThrow(/exceeds the 25 MB limit/);
+    expect(mockClient.attachments.create).not.toHaveBeenCalled();
+  });
+
   it("rejects remote media larger than the account's media limit", async () => {
     const accountId = nextAccountId();
     const index = await getRecordingIndex(accountId, stateDir);

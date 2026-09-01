@@ -38,6 +38,7 @@ import {
 import { dispatchBasecampEvent } from "../dispatch.js";
 import { createConsoleStructuredLog } from "../logging.js";
 import {
+  recordIngressAvailable,
   recordQueueFullDrop,
   recordWebhookAuthMethod,
   recordWebhookDispatched,
@@ -351,6 +352,31 @@ async function processWebhookPayload(
   recordWebhookReceived(account.accountId);
   if (authMethod) recordWebhookAuthMethod(account.accountId, authMethod);
 
+  // In-flight cap per account, acquired before normalization: normalize can
+  // hit the Basecamp API (Circle lookups), so a burst must be bounded from
+  // here, not just around the final dispatch.
+  if (!webhookInFlightLimiter.tryAcquire(account.accountId)) {
+    slog.error("queue_full");
+    recordWebhookDropped(account.accountId);
+    recordQueueFullDrop(account.accountId);
+    return;
+  }
+
+  try {
+    await processAuthorizedWebhook({ payload, cfg, account, slog });
+  } finally {
+    webhookInFlightLimiter.release(account.accountId);
+  }
+}
+
+async function processAuthorizedWebhook(params: {
+  payload: BasecampWebhookPayload;
+  cfg: OpenClawConfig;
+  account: ResolvedBasecampAccount;
+  slog: ReturnType<typeof createConsoleStructuredLog>;
+}): Promise<void> {
+  const { payload, cfg, account, slog } = params;
+
   // Normalize
   let msg: Awaited<ReturnType<typeof normalizeWebhookPayload>>;
   try {
@@ -386,14 +412,6 @@ async function processWebhookPayload(
     return;
   }
 
-  // In-flight cap per account: reject rather than queue unboundedly.
-  if (!webhookInFlightLimiter.tryAcquire(account.accountId)) {
-    slog.error("queue_full");
-    recordWebhookDropped(account.accountId);
-    recordQueueFullDrop(account.accountId);
-    return;
-  }
-
   try {
     // Replay guard (shared with poller — cross-source secondary key)
     const secondaryKey = msg.meta.recordingId
@@ -409,13 +427,14 @@ async function processWebhookPayload(
       recordWebhookDropped(account.accountId);
     } else if (result.value) {
       recordWebhookDispatched(account.accountId);
+      // A delivered webhook proves the ingress route works — clear a stale
+      // ingressUnavailable from failed startup reconciliation.
+      recordIngressAvailable(account.accountId);
     } else {
       recordWebhookDropped(account.accountId);
     }
   } catch (err) {
     slog.error("dispatch_error", { error: String(err), stack: err instanceof Error ? err.stack : undefined });
     recordWebhookError(account.accountId);
-  } finally {
-    webhookInFlightLimiter.release(account.accountId);
   }
 }

@@ -254,6 +254,58 @@ export function resolveToolScopeViolation(account: ResolvedBasecampAccount, rawP
   return undefined;
 }
 
+/**
+ * Resource-id params whose ownership must be verified for scoped accounts.
+ * All of these address recordings, so one oracle covers them: a bucket-scoped
+ * events read 404s when the recording lives in another project (verified
+ * live, including message boards). columnId is excluded — a column is bound
+ * to its card table, and the card itself is verified.
+ */
+const SCOPED_RESOURCE_ID_FIELDS = [
+  "todoId",
+  "todolistId",
+  "recordingId",
+  "cardId",
+  "messageBoardId",
+  "questionId",
+] as const;
+
+/**
+ * Second half of the scope guard: the param check pins the *asserted* bucket,
+ * but the SDK's helpers are globally addressed, so a foreign resource id
+ * alongside the allowed bucketId would still escape the project scope.
+ * Verify each target resource actually lives in the scoped bucket.
+ */
+async function verifyScopedResourceOwnership(
+  client: BasecampClient,
+  account: ResolvedBasecampAccount,
+  rawParams: unknown,
+): Promise<string | undefined> {
+  const scoped = account.scopedBucketId;
+  if (!scoped) return undefined;
+  const params = rawParams as Record<string, unknown>;
+  for (const field of SCOPED_RESOURCE_ID_FIELDS) {
+    const id = params[field];
+    if (id === undefined) continue;
+    try {
+      await rawOrThrow(
+        await client.raw.GET(
+          `/buckets/${scoped}/recordings/${id}/events.json` as never,
+          {
+            params: { query: { per_page: 1 } },
+          } as never,
+        ),
+      );
+    } catch {
+      return (
+        `Account "${account.accountId}" is scoped to bucket ${scoped}; ` +
+        `${field} ${id} does not belong to that project`
+      );
+    }
+  }
+  return undefined;
+}
+
 function defineBasecampTool<T extends TSchema>(
   ctx: OpenClawPluginToolContext,
   spec: BasecampToolSpec<T>,
@@ -268,6 +320,8 @@ function defineBasecampTool<T extends TSchema>(
       if (!resolved.ok) return toolErr(resolved.error);
       const scopeError = resolveToolScopeViolation(resolved.account, rawParams);
       if (scopeError) return toolErr(scopeError);
+      const ownershipError = await verifyScopedResourceOwnership(resolved.client, resolved.account, rawParams);
+      if (ownershipError) return toolErr(ownershipError);
       try {
         return await spec.run(resolved.client, rawParams as Static<T>);
       } catch (err) {

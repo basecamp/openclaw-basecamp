@@ -107,7 +107,7 @@ describe("recording index", () => {
       peer: { kind: "group", id: "recording:900" },
       meta: { bucketId: "456", recordingId: "901", recordableType: "Chat::Line" },
     });
-    expect(index.get("901")).toMatchObject({ recordableType: "Chat::Line" });
+    expect(index.get("901")).toMatchObject({ recordableType: "Chat::Line", parentRecordingId: "900" });
     expect(index.get("900")).toMatchObject({ recordableType: "Chat::Transcript", bucketId: "456" });
 
     recordInboundMessageMappings(

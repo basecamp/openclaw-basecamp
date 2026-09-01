@@ -95,11 +95,10 @@ function legacyTokenDir(): string {
  * contexts before setRuntime has run).
  */
 function defaultTokenDir(): string {
-  try {
-    return join(resolvePluginStateDir(), "tokens");
-  } catch {
-    return legacyTokenDir();
-  }
+  // resolvePluginStateDir works with or without the runtime, so setup-time
+  // OAuth logins persist under the backed-up plugin state dir too; the
+  // legacy home path survives only as a one-time migration source.
+  return join(resolvePluginStateDir(), "tokens");
 }
 
 /**

@@ -24,6 +24,8 @@ export type RecordingIndexEntry = {
   recordableType: string;
   /** Observed conversation kind for ping peers (Circle membership decides group vs direct). */
   chatKind?: "direct" | "group";
+  /** Parent recording (transcript/commentable) for child events like Chat::Line. */
+  parentRecordingId?: string;
   /** Epoch ms of the last event that touched this recording. */
   updatedAt: number;
 };
@@ -32,7 +34,10 @@ export type RecordingIndex = {
   /** Look up a recording's bucket + type. Undefined when never seen. */
   get(recordingId: string): RecordingIndexEntry | undefined;
   /** Record (or refresh) a recording→bucket mapping. Cheap; call per inbound event. */
-  record(recordingId: string, entry: { bucketId: string; recordableType: string; chatKind?: "direct" | "group" }): void;
+  record(
+    recordingId: string,
+    entry: { bucketId: string; recordableType: string; chatKind?: "direct" | "group"; parentRecordingId?: string },
+  ): void;
   /** Persist pending writes. Called on shutdown and periodically by callers. */
   flush(): Promise<void>;
   /** Number of indexed recordings (for pruning/metrics). */
@@ -74,7 +79,8 @@ async function loadIndex(accountId: string, stateDir?: string): Promise<Recordin
         existing &&
         existing.bucketId === entry.bucketId &&
         existing.recordableType === entry.recordableType &&
-        existing.chatKind === entry.chatKind;
+        existing.chatKind === entry.chatKind &&
+        existing.parentRecordingId === entry.parentRecordingId;
       // An active recording must not age out: refresh updatedAt once per
       // interval even when the mapping itself is unchanged.
       if (unchanged && now - existing.updatedAt < REFRESH_INTERVAL_MS) return;
@@ -159,12 +165,13 @@ export function recordInboundMessageMappings(
   },
   parent?: { id: string | number; type?: string },
 ): void {
+  const peerRecording = msg.peer.id.match(/^recording:(\d+)$/)?.[1];
   index.record(msg.meta.recordingId, {
     bucketId: msg.meta.bucketId,
     recordableType: msg.meta.recordableType,
+    ...(peerRecording && peerRecording !== msg.meta.recordingId ? { parentRecordingId: peerRecording } : {}),
   });
 
-  const peerRecording = msg.peer.id.match(/^recording:(\d+)$/)?.[1];
   if (peerRecording && peerRecording !== msg.meta.recordingId) {
     const parentType =
       parent && String(parent.id) === peerRecording && parent.type
