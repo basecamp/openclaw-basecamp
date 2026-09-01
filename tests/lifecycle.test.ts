@@ -14,6 +14,10 @@ vi.mock("../src/oauth-credentials.js", () => ({
   resolveClientFilePath: vi.fn((p: string) => p.replace(/\.json$/, ".client.json")),
 }));
 
+vi.mock("../src/inbound/webhooks.js", () => ({
+  closeWebhookSecretRegistry: vi.fn(),
+}));
+
 vi.mock("../src/inbound/recording-index.js", () => ({
   closeRecordingIndex: vi.fn().mockResolvedValue(undefined),
 }));
@@ -30,6 +34,7 @@ vi.mock("../src/inbound/state-dir.js", () => ({
 import { basecampLifecycleAdapter } from "../src/adapters/lifecycle.js";
 import { clearClient } from "../src/basecamp-client.js";
 import { closeRecordingIndex } from "../src/inbound/recording-index.js";
+import { closeWebhookSecretRegistry } from "../src/inbound/webhooks.js";
 import { clearTokenManager } from "../src/oauth-credentials.js";
 
 function cfg(basecamp?: Record<string, unknown>) {
@@ -123,6 +128,7 @@ describe("onAccountRemoved", () => {
     await basecampLifecycleAdapter.onAccountRemoved!({ prevCfg: cfg({}), accountId: "gone", runtime });
 
     expect(closeRecordingIndex).toHaveBeenCalledWith("gone");
+    expect(closeWebhookSecretRegistry).toHaveBeenCalledWith("gone");
     expect(clearTokenManager).toHaveBeenCalledWith("gone");
     expect(clearClient).toHaveBeenCalledWith("gone");
   });

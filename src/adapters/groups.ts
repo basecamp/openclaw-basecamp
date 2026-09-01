@@ -51,7 +51,7 @@ export function buildBasecampScopeTree(cfg: Record<string, unknown>): ScopeTree 
     scopes[bucketId] = {
       requireMention: bucket.requireMention,
       tools: bucket.tools,
-      toolsBySender: (bucket as { toolsBySender?: ScopeTree["scopes"][string]["toolsBySender"] }).toolsBySender,
+      toolsBySender: bucket.toolsBySender,
     };
   }
   return {
@@ -59,7 +59,7 @@ export function buildBasecampScopeTree(cfg: Record<string, unknown>): ScopeTree 
       ? {
           requireMention: defaults.requireMention,
           tools: defaults.tools,
-          toolsBySender: (defaults as { toolsBySender?: ScopeTree["scopes"][string]["toolsBySender"] }).toolsBySender,
+          toolsBySender: defaults.toolsBySender,
         }
       : undefined,
     scopes,

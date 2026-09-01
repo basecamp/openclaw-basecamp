@@ -77,8 +77,16 @@ function resolveOAuthClient(
 // Token file path resolution
 // ---------------------------------------------------------------------------
 
-/** Pre-2.0 default token directory. Read once for the courtesy migration below. */
-const LEGACY_TOKEN_DIR = join(homedir(), ".local", "share", "openclaw", "basecamp", "tokens");
+/**
+ * Pre-2.0 default token directory, consulted by the courtesy migration below.
+ * Overridable for tests so they never touch a developer's real token files.
+ */
+function legacyTokenDir(): string {
+  return (
+    process.env.OPENCLAW_BASECAMP_LEGACY_TOKEN_DIR ||
+    join(homedir(), ".local", "share", "openclaw", "basecamp", "tokens")
+  );
+}
 
 /**
  * Default token directory (SPEC decision 4): under the plugin state dir so
@@ -90,7 +98,7 @@ function defaultTokenDir(): string {
   try {
     return join(resolvePluginStateDir(), "tokens");
   } catch {
-    return LEGACY_TOKEN_DIR;
+    return legacyTokenDir();
   }
 }
 
@@ -102,7 +110,7 @@ function defaultTokenDir(): string {
 function migrateLegacyTokenFile(accountId: string, newPath: string): void {
   try {
     if (existsSync(newPath)) return;
-    const legacyPath = join(LEGACY_TOKEN_DIR, `${accountId}.json`);
+    const legacyPath = join(legacyTokenDir(), `${accountId}.json`);
     if (legacyPath === newPath || !existsSync(legacyPath)) return;
     mkdirSync(dirname(newPath), { recursive: true, mode: 0o700 });
     copyFileSync(legacyPath, newPath);

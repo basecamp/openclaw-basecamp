@@ -3,6 +3,7 @@ import {
   buildChannelAccountSchemaParts,
   GroupPolicySchema,
   requireOpenAllowFrom,
+  ToolPolicySchema,
 } from "openclaw/plugin-sdk/channel-config-schema";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import { DEFAULT_GROUP_HISTORY_LIMIT } from "openclaw/plugin-sdk/reply-history";
@@ -80,6 +81,8 @@ const BasecampBucketConfigSchema = z
       })
       .strict()
       .optional(),
+    /** Per-sender tool overlays (SDK GroupToolPolicyBySenderConfig): keys like `id:<personId>`. */
+    toolsBySender: z.record(z.string(), ToolPolicySchema).optional(),
     enabled: z.boolean().optional(),
     engage: z.array(EngagementTypeSchema).optional(),
     allowFrom: z.array(z.union([z.string(), z.number()])).optional(),

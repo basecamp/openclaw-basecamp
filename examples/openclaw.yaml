@@ -55,9 +55,9 @@ channels:
 
     # Channel-level DM policy for Ping conversations (accounts can override).
     # "open"      = any authenticated Basecamp user can DM (needs allowFrom: ["*"])
-    # "allowlist" = only person IDs in allowFrom (default)
+    # "allowlist" = only person IDs in allowFrom
     # "pairing"   = unknown senders get a pairing code by Ping; approve with
-    #               `openclaw pairing approve basecamp <code>`
+    #               `openclaw pairing approve basecamp <code>` (default)
     # "disabled"  = no DMs accepted
     dmPolicy: pairing
 

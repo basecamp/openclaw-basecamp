@@ -68,9 +68,10 @@ Held under separate authorization. Do **not** run these as part of merging this 
 
    ```bash
    mise exec -- npm pack --pack-destination /tmp/pack
-   OPENCLAW_STATE_DIR="$(mktemp -d)" \
-     mise exec -- npx openclaw plugins install npm-pack:/tmp/pack/37signals-openclaw-basecamp-*.tgz --force --accept-capabilities
-   OPENCLAW_STATE_DIR=<same dir> mise exec -- npx openclaw plugins inspect basecamp --runtime --json
+   TGZ="$(ls /tmp/pack/37signals-openclaw-basecamp-*.tgz)"   # the npm-pack: prefix blocks shell globbing
+   export OPENCLAW_STATE_DIR="$(mktemp -d)"
+   mise exec -- npx openclaw plugins install "npm-pack:$TGZ" --force --accept-capabilities
+   mise exec -- npx openclaw plugins inspect basecamp --runtime --json
    ```
 
    `plugin.id` must be `basecamp` and `channelIds` must include `basecamp`.

@@ -1,5 +1,5 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { clearBasecampRuntime, setBasecampRuntime } from "../src/runtime.js";
@@ -59,6 +59,18 @@ function makeAccount(overrides?: Partial<ResolvedBasecampAccount>): ResolvedBase
 // resolveTokenFilePath
 // ---------------------------------------------------------------------------
 
+// Point the legacy-migration source at a scratch dir so no test ever reads or
+// writes a developer's real ~/.local/share/openclaw/basecamp/tokens.
+let legacyDir: string;
+beforeEach(() => {
+  legacyDir = mkdtempSync(join(tmpdir(), "bc-oauth-legacy-"));
+  process.env.OPENCLAW_BASECAMP_LEGACY_TOKEN_DIR = legacyDir;
+});
+afterEach(() => {
+  delete process.env.OPENCLAW_BASECAMP_LEGACY_TOKEN_DIR;
+  rmSync(legacyDir, { recursive: true, force: true });
+});
+
 describe("resolveTokenFilePath", () => {
   afterEach(() => {
     clearBasecampRuntime();
@@ -82,12 +94,10 @@ describe("resolveTokenFilePath", () => {
 
   it("falls back to the legacy home path when no runtime is available", () => {
     const result = resolveTokenFilePath("acme");
-    const expected = join(homedir(), ".local", "share", "openclaw", "basecamp", "tokens", "acme.json");
-    expect(result).toBe(expected);
+    expect(result).toBe(join(legacyDir, "acme.json"));
   });
 
   it("migrates a legacy token (and companion client file) to the new default path once", () => {
-    const legacyDir = join(homedir(), ".local", "share", "openclaw", "basecamp", "tokens");
     const legacyToken = join(legacyDir, "migrate-me.json");
     const legacyClient = join(legacyDir, "migrate-me.client.json");
     const base = mkdtempSync(join(tmpdir(), "bc-oauth-migrate-"));
@@ -113,7 +123,6 @@ describe("resolveTokenFilePath", () => {
   });
 
   it("does not overwrite an existing token at the new path", () => {
-    const legacyDir = join(homedir(), ".local", "share", "openclaw", "basecamp", "tokens");
     const legacyToken = join(legacyDir, "keep-new.json");
     const base = mkdtempSync(join(tmpdir(), "bc-oauth-keep-"));
     try {
@@ -183,7 +192,7 @@ describe("createTokenManager", () => {
       config: { personId: "42" },
     });
     createTokenManager(account);
-    const expectedPath = join(homedir(), ".local", "share", "openclaw", "basecamp", "tokens", "work.json");
+    const expectedPath = join(legacyDir, "work.json");
     expect(FileTokenStore).toHaveBeenCalledWith(expectedPath);
   });
 });

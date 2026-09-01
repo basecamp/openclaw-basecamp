@@ -390,6 +390,8 @@ export type BasecampProject = {
 export type BasecampBucketConfig = {
   requireMention?: boolean;
   tools?: { allow?: string[]; deny?: string[] };
+  /** Per-sender tool overlays keyed like `id:<personId>` (SDK GroupToolPolicyBySenderConfig). */
+  toolsBySender?: Record<string, { allow?: string[]; deny?: string[] }>;
   enabled?: boolean;
   /** Override engagement types for this bucket. */
   engage?: BasecampEngagementType[];

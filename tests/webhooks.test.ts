@@ -58,7 +58,7 @@ vi.mock("../src/inbound/normalize.js", () => ({
   isSelfMessage: vi.fn(() => false),
 }));
 
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -69,7 +69,13 @@ import {
 } from "../src/config.js";
 import { dispatchBasecampEvent } from "../src/dispatch.js";
 import { resetReplayGuard } from "../src/inbound/replay-guard.js";
-import { handleBasecampWebhook, webhookInFlightLimiter } from "../src/inbound/webhooks.js";
+import {
+  closeWebhookSecretRegistry,
+  flushWebhookSecrets,
+  getWebhookSecretRegistry,
+  handleBasecampWebhook,
+  webhookInFlightLimiter,
+} from "../src/inbound/webhooks.js";
 import { clearMetrics, getAccountMetrics } from "../src/metrics.js";
 import { clearBasecampRuntime, setBasecampRuntime } from "../src/runtime.js";
 
@@ -441,5 +447,20 @@ describe("handleBasecampWebhook — metrics", () => {
     expect(metrics!.webhook.receivedCount).toBe(1);
     expect(metrics!.webhook.errorCount).toBe(1);
     expect(metrics!.webhook.dispatchedCount).toBe(0);
+  });
+});
+
+describe("closeWebhookSecretRegistry", () => {
+  it("drops the cached registry so a later flush cannot resurrect a removed account's secrets", () => {
+    const registry = getWebhookSecretRegistry("gone");
+    registry.set("100", { webhookId: "w1", secret: "s", payloadUrl: "https://x/webhooks/basecamp", types: [] });
+    const file = join(_whTestStateDir, "webhook-secrets-gone.json");
+    expect(existsSync(file)).toBe(true); // set() auto-saves
+    // Mirror onAccountRemoved: evict the cached registry, then delete the file.
+    closeWebhookSecretRegistry("gone");
+    rmSync(file, { force: true });
+    flushWebhookSecrets();
+    expect(existsSync(file)).toBe(false);
+    expect(getWebhookSecretRegistry("gone").size).toBe(0);
   });
 });

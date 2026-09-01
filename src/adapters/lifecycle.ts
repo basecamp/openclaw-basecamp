@@ -19,6 +19,7 @@ import { clearClient } from "../basecamp-client.js";
 import { listBasecampAccountIds } from "../config.js";
 import { closeRecordingIndex } from "../inbound/recording-index.js";
 import { resolvePluginStateDir } from "../inbound/state-dir.js";
+import { closeWebhookSecretRegistry } from "../inbound/webhooks.js";
 import type { ChannelLifecycleAdapter } from "../sdk-types.js";
 import type { BasecampChannelConfig } from "../types.js";
 
@@ -67,6 +68,7 @@ export const basecampLifecycleAdapter: ChannelLifecycleAdapter = {
     // Replay-guard entries are namespaced per account and expire on their
     // 24h TTL; there is no per-account store to drop.
     await closeRecordingIndex(accountId);
+    closeWebhookSecretRegistry(accountId);
 
     let stateDir: string | undefined;
     try {

@@ -41,6 +41,8 @@ type IndexFile = Record<string, RecordingIndexEntry>;
 
 /** Entries older than this are dropped at load time to bound file growth. */
 const MAX_ENTRY_AGE_MS = 90 * 24 * 60 * 60 * 1000; // 90 days
+/** Unchanged mappings refresh updatedAt at most this often (avoids a write per event). */
+const REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000; // 1 day
 
 const instances = new Map<string, Promise<RecordingIndex>>();
 /** Loaded instances, mirrored for synchronous consumers (messaging grammar). */
@@ -64,17 +66,26 @@ async function loadIndex(accountId: string, stateDir?: string): Promise<Recordin
   return {
     get: (recordingId) => entries.get(recordingId),
     record: (recordingId, entry) => {
+      const now = Date.now();
       const existing = entries.get(recordingId);
-      if (existing && existing.bucketId === entry.bucketId && existing.recordableType === entry.recordableType) {
-        return;
-      }
-      entries.set(recordingId, { ...entry, updatedAt: Date.now() });
+      const unchanged =
+        existing && existing.bucketId === entry.bucketId && existing.recordableType === entry.recordableType;
+      // An active recording must not age out: refresh updatedAt once per
+      // interval even when the mapping itself is unchanged.
+      if (unchanged && now - existing.updatedAt < REFRESH_INTERVAL_MS) return;
+      entries.set(recordingId, { ...entry, updatedAt: now });
       dirty = true;
     },
     flush: async () => {
       if (!dirty) return;
       dirty = false;
-      await writeJsonFileAtomically(filePath, Object.fromEntries(entries));
+      try {
+        await writeJsonFileAtomically(filePath, Object.fromEntries(entries));
+      } catch (err) {
+        // Keep the pending mappings eligible for the next flush attempt.
+        dirty = true;
+        throw err;
+      }
     },
     size: () => entries.size,
   };

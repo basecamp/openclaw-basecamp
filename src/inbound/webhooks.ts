@@ -132,6 +132,15 @@ export function verifyWebhookSignature(params: {
 }
 
 /**
+ * Drop an account's in-memory secret registry without flushing. Used when the
+ * account is removed: a later flushWebhookSecrets() must not resurrect the
+ * deleted secrets file from the cached snapshot.
+ */
+export function closeWebhookSecretRegistry(accountId: string): void {
+  secretRegistries.delete(accountId);
+}
+
+/**
  * Flush all webhook secret registries to disk. Call on graceful shutdown.
  */
 export function flushWebhookSecrets(): void {
