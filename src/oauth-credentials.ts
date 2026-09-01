@@ -24,18 +24,11 @@ import type { ResolvedBasecampAccount } from "./types.js";
 
 const LAUNCHPAD_TOKEN_ENDPOINT = "https://launchpad.37signals.com/authorization/token";
 
-/** Guidance note shown before prompting for OAuth client credentials. */
-export const OAUTH_SETUP_GUIDANCE =
-  "You'll need a Basecamp OAuth app. Register one at:\n" +
-  "https://launchpad.37signals.com/integrations\n\n" +
-  "When creating the app, set the redirect URI to:\n" +
-  "http://localhost:14923/callback\n\n" +
-  "You can leave the other fields as defaults.";
+// Definitions live in oauth-lite.ts (import-light for the setup-entry graph);
+// re-exported here to keep this module's public API stable.
+import { isValidLaunchpadClientId } from "./oauth-lite.js";
 
-/** Valid Launchpad OAuth client IDs are 40-character lowercase hex (SHA-1). */
-export function isValidLaunchpadClientId(id: string | undefined): id is string {
-  return !!id && /^[0-9a-f]{40}$/.test(id);
-}
+export { isValidLaunchpadClientId, OAUTH_SETUP_GUIDANCE } from "./oauth-lite.js";
 
 /**
  * Resolve a valid OAuth client ID/secret pair.
@@ -201,7 +194,12 @@ export function clearTokenManager(accountId: string): void {
  */
 export async function interactiveLogin(
   account: ResolvedBasecampAccount,
-  overrides?: { clientId?: string; clientSecret?: string },
+  overrides?: {
+    clientId?: string;
+    clientSecret?: string;
+    /** Preferred browser opener (e.g. WizardPrompter.openUrl). Falls back to a local opener. */
+    openUrl?: (url: string) => Promise<void>;
+  },
 ): Promise<OAuthToken> {
   const oauthClient = resolveOAuthClient(account, overrides);
 
@@ -209,8 +207,14 @@ export async function interactiveLogin(
 
   const store = new FileTokenStore(tokenFilePath);
 
-  // Open browser: use the `open` package if available, fall back to platform command
+  // Open browser: prefer a caller-supplied opener (wizard prompters can route
+  // the URL to the controlling client), then the `open` package, then a
+  // platform-native command.
   const openBrowser = async (url: string): Promise<void> => {
+    if (overrides?.openUrl) {
+      await overrides.openUrl(url);
+      return;
+    }
     try {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const open = (await import(/* @vite-ignore */ "open" as string)).default as (url: string) => Promise<unknown>;
