@@ -27,8 +27,8 @@ function dmPolicyFor(config: any, accountId?: string) {
 // ---------------------------------------------------------------------------
 
 describe("security.resolveDmPolicy", () => {
-  it("defaults to allowlist when no dmPolicy is set", () => {
-    expect(dmPolicyFor(cfg({})).policy).toBe("allowlist");
+  it("defaults to pairing when no dmPolicy is set", () => {
+    expect(dmPolicyFor(cfg({})).policy).toBe("pairing");
   });
 
   it("returns configured channel-level dmPolicy", () => {

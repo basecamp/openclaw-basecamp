@@ -168,7 +168,7 @@ export const basecampSecurityAdapter: ChannelSecurityAdapter<ResolvedBasecampAcc
         allowFrom: fields.allowFrom ?? section?.allowFrom,
       };
     },
-    defaultPolicy: "allowlist",
+    defaultPolicy: "pairing",
     policyPathSuffix: "dmPolicy",
     allowFromPathSuffix: "allowFrom",
     approveHint: "Add the sender's Basecamp person ID to channels.basecamp.allowFrom",

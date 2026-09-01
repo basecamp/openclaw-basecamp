@@ -66,7 +66,7 @@ All configuration lives under `channels.basecamp`. The schema is defined in code
 | `accounts` | `object` | Per-account auth and identity (`personId`, `token`/`tokenFile`, `basecampAccountId`, OAuth overrides) plus the standard per-account policy leaves (`dmPolicy`, `allowFrom`, `groupPolicy`, `groupAllowFrom`, `mentionPatterns`, `historyLimit`, `markdown.tables`, ...). Account-level values override the channel-level ones below. |
 | `personas` | `object` | Map agent IDs to Basecamp account IDs; the agent replies and runs tools as that account |
 | `virtualAccounts` | `object` | Synthetic account IDs scoped to one project: `{ accountId, bucketId }` |
-| `dmPolicy` | `"pairing" \| "allowlist" \| "open" \| "disabled"` | How Pings (DMs) from unknown people are handled. Default: `"allowlist"`. `"pairing"` sends the requester a pairing code by Ping and honours `openclaw pairing approve`. |
+| `dmPolicy` | `"pairing" \| "allowlist" \| "open" \| "disabled"` | How Pings (DMs) from unknown people are handled. Default: `"pairing"` — the requester gets a pairing code by Ping and `openclaw pairing approve` admits them; `"allowlist"` admits only `allowFrom`. |
 | `allowFrom` | `string[]` | Basecamp person IDs permitted to DM agents (`"*"` with `dmPolicy: "open"`) |
 | `groupPolicy` | `"open" \| "allowlist" \| "disabled"` | Sender policy for project surfaces (Campfires, comments). Default: `"open"` |
 | `engage` | `string[]` | Engagement types that reach an agent: `dm`, `mention`, `assignment`, `checkin`, `conversation`, `activity` |

@@ -539,8 +539,8 @@ describe("basecampSetupWizard", () => {
       expect(keys.allowFromKey).toBe("channels.basecamp.accounts.work.allowFrom");
     });
 
-    it("getCurrent returns 'allowlist' by default", () => {
-      expect(basecampSetupWizard.dmPolicy!.getCurrent({} as any)).toBe("allowlist");
+    it("getCurrent returns 'pairing' by default", () => {
+      expect(basecampSetupWizard.dmPolicy!.getCurrent({} as any)).toBe("pairing");
     });
 
     it("getCurrent returns configured channel-level policy", () => {

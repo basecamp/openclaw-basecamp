@@ -472,7 +472,7 @@ export function resolveBasecampDmPolicy(cfg: OpenClawConfig, accountId?: string 
   const accountPolicy = accountId
     ? (section?.accounts?.[normalizeAccountId(accountId)] as { dmPolicy?: string } | undefined)?.dmPolicy
     : undefined;
-  return (accountPolicy ?? section?.dmPolicy ?? "allowlist") as "pairing" | "allowlist" | "open" | "disabled";
+  return (accountPolicy ?? section?.dmPolicy ?? "pairing") as "pairing" | "allowlist" | "open" | "disabled";
 }
 
 /**
