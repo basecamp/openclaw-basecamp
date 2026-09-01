@@ -86,6 +86,8 @@ export const BasecampConfigSchema = z
   .object({
     enabled: z.boolean().optional(),
     ...rootPolicyShape,
+    /** Display name for the default account; the SDK setup flow writes it at the channel root (single-account convention). */
+    name: z.string().optional(),
     allowFrom: z.array(z.union([z.string(), z.number()])).optional(),
     accounts: z.record(z.string(), BasecampAccountSchemaBase.optional()).optional(),
     virtualAccounts: z.record(z.string(), BasecampVirtualAccountSchema).optional(),
@@ -382,7 +384,8 @@ export function resolveBasecampAccount(
   return {
     accountId: effectiveId,
     enabled: accountCfg.enabled !== false,
-    displayName: accountCfg.displayName,
+    displayName:
+      accountCfg.displayName ?? (effectiveId === DEFAULT_ACCOUNT_ID ? getBasecampSection(cfg)?.name : undefined),
     personId: accountCfg.personId ?? "",
     attachableSgid: accountCfg.attachableSgid,
     token,

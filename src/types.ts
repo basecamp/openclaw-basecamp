@@ -449,6 +449,8 @@ export type BasecampVirtualAccountConfig = {
  * Top-level channels.basecamp config section.
  */
 export type BasecampChannelConfig = {
+  /** Display name for the default account (written at the channel root by the SDK setup flow). */
+  name?: string;
   enabled?: boolean;
   accounts?: Record<string, BasecampAccountConfig>;
   virtualAccounts?: Record<string, BasecampVirtualAccountConfig>;

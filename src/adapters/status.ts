@@ -281,7 +281,8 @@ export const basecampStatusAdapter: ChannelStatusAdapter<ResolvedBasecampAccount
     },
 
     resolveAccountSnapshot: ({ account, runtime, probe, audit }) => {
-      const configured = Boolean(account.token?.trim() || account.config.tokenFile || account.config.oauthTokenFile);
+      // Host snapshot builders may hand us a projected account without `config`.
+      const configured = account.tokenSource !== "none";
       const metrics = getAccountMetrics(account.accountId);
 
       const extra: BasecampSnapshotExtra = {

@@ -108,6 +108,9 @@
               "allowlist"
             ]
           },
+          "name": {
+            "type": "string"
+          },
           "allowFrom": {
             "type": "array",
             "items": {
