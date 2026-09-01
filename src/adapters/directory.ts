@@ -3,11 +3,18 @@
  *
  * Implements ChannelDirectoryAdapter for `openclaw channels resolve`,
  * agent targeting, and people/project lookup via the Basecamp API.
+ *
+ * Built on the SDK's directory helpers (SPEC §2.27):
+ * `createChannelDirectoryAdapter` supplies the adapter shell and
+ * `applyDirectoryQueryAndLimit` handles query/limit for config-derived id
+ * lists. Live lists filter on names/emails (which ids can't express) and
+ * then apply the same limit semantics.
  */
 
 import type { Person, Project } from "@37signals/basecamp";
-import type { ChannelDirectoryAdapter, ChannelDirectoryEntry } from "openclaw/plugin-sdk/channel-contract";
+import type { ChannelDirectoryAdapter } from "openclaw/plugin-sdk/channel-contract";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
+import { applyDirectoryQueryAndLimit, createChannelDirectoryAdapter } from "openclaw/plugin-sdk/directory-runtime";
 import { getClient, numId } from "../basecamp-client.js";
 import { resolveBasecampAccount } from "../config.js";
 import type { BasecampChannelConfig } from "../types.js";
@@ -16,7 +23,12 @@ function getBasecampSection(cfg: OpenClawConfig): BasecampChannelConfig | undefi
   return cfg.channels?.basecamp as BasecampChannelConfig | undefined;
 }
 
-export const basecampDirectoryAdapter: ChannelDirectoryAdapter = {
+/** Apply a positive limit to already query-filtered live entries. */
+function applyLimit<T>(entries: T[], limit?: number | null): T[] {
+  return typeof limit === "number" && limit > 0 ? entries.slice(0, limit) : entries;
+}
+
+export const basecampDirectoryAdapter: ChannelDirectoryAdapter = createChannelDirectoryAdapter({
   self: async ({ cfg, accountId }) => {
     const account = resolveBasecampAccount(cfg, accountId);
     if (!account.token && !account.config.tokenFile && !account.config.oauthTokenFile) return null;
@@ -35,37 +47,26 @@ export const basecampDirectoryAdapter: ChannelDirectoryAdapter = {
     }
   },
 
-  listPeers: async ({ cfg }) => {
+  listPeers: async ({ cfg, query, limit }) => {
     const section = getBasecampSection(cfg);
-    const entries: ChannelDirectoryEntry[] = [];
+    const names = new Map<string, string | undefined>();
 
-    // Include allowFrom person IDs as known peers
-    const allowFrom = section?.allowFrom ?? [];
-    for (const entry of allowFrom) {
+    // allowFrom person IDs are known peers; account personIds carry names.
+    for (const entry of section?.allowFrom ?? []) {
       const id = String(entry);
-      entries.push({ kind: "user", id, name: undefined });
+      if (!names.has(id)) names.set(id, undefined);
     }
-
-    // Include all account personIds (use Set for O(1) dedup)
-    const seenIds = new Set(entries.map((e) => e.id));
-    const accounts = section?.accounts;
-    if (accounts) {
-      for (const acct of Object.values(accounts)) {
-        if (acct.personId && !seenIds.has(acct.personId)) {
-          seenIds.add(acct.personId);
-          entries.push({
-            kind: "user",
-            id: acct.personId,
-            name: acct.displayName,
-          });
-        }
+    for (const acct of Object.values(section?.accounts ?? {})) {
+      if (acct.personId && !names.has(acct.personId)) {
+        names.set(acct.personId, acct.displayName);
       }
     }
 
-    return entries;
+    const ids = applyDirectoryQueryAndLimit([...names.keys()], { query, limit });
+    return ids.map((id) => ({ kind: "user" as const, id, name: names.get(id) }));
   },
 
-  listPeersLive: async ({ cfg, accountId, query }) => {
+  listPeersLive: async ({ cfg, accountId, query, limit }) => {
     const account = resolveBasecampAccount(cfg, accountId);
 
     let people: Person[];
@@ -82,7 +83,7 @@ export const basecampDirectoryAdapter: ChannelDirectoryAdapter = {
       filtered = filtered.filter((p) => p.name.toLowerCase().includes(q) || p.email_address?.toLowerCase().includes(q));
     }
 
-    return filtered.map((p) => ({
+    return applyLimit(filtered, limit).map((p) => ({
       kind: "user" as const,
       id: String(p.id),
       name: p.name,
@@ -91,26 +92,20 @@ export const basecampDirectoryAdapter: ChannelDirectoryAdapter = {
     }));
   },
 
-  listGroups: async ({ cfg }) => {
+  listGroups: async ({ cfg, query, limit }) => {
     const section = getBasecampSection(cfg);
-    const entries: ChannelDirectoryEntry[] = [];
 
-    // Include virtual account (project-scope) entries as groups
-    const virtualAccounts = section?.virtualAccounts;
-    if (virtualAccounts) {
-      for (const [key, va] of Object.entries(virtualAccounts)) {
-        entries.push({
-          kind: "group",
-          id: `bucket:${va.bucketId}`,
-          name: key,
-        });
-      }
+    // Virtual account (project-scope) entries are groups keyed by bucket id.
+    const names = new Map<string, string>();
+    for (const [key, va] of Object.entries(section?.virtualAccounts ?? {})) {
+      names.set(`bucket:${va.bucketId}`, key);
     }
 
-    return entries;
+    const ids = applyDirectoryQueryAndLimit([...names.keys()], { query, limit });
+    return ids.map((id) => ({ kind: "group" as const, id, name: names.get(id) }));
   },
 
-  listGroupsLive: async ({ cfg, accountId, query }) => {
+  listGroupsLive: async ({ cfg, accountId, query, limit }) => {
     const account = resolveBasecampAccount(cfg, accountId);
 
     let projects: Project[];
@@ -127,14 +122,14 @@ export const basecampDirectoryAdapter: ChannelDirectoryAdapter = {
       filtered = filtered.filter((p) => p.name.toLowerCase().includes(q));
     }
 
-    return filtered.map((p) => ({
+    return applyLimit(filtered, limit).map((p) => ({
       kind: "group" as const,
       id: `bucket:${p.id}`,
       name: p.name,
     }));
   },
 
-  listGroupMembers: async ({ cfg, accountId, groupId }) => {
+  listGroupMembers: async ({ cfg, accountId, groupId, limit }) => {
     const bucketMatch = groupId.match(/^bucket:(\d+)$/);
     if (!bucketMatch) return [];
 
@@ -149,7 +144,7 @@ export const basecampDirectoryAdapter: ChannelDirectoryAdapter = {
       return [];
     }
 
-    return people.map((p) => ({
+    return applyLimit(people, limit).map((p) => ({
       kind: "user" as const,
       id: String(p.id),
       name: p.name,
@@ -157,4 +152,4 @@ export const basecampDirectoryAdapter: ChannelDirectoryAdapter = {
       avatarUrl: p.avatar_url,
     }));
   },
-};
+});
