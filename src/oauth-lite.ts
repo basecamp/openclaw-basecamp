@@ -1,11 +1,10 @@
 /**
- * Import-light OAuth constants shared by config and setup surfaces.
+ * Import-light OAuth helpers.
  *
- * `src/oauth-credentials.ts` pulls in `@37signals/basecamp/oauth` at module
- * load; these pure helpers live here so `src/config.ts` (and through it the
- * setup entry, SPEC §1.4) can validate OAuth client IDs without dragging the
- * Basecamp SDK into the setup-entry import graph. Re-exported from
- * `src/oauth-credentials.ts` for existing callers.
+ * These live outside oauth-credentials.ts so that modules on the setup-entry
+ * import graph (config.ts, channel-setup.ts, adapters/onboarding.ts) can use
+ * them without dragging in @37signals/basecamp/oauth. oauth-credentials.ts
+ * re-exports them for the rest of the plugin.
  */
 
 /** Guidance note shown before prompting for OAuth client credentials. */

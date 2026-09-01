@@ -1,6 +1,12 @@
 /**
  * Basecamp setup wizard — guides users through initial channel setup.
  *
+ * Built on the SDK wizard helpers (SPEC §2.11): status via
+ * createStandardChannelSetupStatus, DM policy via createChannelDmPolicy
+ * (per-account aware — named accounts patch accounts.<id>, the default
+ * account patches the channel root), allowlist entry via
+ * createAllowFromSection, and disable via setSetupChannelEnabled.
+ *
  * Supports two authentication paths:
  * - Browser-based OAuth (recommended) — uses @37signals/basecamp interactive login
  * - Basecamp CLI profile — imports CLI's stored credentials for persistent token
@@ -9,17 +15,29 @@
  */
 
 import { normalizeAccountId } from "openclaw/plugin-sdk/account-id";
+import { createChannelDmPolicy } from "openclaw/plugin-sdk/channel-dm-policy";
 import type { ChannelSetupWizard } from "openclaw/plugin-sdk/channel-setup";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
-import type { ChannelSetupDmPolicy, DmPolicy } from "openclaw/plugin-sdk/setup";
+import type { DmPolicy, WizardPrompter } from "openclaw/plugin-sdk/setup";
+import {
+  createAllowFromSection,
+  createStandardChannelSetupStatus,
+  setSetupChannelEnabled,
+} from "openclaw/plugin-sdk/setup";
 import {
   type CliProfile,
   cliProfileListFull,
   exportCliCredentials,
   extractCliBootstrapToken,
 } from "../basecamp-cli.js";
-import { listBasecampAccountIds, resolveBasecampAccount, resolveBasecampDmPolicy } from "../config.js";
-import { isValidLaunchpadClientId, OAUTH_SETUP_GUIDANCE } from "../oauth-credentials.js";
+import {
+  listBasecampAccountIds,
+  resolveBasecampAccount,
+  resolveBasecampAllowFrom,
+  resolveBasecampDmPolicy,
+  resolveDefaultBasecampAccountId,
+} from "../config.js";
+import { isValidLaunchpadClientId, OAUTH_SETUP_GUIDANCE } from "../oauth-lite.js";
 import type { BasecampChannelConfig } from "../types.js";
 
 const channel = "basecamp" as const;
@@ -31,9 +49,10 @@ const channel = "basecamp" as const;
 /**
  * Run the interactive OAuth login flow, prompting for client credentials if
  * none are available. Used by both the primary OAuth path and the CLI
- * fallback when credential import fails.
+ * fallback when credential import fails. When the prompter exposes openUrl,
+ * the browser hand-off goes through it so remote clients can open the URL.
  */
-async function runOAuthLogin(params: { cfg: OpenClawConfig; accountId: string; prompter: any }): Promise<{
+async function runOAuthLogin(params: { cfg: OpenClawConfig; accountId: string; prompter: WizardPrompter }): Promise<{
   accessToken: string;
   oauthTokenFile: string;
   promptedClientId?: string;
@@ -78,7 +97,11 @@ async function runOAuthLogin(params: { cfg: OpenClawConfig; accountId: string; p
     oauthClientSecret: clientSecret,
     config: { ...resolved.config, oauthTokenFile },
   };
-  const token = await interactiveLogin(partialAccount, { clientId, clientSecret });
+  const token = await interactiveLogin(partialAccount, {
+    clientId,
+    clientSecret,
+    ...(prompter.openUrl ? { openUrl: (url: string) => prompter.openUrl!(url) } : {}),
+  });
 
   return {
     accessToken: token.accessToken,
@@ -92,33 +115,61 @@ function getBasecampSection(cfg: OpenClawConfig): BasecampChannelConfig | undefi
   return cfg.channels?.basecamp as BasecampChannelConfig | undefined;
 }
 
-function setBasecampDmPolicy(cfg: OpenClawConfig, dmPolicy: DmPolicy): OpenClawConfig {
+/** Parse a person ID entry, stripping basecamp:/bc: prefixes. Numeric IDs only. */
+function parsePersonId(raw: string): string | null {
+  const stripped = raw.replace(/^(basecamp|bc):/i, "").trim();
+  return /^\d+$/.test(stripped) ? stripped : null;
+}
+
+/** Patch channel-root or per-account fields depending on the target account. */
+function patchDmFields(cfg: OpenClawConfig, accountId: string, patch: Record<string, unknown>): OpenClawConfig {
+  const section = getBasecampSection(cfg) ?? {};
+  if (accountId === "default") {
+    return {
+      ...cfg,
+      channels: {
+        ...cfg.channels,
+        basecamp: { ...section, ...patch },
+      },
+    };
+  }
+  const accounts = (section.accounts ?? {}) as Record<string, Record<string, unknown>>;
   return {
     ...cfg,
     channels: {
       ...cfg.channels,
       basecamp: {
-        ...getBasecampSection(cfg),
-        dmPolicy,
+        ...section,
+        accounts: {
+          ...accounts,
+          [accountId]: { ...accounts[accountId], ...patch },
+        },
       },
     },
   };
 }
 
 // ---------------------------------------------------------------------------
-// DM policy descriptor
+// DM policy descriptor (SDK helper, per-account aware)
 // ---------------------------------------------------------------------------
 
-const dmPolicy: ChannelSetupDmPolicy = {
+const dmPolicy = createChannelDmPolicy({
   label: "Basecamp",
   channel,
-  policyKey: "channels.basecamp.dmPolicy",
-  allowFromKey: "channels.basecamp.allowFrom",
-  getCurrent: (cfg) => resolveBasecampDmPolicy(cfg) as DmPolicy,
-  setPolicy: (cfg, policy) => setBasecampDmPolicy(cfg, policy),
-  promptAllowFrom: async ({ cfg, prompter }) => {
-    const section = getBasecampSection(cfg) ?? {};
-    const current = (section.allowFrom ?? []).map(String);
+  resolveAccount: (cfg, accountId) => {
+    const id = normalizeAccountId(accountId ?? resolveDefaultBasecampAccountId(cfg));
+    return {
+      accountId: id,
+      config: {
+        dmPolicy: resolveBasecampDmPolicy(cfg, id) as DmPolicy,
+        allowFrom: resolveBasecampAllowFrom(cfg, id),
+      },
+    };
+  },
+  applyPatch: ({ cfg, account, patch }) => patchDmFields(cfg, account.accountId, patch),
+  promptAllowFrom: async ({ cfg, prompter, accountId }) => {
+    const targetAccountId = normalizeAccountId(accountId ?? resolveDefaultBasecampAccountId(cfg));
+    const current = resolveBasecampAllowFrom(cfg, targetAccountId);
 
     await prompter.note(
       "Enter Basecamp person IDs that should be allowed to DM agents.\n" +
@@ -137,26 +188,16 @@ const dmPolicy: ChannelSetupDmPolicy = {
 
     const ids = raw
       .split(/[,\s]+/)
-      .map((s) => s.replace(/^(basecamp|bc):/i, "").trim())
-      .filter((s) => /^\d+$/.test(s));
+      .map((s) => parsePersonId(s))
+      .filter((s): s is string => s !== null);
 
     if (ids.length === 0) return cfg;
 
     // Merge with existing, deduplicate
     const merged = [...new Set([...current, ...ids])];
-
-    return {
-      ...cfg,
-      channels: {
-        ...cfg.channels,
-        basecamp: {
-          ...section,
-          allowFrom: merged,
-        },
-      },
-    };
+    return patchDmFields(cfg, targetAccountId, { allowFrom: merged });
   },
-};
+});
 
 // ---------------------------------------------------------------------------
 // Setup wizard
@@ -165,7 +206,8 @@ const dmPolicy: ChannelSetupDmPolicy = {
 export const basecampSetupWizard: ChannelSetupWizard = {
   channel,
 
-  status: {
+  status: createStandardChannelSetupStatus({
+    channelLabel: "Basecamp",
     configuredLabel: "configured",
     unconfiguredLabel: "needs setup",
     resolveConfigured: ({ cfg }) => {
@@ -175,7 +217,7 @@ export const basecampSetupWizard: ChannelSetupWizard = {
         return account.tokenSource !== "none" && !!account.personId;
       });
     },
-  },
+  }),
 
   resolveAccountIdForConfigure: async ({
     cfg,
@@ -217,6 +259,24 @@ export const basecampSetupWizard: ChannelSetupWizard = {
   },
 
   credentials: [],
+
+  allowFrom: createAllowFromSection({
+    helpTitle: "Basecamp allowlist",
+    helpLines: [
+      "Enter Basecamp person IDs that should be allowed to DM agents.",
+      "You can find person IDs in Basecamp URLs or via `openclaw channels resolve basecamp`.",
+    ],
+    message: "Person IDs (comma-separated)",
+    placeholder: "e.g. 12345, 67890",
+    invalidWithoutCredentialNote: "Entries must be numeric Basecamp person IDs.",
+    parseId: parsePersonId,
+    apply: ({ cfg, accountId, allowFrom }) => {
+      const targetAccountId = normalizeAccountId(accountId || resolveDefaultBasecampAccountId(cfg));
+      const current = resolveBasecampAllowFrom(cfg, targetAccountId);
+      const merged = [...new Set([...current, ...allowFrom])];
+      return patchDmFields(cfg, targetAccountId, { allowFrom: merged });
+    },
+  }),
 
   finalize: async ({ cfg, accountId, prompter }) => {
     let next = cfg;
@@ -447,25 +507,10 @@ export const basecampSetupWizard: ChannelSetupWizard = {
         next = result.cfg;
       } catch {
         await prompter.note(
-          "Failed to add another identity. You can add more later with `openclaw channels hatch basecamp`.",
+          "Failed to add another identity. You can add more later with `openclaw channels add basecamp`.",
           "Hatch error",
         );
       }
-    }
-
-    // Normalize DM policy: the generic setup host may have written "pairing"
-    // as the default, but Basecamp has no pairing challenge flow — pairing and
-    // allowlist are identical. Rewrite to "allowlist" so the config label
-    // accurately reflects behavior.
-    const finalSection = getBasecampSection(next);
-    if (finalSection?.dmPolicy === "pairing") {
-      next = {
-        ...next,
-        channels: {
-          ...next.channels,
-          basecamp: { ...finalSection, dmPolicy: "allowlist" },
-        },
-      };
     }
 
     return { cfg: next };
@@ -473,11 +518,5 @@ export const basecampSetupWizard: ChannelSetupWizard = {
 
   dmPolicy,
 
-  disable: (cfg) => ({
-    ...cfg,
-    channels: {
-      ...cfg.channels,
-      basecamp: { ...getBasecampSection(cfg), enabled: false },
-    },
-  }),
+  disable: (cfg) => setSetupChannelEnabled(cfg, channel, false),
 };

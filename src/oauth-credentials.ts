@@ -20,14 +20,15 @@ import {
   refreshToken as sdkRefreshToken,
   TokenManager,
 } from "@37signals/basecamp/oauth";
-import { isValidLaunchpadClientId } from "./oauth-constants.js";
 import type { ResolvedBasecampAccount } from "./types.js";
 
 const LAUNCHPAD_TOKEN_ENDPOINT = "https://launchpad.37signals.com/authorization/token";
 
-// Import-light constants moved to oauth-constants.ts (setup-entry graph, SPEC §1.4);
-// re-exported here so existing callers keep working.
-export { isValidLaunchpadClientId, OAUTH_SETUP_GUIDANCE } from "./oauth-constants.js";
+// Definitions live in oauth-lite.ts (import-light for the setup-entry graph);
+// re-exported here to keep this module's public API stable.
+import { isValidLaunchpadClientId } from "./oauth-lite.js";
+
+export { isValidLaunchpadClientId, OAUTH_SETUP_GUIDANCE } from "./oauth-lite.js";
 
 /**
  * Resolve a valid OAuth client ID/secret pair.
@@ -193,7 +194,12 @@ export function clearTokenManager(accountId: string): void {
  */
 export async function interactiveLogin(
   account: ResolvedBasecampAccount,
-  overrides?: { clientId?: string; clientSecret?: string },
+  overrides?: {
+    clientId?: string;
+    clientSecret?: string;
+    /** Preferred browser opener (e.g. WizardPrompter.openUrl). Falls back to a local opener. */
+    openUrl?: (url: string) => Promise<void>;
+  },
 ): Promise<OAuthToken> {
   const oauthClient = resolveOAuthClient(account, overrides);
 
@@ -201,8 +207,14 @@ export async function interactiveLogin(
 
   const store = new FileTokenStore(tokenFilePath);
 
-  // Open browser: use the `open` package if available, fall back to platform command
+  // Open browser: prefer a caller-supplied opener (wizard prompters can route
+  // the URL to the controlling client), then the `open` package, then a
+  // platform-native command.
   const openBrowser = async (url: string): Promise<void> => {
+    if (overrides?.openUrl) {
+      await overrides.openUrl(url);
+      return;
+    }
     try {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const open = (await import(/* @vite-ignore */ "open" as string)).default as (url: string) => Promise<unknown>;

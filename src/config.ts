@@ -1,7 +1,10 @@
 import { DEFAULT_ACCOUNT_ID, normalizeAccountId } from "openclaw/plugin-sdk/account-id";
+import { buildChannelAccountSchemaParts, requireOpenAllowFrom } from "openclaw/plugin-sdk/channel-config-schema";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
+import { buildSecretInputSchema, registerSensitiveConfigSchema } from "openclaw/plugin-sdk/secret-input";
+import { resolveSecretInputString } from "openclaw/plugin-sdk/secret-input-runtime";
 import { z } from "zod";
-import { isValidLaunchpadClientId } from "./oauth-constants.js";
+import { isValidLaunchpadClientId } from "./oauth-lite.js";
 import type {
   BasecampAccountConfig,
   BasecampChannelConfig,
@@ -10,105 +13,191 @@ import type {
 } from "./types.js";
 
 // ---------------------------------------------------------------------------
-// Zod schema for channels.basecamp config section
+// Zod schema for channels.basecamp config section (SPEC §2.10)
+//
+// Built on the SDK's common channel-account schema parts so Basecamp accounts
+// carry the standard per-account policy leaves (dmPolicy, allowFrom,
+// groupPolicy, mentionPatterns, historyLimit, markdown.tables, …) alongside
+// the Basecamp-specific credential and identity fields.
 // ---------------------------------------------------------------------------
 
-const BasecampAccountConfigSchema = z.object({
-  tokenFile: z.string().optional(),
-  token: z.string().optional(),
-  personId: z.string(),
-  displayName: z.string().optional(),
-  attachableSgid: z.string().optional(),
-  enabled: z.boolean().optional(),
-  cliProfile: z.string().optional(),
-  basecampAccountId: z.string().optional(),
-  oauthTokenFile: z.string().optional(),
-  oauthClientId: z.string().optional(),
-  oauthClientSecret: z.string().optional(),
-});
+/**
+ * Secret-bearing config leaf: a literal string or a SecretRef
+ * ({source: "env"|"file"|"exec"|"store", provider, id}). Registered as
+ * sensitive so host config projections redact it.
+ */
+const SecretValueSchema = registerSensitiveConfigSchema(buildSecretInputSchema().optional());
 
-const BasecampVirtualAccountSchema = z.object({
-  accountId: z.string(),
-  bucketId: z.string(),
-});
+const { accountShape, rootPolicyShape } = buildChannelAccountSchemaParts();
+
+const BasecampAccountSchemaBase = z
+  .object({
+    ...accountShape,
+    /** Path to a file containing the OAuth/bearer token. Sugar for {source:"file"} SecretRefs. */
+    tokenFile: z.string().optional(),
+    /** Inline token or SecretRef (prefer a SecretRef or tokenFile). */
+    token: SecretValueSchema,
+    /** Basecamp person ID for this service account. */
+    personId: z.string().optional(),
+    /** Human-readable display name. */
+    displayName: z.string().optional(),
+    /** Pre-resolved attachable SGID (auto-resolved at startup if absent). */
+    attachableSgid: z.string().optional(),
+    /** CLI profile name for identity discovery during setup (not used at runtime). */
+    cliProfile: z.string().optional(),
+    /** Numeric Basecamp account ID for SDK client creation. */
+    basecampAccountId: z.string().optional(),
+    /** Path to file where OAuth tokens are stored. Presence implies tokenSource "oauth". */
+    oauthTokenFile: z.string().optional(),
+    /** Per-account OAuth client ID override. */
+    oauthClientId: z.string().optional(),
+    /** Per-account OAuth client secret override (string or SecretRef). */
+    oauthClientSecret: SecretValueSchema,
+  })
+  .strict();
+
+const BasecampVirtualAccountSchema = z
+  .object({
+    accountId: z.string(),
+    bucketId: z.string(),
+  })
+  .strict();
 
 const EngagementTypeSchema = z.enum(["dm", "mention", "assignment", "checkin", "conversation", "activity"]);
 
-const BasecampBucketConfigSchema = z.object({
-  requireMention: z.boolean().optional(),
-  tools: z
-    .object({
-      allow: z.array(z.string()).optional(),
-      deny: z.array(z.string()).optional(),
-    })
-    .optional(),
-  enabled: z.boolean().optional(),
-  engage: z.array(EngagementTypeSchema).optional(),
-  allowFrom: z.array(z.union([z.string(), z.number()])).optional(),
-});
+const BasecampBucketConfigSchema = z
+  .object({
+    requireMention: z.boolean().optional(),
+    tools: z
+      .object({
+        allow: z.array(z.string()).optional(),
+        deny: z.array(z.string()).optional(),
+      })
+      .strict()
+      .optional(),
+    enabled: z.boolean().optional(),
+    engage: z.array(EngagementTypeSchema).optional(),
+    allowFrom: z.array(z.union([z.string(), z.number()])).optional(),
+  })
+  .strict();
 
-export const BasecampConfigSchema = z.object({
-  enabled: z.boolean().optional(),
-  accounts: z.record(z.string(), BasecampAccountConfigSchema).optional(),
-  virtualAccounts: z.record(z.string(), BasecampVirtualAccountSchema).optional(),
-  personas: z.record(z.string(), z.string()).optional(),
-  dmPolicy: z.enum(["pairing", "allowlist", "open", "disabled"]).optional(),
-  allowFrom: z.array(z.union([z.string(), z.number()])).optional(),
-  buckets: z.record(z.string(), BasecampBucketConfigSchema).optional(),
-  engage: z.array(EngagementTypeSchema).optional(),
-  /** Secret token for webhook URL verification. Required to accept webhook requests. */
-  webhookSecret: z.string().optional(),
-  /** Webhook subscription management. */
-  webhooks: z
-    .object({
-      payloadUrl: z.url().optional(),
-      projects: z.array(z.string()).optional(),
-      types: z.array(z.string()).optional(),
-      autoRegister: z.boolean().optional(),
-      deactivateOnStop: z.boolean().optional(),
-    })
-    .optional(),
-  oauth: z
-    .object({
-      clientId: z.string(),
-      clientSecret: z.string().optional(),
-    })
-    .optional(),
-  polling: z
-    .object({
-      activityIntervalMs: z.number().positive().optional(),
-      readingsIntervalMs: z.number().positive().optional(),
-      assignmentsIntervalMs: z.number().positive().optional(),
-    })
-    .optional(),
-  retry: z
-    .object({
-      maxAttempts: z.number().positive().optional(),
-      baseDelayMs: z.number().positive().optional(),
-      maxDelayMs: z.number().positive().optional(),
-      jitter: z.boolean().optional(),
-    })
-    .optional(),
-  circuitBreaker: z
-    .object({
-      threshold: z.number().positive().optional(),
-      cooldownMs: z.number().positive().optional(),
-    })
-    .optional(),
-  safetyNet: z
-    .object({
-      projects: z.array(z.string()).optional(),
-      intervalMs: z.number().positive().optional(),
-    })
-    .optional(),
-  reconciliation: z
-    .object({
-      enabled: z.boolean().optional(),
-      intervalMs: z.number().positive().optional(),
-      gapThreshold: z.number().positive().optional(),
-    })
-    .optional(),
-});
+export const BasecampConfigSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    ...rootPolicyShape,
+    allowFrom: z.array(z.union([z.string(), z.number()])).optional(),
+    accounts: z.record(z.string(), BasecampAccountSchemaBase.optional()).optional(),
+    virtualAccounts: z.record(z.string(), BasecampVirtualAccountSchema).optional(),
+    personas: z.record(z.string(), z.string()).optional(),
+    buckets: z.record(z.string(), BasecampBucketConfigSchema).optional(),
+    engage: z.array(EngagementTypeSchema).optional(),
+    /** Secret token for webhook URL verification (string or SecretRef). Required to accept webhook requests. */
+    webhookSecret: SecretValueSchema,
+    /** Webhook subscription management. */
+    webhooks: z
+      .object({
+        payloadUrl: z.url().optional(),
+        projects: z.array(z.string()).optional(),
+        types: z.array(z.string()).optional(),
+        autoRegister: z.boolean().optional(),
+        deactivateOnStop: z.boolean().optional(),
+      })
+      .strict()
+      .optional(),
+    oauth: z
+      .object({
+        clientId: z.string(),
+        clientSecret: SecretValueSchema,
+      })
+      .strict()
+      .optional(),
+    polling: z
+      .object({
+        activityIntervalMs: z.number().positive().optional(),
+        readingsIntervalMs: z.number().positive().optional(),
+        assignmentsIntervalMs: z.number().positive().optional(),
+      })
+      .strict()
+      .optional(),
+    retry: z
+      .object({
+        maxAttempts: z.number().positive().optional(),
+        baseDelayMs: z.number().positive().optional(),
+        maxDelayMs: z.number().positive().optional(),
+        jitter: z.boolean().optional(),
+      })
+      .strict()
+      .optional(),
+    circuitBreaker: z
+      .object({
+        threshold: z.number().positive().optional(),
+        cooldownMs: z.number().positive().optional(),
+      })
+      .strict()
+      .optional(),
+    safetyNet: z
+      .object({
+        projects: z.array(z.string()).optional(),
+        intervalMs: z.number().positive().optional(),
+      })
+      .strict()
+      .optional(),
+    reconciliation: z
+      .object({
+        enabled: z.boolean().optional(),
+        intervalMs: z.number().positive().optional(),
+        gapThreshold: z.number().positive().optional(),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    requireOpenAllowFrom({
+      policy: value.dmPolicy,
+      allowFrom: value.allowFrom,
+      ctx,
+      path: ["allowFrom"],
+      message: 'channels.basecamp.dmPolicy="open" requires channels.basecamp.allowFrom to include "*"',
+    });
+    for (const [accountId, account] of Object.entries(value.accounts ?? {})) {
+      if (!account) continue;
+      requireOpenAllowFrom({
+        policy: account.dmPolicy ?? value.dmPolicy,
+        allowFrom: account.allowFrom ?? value.allowFrom,
+        ctx,
+        path: ["accounts", accountId, "allowFrom"],
+        message:
+          'channels.basecamp.accounts.*.dmPolicy="open" requires channels.basecamp.accounts.*.allowFrom ' +
+          '(or channels.basecamp.allowFrom) to include "*"',
+      });
+    }
+  });
+
+// ---------------------------------------------------------------------------
+// Secret-input helpers
+// ---------------------------------------------------------------------------
+
+/** Read state of a secret-bearing config leaf, without throwing on unresolved SecretRefs. */
+export type BasecampSecretStatus = "available" | "configured_unavailable" | "missing";
+
+/**
+ * Inspect a secret-bearing config value (literal string or SecretRef).
+ * Returns the literal value when available, plus a status usable by
+ * read-only paths (`configured_unavailable` = a SecretRef the host has not
+ * materialized into this config snapshot yet).
+ */
+export function inspectSecretValue(value: unknown, path: string): { status: BasecampSecretStatus; value?: string } {
+  const resolution = resolveSecretInputString({ value, path, mode: "inspect" });
+  return resolution.status === "available"
+    ? { status: "available", value: resolution.value }
+    : { status: resolution.status };
+}
+
+/** Resolve a secret-bearing config value to a string, or undefined when unset/unavailable. */
+function resolveOptionalSecret(value: unknown, path: string): string | undefined {
+  return inspectSecretValue(value, path).value;
+}
 
 // ---------------------------------------------------------------------------
 // Config helpers
@@ -161,6 +250,23 @@ export function resolveDefaultBasecampAccountId(cfg: OpenClawConfig): string {
 }
 
 /**
+ * Expand `~` and `~/...` to the user's home directory and resolve to an
+ * absolute path. Paths like `~username/...` are treated as literal.
+ */
+export function expandTokenFilePath(
+  filePath: string,
+  deps: { homedir: () => string; resolve: (...p: string[]) => string },
+): string {
+  if (filePath === "~") {
+    return deps.homedir();
+  }
+  if (filePath.startsWith("~/")) {
+    return deps.resolve(deps.homedir(), filePath.slice(2));
+  }
+  return deps.resolve(filePath);
+}
+
+/**
  * Read the token from a tokenFile path, returning the trimmed contents.
  * Expands `~` and `~/...` to the user's home directory.
  * Paths like `~username/...` are treated as literal (not expanded).
@@ -169,14 +275,7 @@ export async function readTokenFile(filePath: string): Promise<string> {
   const { readFile } = await import("node:fs/promises");
   const { resolve } = await import("node:path");
   const { homedir } = await import("node:os");
-  let resolved: string;
-  if (filePath === "~") {
-    resolved = homedir();
-  } else if (filePath.startsWith("~/")) {
-    resolved = resolve(homedir(), filePath.slice(2));
-  } else {
-    resolved = resolve(filePath);
-  }
+  const resolved = expandTokenFilePath(filePath, { homedir, resolve });
   const content = await readFile(resolved, "utf-8");
   return content.trim();
 }
@@ -199,6 +298,11 @@ export function resolveProjectScope(
  * Synchronously resolve a Basecamp account from config.
  * Token loading from file is deferred — use the token field if available,
  * otherwise the gateway startup will load it.
+ *
+ * The token and oauthClientSecret fields accept SecretRefs; unresolved refs
+ * still mark the account configured (tokenSource "config") with an empty
+ * token, so read-only paths report `configured_unavailable` semantics
+ * instead of "unconfigured".
  *
  * When accountId matches a virtualAccounts (project-scope) entry, the real
  * account is resolved and scopedBucketId is set on the result.
@@ -244,6 +348,10 @@ export function resolveBasecampAccount(
       personId: "",
       token: "",
       tokenSource: "none",
+      // Channel-level OAuth client credentials still apply to accounts that
+      // have no config yet — first-time setup reuses them for browser login.
+      oauthClientId: section?.oauth?.clientId,
+      oauthClientSecret: resolveOptionalSecret(section?.oauth?.clientSecret, "channels.basecamp.oauth.clientSecret"),
       config: { personId: "" },
     };
   }
@@ -251,34 +359,38 @@ export function resolveBasecampAccount(
   let token = "";
   let tokenSource: ResolvedBasecampAccount["tokenSource"] = "none";
 
-  if (accountCfg.token) {
-    token = accountCfg.token.trim();
+  const tokenStatus = inspectSecretValue(accountCfg.token, `channels.basecamp.accounts.${effectiveId}.token`);
+  if (tokenStatus.status !== "missing") {
+    // Literal value or a SecretRef the host has not materialized yet — either
+    // way the account is configured with an inline token.
+    token = tokenStatus.value ?? "";
     tokenSource = "config";
   }
   // tokenFile is resolved asynchronously at gateway start; here we mark intent
-  if (!token && accountCfg.tokenFile) {
+  if (tokenSource === "none" && accountCfg.tokenFile) {
     tokenSource = "tokenFile";
   }
   // oauthTokenFile means token lifecycle is managed by the OAuth credentials module
-  if (!token && !accountCfg.tokenFile && accountCfg.oauthTokenFile) {
+  if (tokenSource === "none" && accountCfg.oauthTokenFile) {
     tokenSource = "oauth";
   }
+
+  const secretPath = (field: string) => `channels.basecamp.accounts.${effectiveId}.${field}`;
+  const useAccountOAuthClient = isValidLaunchpadClientId(accountCfg.oauthClientId);
 
   return {
     accountId: effectiveId,
     enabled: accountCfg.enabled !== false,
     displayName: accountCfg.displayName,
-    personId: accountCfg.personId,
+    personId: accountCfg.personId ?? "",
     attachableSgid: accountCfg.attachableSgid,
     token,
     tokenSource,
     cliProfile: accountCfg.cliProfile,
-    oauthClientId: isValidLaunchpadClientId(accountCfg.oauthClientId)
-      ? accountCfg.oauthClientId
-      : section?.oauth?.clientId,
-    oauthClientSecret: isValidLaunchpadClientId(accountCfg.oauthClientId)
-      ? accountCfg.oauthClientSecret
-      : section?.oauth?.clientSecret,
+    oauthClientId: useAccountOAuthClient ? accountCfg.oauthClientId : section?.oauth?.clientId,
+    oauthClientSecret: useAccountOAuthClient
+      ? resolveOptionalSecret(accountCfg.oauthClientSecret, secretPath("oauthClientSecret"))
+      : resolveOptionalSecret(section?.oauth?.clientSecret, "channels.basecamp.oauth.clientSecret"),
     config: accountCfg,
   };
 }
@@ -293,10 +405,9 @@ export async function resolveBasecampAccountAsync(
   const account = resolveBasecampAccount(cfg, accountId);
 
   // If token is empty but tokenFile is configured, load it now
-  if (!account.token && account.config.tokenFile) {
+  if (!account.token && account.tokenSource === "tokenFile" && account.config.tokenFile) {
     try {
       account.token = await readTokenFile(account.config.tokenFile);
-      account.tokenSource = "tokenFile";
     } catch (err) {
       // Token file missing or unreadable — log and leave as empty
       console.warn(`[basecamp] failed to read token file "${account.config.tokenFile}": ${String(err)}`);
@@ -351,16 +462,30 @@ export function resolveCircuitBreakerConfig(cfg: OpenClawConfig): { threshold: n
   };
 }
 
-/** Get the DM policy for Basecamp Pings. Defaults to "allowlist". */
-export function resolveBasecampDmPolicy(cfg: OpenClawConfig) {
+/**
+ * Get the DM policy for Basecamp Pings. Defaults to "allowlist".
+ * Per-account dmPolicy (channels.basecamp.accounts.<id>.dmPolicy) takes
+ * precedence over the channel-level policy when an accountId is given.
+ */
+export function resolveBasecampDmPolicy(cfg: OpenClawConfig, accountId?: string | null) {
   const section = getBasecampSection(cfg);
-  return section?.dmPolicy ?? "allowlist";
+  const accountPolicy = accountId
+    ? (section?.accounts?.[normalizeAccountId(accountId)] as { dmPolicy?: string } | undefined)?.dmPolicy
+    : undefined;
+  return (accountPolicy ?? section?.dmPolicy ?? "allowlist") as "pairing" | "allowlist" | "open" | "disabled";
 }
 
-/** Get the allow-from list. */
-export function resolveBasecampAllowFrom(cfg: OpenClawConfig): string[] {
+/**
+ * Get the allow-from list. Per-account allowFrom takes precedence over the
+ * channel-level list when an accountId is given.
+ */
+export function resolveBasecampAllowFrom(cfg: OpenClawConfig, accountId?: string | null): string[] {
   const section = getBasecampSection(cfg);
-  return (section?.allowFrom ?? []).map((entry) => String(entry));
+  const accountAllowFrom = accountId
+    ? (section?.accounts?.[normalizeAccountId(accountId)] as { allowFrom?: Array<string | number> } | undefined)
+        ?.allowFrom
+    : undefined;
+  return (accountAllowFrom ?? section?.allowFrom ?? []).map((entry) => String(entry));
 }
 
 /** Get the allow-from list for a specific bucket. Returns undefined if unset (all senders allowed). */
@@ -371,10 +496,10 @@ export function resolveBasecampBucketAllowFrom(cfg: OpenClawConfig, bucketId: st
   return bucketConfig.allowFrom.map((entry) => String(entry));
 }
 
-/** Get the webhook secret (undefined = webhooks disabled). */
+/** Get the webhook secret (undefined = webhooks disabled). Accepts SecretRefs. */
 export function resolveWebhookSecret(cfg: OpenClawConfig): string | undefined {
   const section = getBasecampSection(cfg);
-  return section?.webhookSecret;
+  return resolveOptionalSecret(section?.webhookSecret, "channels.basecamp.webhookSecret");
 }
 
 /** Resolve webhook subscription config with defaults. */

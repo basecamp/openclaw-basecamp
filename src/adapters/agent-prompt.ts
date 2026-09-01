@@ -30,7 +30,33 @@ const STATIC_HINTS = [
     "All other surfaces receive comments on the recording.",
 ];
 
+/**
+ * Formatting rules mirroring src/outbound/format.ts: the Markdown constructs
+ * the outbound converter turns into Basecamp rich-text HTML, plus the
+ * bc-attachment mention convention (SPEC §2.24).
+ */
+const INBOUND_FORMATTING_RULES = [
+  "Messages are delivered to Basecamp as rich-text HTML converted from Markdown.",
+  "Supported Markdown: **bold**, *italic*, ~~strikethrough~~, `inline code`, fenced code blocks, " +
+    "[links](url), unordered/ordered lists, > blockquotes, and # headings (rendered as h1).",
+  "Tables and raw HTML are not reliably supported — prefer lists.",
+  'To @mention a person, emit <bc-attachment sgid="..."></bc-attachment> using their attachable SGID; ' +
+    "plain @name text does not notify.",
+  "Campfire and Ping messages are chat lines; every other surface receives flat comments on the recording " +
+    "(no nested threads).",
+];
+
 export const basecampAgentPromptAdapter: AgentPromptAdapter = {
+  inboundFormattingHints: () => ({
+    text_markup: "html",
+    rules: [...INBOUND_FORMATTING_RULES],
+  }),
+
+  reactionGuidance: () => ({
+    level: "minimal",
+    channelLabel: "Basecamp",
+  }),
+
   messageToolHints: ({ cfg, accountId }) => {
     const hints = [...STATIC_HINTS];
     const section = getBasecampSection(cfg);

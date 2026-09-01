@@ -42,7 +42,6 @@ vi.mock("../src/basecamp-client.js", () => ({
 
 // Mock adapter imports so channel.ts loads cleanly
 vi.mock("../src/adapters/onboarding.js", () => ({ basecampSetupWizard: {} }));
-vi.mock("../src/adapters/setup.js", () => ({ basecampSetupAdapter: {} }));
 vi.mock("../src/adapters/status.js", () => ({ basecampStatusAdapter: {} }));
 vi.mock("../src/adapters/pairing.js", () => ({ basecampPairingAdapter: {} }));
 vi.mock("../src/adapters/directory.js", () => ({ basecampDirectoryAdapter: {} }));
@@ -252,14 +251,12 @@ describe("configSchema.uiHints", () => {
     }
   });
 
-  it("dmPolicy help text matches SDK vocabulary", () => {
+  it("dmPolicy hint comes from createChannelConfigUiHints", () => {
     const hints = basecampChannel.configSchema!.uiHints!;
-    const help = hints["dmPolicy"]?.help ?? "";
-    expect(help).toContain("pairing");
-    expect(help).toContain("allowlist");
-    expect(help).toContain("open");
-    expect(help).toContain("disabled");
-    expect(help).not.toContain("closed");
+    const hint = hints["dmPolicy"];
+    expect(hint?.label).toContain("Basecamp");
+    expect(hint?.help).toContain("pairing");
+    expect(hint?.help).toContain("channels.basecamp.allowFrom");
   });
 
   it("marks OAuth fields as sensitive", () => {
@@ -475,5 +472,116 @@ describe("config.isConfigured — OAuth", () => {
       config: { personId: "42" },
     };
     expect(basecampChannel.config.isConfigured!(emptyAccount, cfg({}))).toBe(false);
+  });
+
+  it("returns true for an unresolved SecretRef token (configured_unavailable)", () => {
+    const account = resolveBasecampAccount(
+      cfg({
+        accounts: { work: { personId: "42", token: { source: "env", provider: "default", id: "TOK" } } },
+      }),
+      "work",
+    );
+    expect(basecampChannel.config.isConfigured!(account, cfg({}))).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// inspectAccount (SPEC §2.10)
+// ---------------------------------------------------------------------------
+
+describe("config.inspectAccount", () => {
+  it("returns a redacted account view without token material", () => {
+    const config = cfg({
+      accounts: {
+        work: {
+          personId: "42",
+          displayName: "Work Bot",
+          token: "super-secret",
+          basecampAccountId: "999",
+          cliProfile: "prod",
+        },
+      },
+    });
+    const view = basecampChannel.config.inspectAccount!(config, "work") as Record<string, unknown>;
+    expect(view).toMatchObject({
+      accountId: "work",
+      name: "Work Bot",
+      enabled: true,
+      configured: true,
+      tokenSource: "config",
+      tokenStatus: "available",
+      personId: "42",
+      basecampAccountId: "999",
+      cliProfile: "prod",
+      hasOAuthTokenFile: false,
+    });
+    expect(JSON.stringify(view)).not.toContain("super-secret");
+  });
+
+  it("reports configured_unavailable for an unresolved SecretRef token", () => {
+    const config = cfg({
+      accounts: { work: { personId: "42", token: { source: "env", provider: "default", id: "TOK" } } },
+    });
+    const view = basecampChannel.config.inspectAccount!(config, "work") as Record<string, unknown>;
+    expect(view.tokenStatus).toBe("configured_unavailable");
+    expect(view.configured).toBe(true);
+  });
+
+  it("reports an unconfigured account", () => {
+    const view = basecampChannel.config.inspectAccount!(cfg({}), "ghost") as Record<string, unknown>;
+    expect(view).toMatchObject({ accountId: "ghost", configured: false, tokenSource: "none" });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isLinked / unlinkedReason (SPEC §2.10)
+// ---------------------------------------------------------------------------
+
+describe("config.isLinked", () => {
+  it("reports linked for an inline token", () => {
+    const account = resolveBasecampAccount(cfg({ accounts: { work: { personId: "1", token: "tok" } } }), "work");
+    expect(basecampChannel.config.isLinked!(account, cfg({}))).toBe("linked");
+  });
+
+  it("reports unknown for an unresolved SecretRef token", () => {
+    const account = resolveBasecampAccount(
+      cfg({ accounts: { work: { personId: "1", token: { source: "env", provider: "default", id: "TOK" } } } }),
+      "work",
+    );
+    expect(basecampChannel.config.isLinked!(account, cfg({}))).toBe("unknown");
+  });
+
+  it("reports not-linked when nothing is configured", () => {
+    const account = resolveBasecampAccount(cfg({}), "ghost");
+    expect(basecampChannel.config.isLinked!(account, cfg({}))).toBe("not-linked");
+  });
+
+  it("OAuth account is linked exactly when the token file exists", async () => {
+    const { mkdtempSync, writeFileSync, rmSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const dir = mkdtempSync(join(tmpdir(), "bc-oauth-"));
+    const tokenFile = join(dir, "work.json");
+    try {
+      const withFile = resolveBasecampAccount(
+        cfg({ accounts: { work: { personId: "1", oauthTokenFile: tokenFile } } }),
+        "work",
+      );
+      expect(basecampChannel.config.isLinked!(withFile, cfg({}))).toBe("not-linked");
+
+      writeFileSync(tokenFile, "{}");
+      expect(basecampChannel.config.isLinked!(withFile, cfg({}))).toBe("linked");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("unlinkedReason points OAuth accounts at channels login", () => {
+    const account = resolveBasecampAccount(
+      cfg({ accounts: { work: { personId: "1", oauthTokenFile: "/nonexistent/work.json" } } }),
+      "work",
+    );
+    const reason = basecampChannel.config.unlinkedReason!(account, cfg({}));
+    expect(reason).toContain("openclaw channels login");
   });
 });

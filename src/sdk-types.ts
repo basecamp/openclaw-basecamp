@@ -19,6 +19,8 @@ export type ChannelOwnedSetupContract = NonNullable<ChannelPlugin["setupContract
 export type ChannelLifecycleAdapter = NonNullable<ChannelPlugin["lifecycle"]>;
 
 export type ChannelPairingAdapter = NonNullable<ChannelPlugin["pairing"]>;
+export type ChannelDoctorAdapter = NonNullable<ChannelPlugin["doctor"]>;
+export type ChannelSecretsAdapter = NonNullable<ChannelPlugin["secrets"]>;
 
 export type ChannelSecurityAdapter<ResolvedAccount = unknown> = NonNullable<ChannelPlugin<ResolvedAccount>["security"]>;
 export type ChannelSecurityDmPolicy<ResolvedAccount = unknown> = NonNullable<

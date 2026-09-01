@@ -3,6 +3,7 @@ import { basecampActionsAdapter } from "./adapters/actions.js";
 import { basecampAgentPromptAdapter } from "./adapters/agent-prompt.js";
 import { basecampAgentTools } from "./adapters/agent-tools.js";
 import { basecampDirectoryAdapter } from "./adapters/directory.js";
+import { basecampDoctorAdapter } from "./adapters/doctor.js";
 import { basecampGroupAdapter } from "./adapters/groups.js";
 import { basecampHeartbeatAdapter } from "./adapters/heartbeat.js";
 import { basecampMentionAdapter } from "./adapters/mentions.js";
@@ -12,7 +13,6 @@ import { BASECAMP_TEXT_CHUNK_LIMIT, chunkMarkdownText, resolveOutboundTarget } f
 import { basecampPairingAdapter } from "./adapters/pairing.js";
 import { basecampResolverAdapter } from "./adapters/resolver.js";
 import { basecampSecurityAdapter } from "./adapters/security.js";
-import { basecampSetupAdapter } from "./adapters/setup.js";
 import type { BasecampAudit, BasecampProbe } from "./adapters/status.js";
 import { basecampStatusAdapter } from "./adapters/status.js";
 import { clearClient } from "./basecamp-client.js";
@@ -21,13 +21,12 @@ import {
   basecampChannelMeta,
   basecampConfigAdapter,
   basecampConfigSchema,
+  basecampSecrets,
+  basecampSetupContract,
 } from "./channel-setup.js";
 import {
-  listBasecampAccountIds,
-  resolveAccountForBucket,
   resolveBasecampAccount,
   resolveBasecampAccountAsync,
-  resolveDefaultBasecampAccountId,
   resolveWebhooksConfig,
   scopeWebhookProjects,
 } from "./config.js";
@@ -75,7 +74,9 @@ const basecampChannelBase = {
 
     security: basecampSecurityAdapter,
 
-    setup: basecampSetupAdapter,
+    setupContract: basecampSetupContract,
+
+    doctor: basecampDoctorAdapter,
 
     groups: basecampGroupAdapter,
   }),
@@ -83,6 +84,8 @@ const basecampChannelBase = {
   capabilities: basecampChannelCapabilities,
 
   config: basecampConfigAdapter,
+
+  secrets: basecampSecrets,
 
   // Bucket/recording bindings are project-level, not conversation-level (SPEC §2.21).
   conversationBindings: { supportsCurrentConversationBinding: false },
