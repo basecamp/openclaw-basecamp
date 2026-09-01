@@ -1,14 +1,17 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { clearBasecampRuntime, setBasecampRuntime } from "../src/runtime.js";
 
 // Mock @37signals/basecamp OAuth exports (these are being built in parallel)
 vi.mock("@37signals/basecamp/oauth", () => {
   const mockGetToken = vi.fn().mockResolvedValue("access-token-123");
+  // biome-ignore lint/complexity/useArrowFunction: vitest 4.1 requires `function` for constructible mocks
   const MockTokenManager = vi.fn().mockImplementation(function () {
     return { getToken: mockGetToken };
   });
+  // biome-ignore lint/complexity/useArrowFunction: vitest 4.1 requires `function` for constructible mocks
   const MockFileTokenStore = vi.fn().mockImplementation(function (path: string) {
     return { path };
   });
@@ -57,15 +60,77 @@ function makeAccount(overrides?: Partial<ResolvedBasecampAccount>): ResolvedBase
 // ---------------------------------------------------------------------------
 
 describe("resolveTokenFilePath", () => {
+  afterEach(() => {
+    clearBasecampRuntime();
+  });
+
   it("uses stateDir when provided", () => {
     const result = resolveTokenFilePath("acme", "/var/data/state");
     expect(result).toBe(join("/var/data/state", "tokens", "acme.json"));
   });
 
-  it("uses default path when stateDir is omitted", () => {
+  it("defaults under the plugin state dir when the runtime is set (SPEC decision 4)", () => {
+    const base = mkdtempSync(join(tmpdir(), "bc-oauth-state-"));
+    try {
+      setBasecampRuntime({ state: { resolveStateDir: () => base } } as any);
+      const result = resolveTokenFilePath("acme");
+      expect(result).toBe(join(base, "plugins", "basecamp", "tokens", "acme.json"));
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
+
+  it("falls back to the legacy home path when no runtime is available", () => {
     const result = resolveTokenFilePath("acme");
     const expected = join(homedir(), ".local", "share", "openclaw", "basecamp", "tokens", "acme.json");
     expect(result).toBe(expected);
+  });
+
+  it("migrates a legacy token (and companion client file) to the new default path once", () => {
+    const legacyDir = join(homedir(), ".local", "share", "openclaw", "basecamp", "tokens");
+    const legacyToken = join(legacyDir, "migrate-me.json");
+    const legacyClient = join(legacyDir, "migrate-me.client.json");
+    const base = mkdtempSync(join(tmpdir(), "bc-oauth-migrate-"));
+    try {
+      mkdirSync(legacyDir, { recursive: true });
+      writeFileSync(legacyToken, JSON.stringify({ accessToken: "legacy-token" }));
+      writeFileSync(legacyClient, JSON.stringify({ clientId: "aabbccdd00112233445566778899aabbccddeeff" }));
+      setBasecampRuntime({ state: { resolveStateDir: () => base } } as any);
+
+      const result = resolveTokenFilePath("migrate-me");
+      expect(result).toBe(join(base, "plugins", "basecamp", "tokens", "migrate-me.json"));
+      expect(JSON.parse(readFileSync(result, "utf-8"))).toEqual({ accessToken: "legacy-token" });
+      expect(JSON.parse(readFileSync(result.replace(/\.json$/, ".client.json"), "utf-8"))).toEqual({
+        clientId: "aabbccdd00112233445566778899aabbccddeeff",
+      });
+      // Courtesy copy, not a move: the legacy file stays put.
+      expect(JSON.parse(readFileSync(legacyToken, "utf-8"))).toEqual({ accessToken: "legacy-token" });
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+      rmSync(legacyToken, { force: true });
+      rmSync(legacyClient, { force: true });
+    }
+  });
+
+  it("does not overwrite an existing token at the new path", () => {
+    const legacyDir = join(homedir(), ".local", "share", "openclaw", "basecamp", "tokens");
+    const legacyToken = join(legacyDir, "keep-new.json");
+    const base = mkdtempSync(join(tmpdir(), "bc-oauth-keep-"));
+    try {
+      mkdirSync(legacyDir, { recursive: true });
+      writeFileSync(legacyToken, JSON.stringify({ accessToken: "old" }));
+      setBasecampRuntime({ state: { resolveStateDir: () => base } } as any);
+      const newPath = join(base, "plugins", "basecamp", "tokens", "keep-new.json");
+      mkdirSync(join(base, "plugins", "basecamp", "tokens"), { recursive: true });
+      writeFileSync(newPath, JSON.stringify({ accessToken: "new" }));
+
+      const result = resolveTokenFilePath("keep-new");
+      expect(result).toBe(newPath);
+      expect(JSON.parse(readFileSync(newPath, "utf-8"))).toEqual({ accessToken: "new" });
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+      rmSync(legacyToken, { force: true });
+    }
   });
 });
 

@@ -85,6 +85,11 @@ describe("actions.describeMessageTool", () => {
     const discovery = basecampActionsAdapter.describeMessageTool!({ cfg: {} } as any);
     expect(discovery?.actions).toEqual(["send", "react"]);
   });
+
+  it("advertises the presentation capability (SPEC §2.7)", () => {
+    const discovery = basecampActionsAdapter.describeMessageTool!({ cfg: {} } as any);
+    expect(discovery?.capabilities).toEqual(["presentation"]);
+  });
 });
 
 // ---------------------------------------------------------------------------
