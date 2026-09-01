@@ -11,6 +11,12 @@ updates:
     groups:
       npm-minor-patch:
         update-types: [minor, patch]
+        # openclaw uses calendar versions: 2026.7.1 → 2026.8.1 reads as
+        # semver-minor but is a major platform release. Keep its bumps out of
+        # the auto-merged group so they get a human review (see #146 history).
+        exclude-patterns: [openclaw]
+      openclaw:
+        patterns: [openclaw]
     commit-message:
       prefix: "deps(npm)"
     cooldown:
