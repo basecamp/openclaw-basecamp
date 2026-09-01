@@ -93,7 +93,7 @@ src/mentions/               bc-attachment SGID parsing
 scripts/generate-manifest.ts  Emits openclaw.plugin.json (channelConfigs, contracts.tools) from code
 scripts/verify-pack.sh        Asserts the npm pack ships manifest + both entries
 
-tests/                      1416 tests across 78 files
+tests/                      1419 tests across 78 files
 ```
 
 ## For the Dev Agent
@@ -158,7 +158,7 @@ Coworker skills (54 SKILL.md files across security, bugs, support, exceptions, p
 ### Testing
 
 - `npm run check` -- typecheck + lint + tests (what CI runs).
-- `npm test` -- 1416 tests across 78 files; `npx vitest run --coverage` enforces >85% coverage thresholds.
+- `npm test` -- 1419 tests across 78 files; `npx vitest run --coverage` enforces >85% coverage thresholds.
 - `npm run typecheck` -- zero-error TypeScript.
 - `npm run manifest:gen` -- regenerate `openclaw.plugin.json` after touching the config schema, uiHints, or tool names; the manifest contract test fails otherwise.
 - `bash scripts/verify-pack.sh` -- confirms the pack ships `openclaw.plugin.json`, `dist/index.js`, and `dist/setup-entry.js`.
