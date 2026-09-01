@@ -20,6 +20,7 @@ vi.mock("../src/config.js", () => ({
   resolveBasecampAllowFrom: vi.fn(() => []),
   resolveCircuitBreakerConfig: vi.fn(() => ({ threshold: 5, cooldownMs: 300000 })),
   resolveBasecampBucketAllowFrom: vi.fn(() => undefined),
+  resolveBasecampHistoryLimit: vi.fn(() => 50),
 }));
 vi.mock("../src/outbound/send.js", () => ({
   postReplyToEvent: vi.fn(async () => ({ ok: true, messageId: "posted-1" })),
@@ -126,6 +127,42 @@ describe("real kernel integration", () => {
       ChatType: "group",
       AgentId: "agent-1",
       OriginatingChannel: "basecamp",
+    });
+  });
+
+  it("runs an ambient room_event turn through the real kernel (§2.4)", async () => {
+    const dispatched: any[] = [];
+    const fakeDispatcher = vi.fn(async (params: any) => {
+      dispatched.push(params);
+      return { queuedFinal: false };
+    });
+    const roomCfg: any = {
+      ...cfg,
+      channels: { basecamp: { ...cfg.channels.basecamp, engage: ["conversation"] } },
+      messages: { groupChat: { unmentionedInbound: "room_event" } },
+    };
+    const ambientLine: BasecampInboundMessage = {
+      ...msg,
+      dedupKey: "activity:kernel-2",
+      correlationId: "corr-kernel-2",
+      text: "just chatting",
+      html: "<p>just chatting</p>",
+      meta: { ...msg.meta, recordableType: "Chat::Line", mentionsAgent: false },
+    };
+
+    const result = await dispatchBasecampEvent(ambientLine, {
+      account,
+      cfg: roomCfg,
+      dispatchReplyFromConfig: fakeDispatcher,
+    });
+
+    expect(result).toBe(true);
+    expect(fakeDispatcher).toHaveBeenCalledTimes(1);
+    expect(dispatched[0].ctx).toMatchObject({
+      Body: "just chatting",
+      ChatType: "group",
+      WasMentioned: false,
+      InboundEventKind: "room_event",
     });
   });
 

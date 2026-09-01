@@ -6,15 +6,19 @@
  * ChannelTurnAdapter:
  *
  * - ingest: project the message into NormalizedTurnInput
- * - classify: always "message" for now (room_event classification is a
- *   follow-up product decision — see SPEC §2.4)
- * - preflight: plugin-owned gates (self/echo filter, engagement policy) and
+ * - classify: every admitted Basecamp event can start an agent turn; the
+ *   ambient/directed split (SPEC §2.4) is expressed as the turn's
+ *   `inboundEventKind` ("room_event" vs "user_request"), which is the SDK's
+ *   room-event contract — `ChannelEventClass.kind` has no room_event member
+ * - preflight: plugin-owned gates (self/echo filter, engagement policy),
+ *   room-event classification against the SDK unmentioned-group policy, and
  *   the shared ingress resolver (DM policy, pairing store, per-bucket
  *   allowFrom route descriptor); pairing challenges are delivered as
  *   Basecamp Pings
  * - resolveTurn: builds the inbound event context (BodyForAgent, typed
- *   channelContext, media facts, supplemental quote/surface guidance) and
- *   returns a routed turn plan whose delivery posts back to Basecamp
+ *   channelContext, media facts, supplemental quote/surface guidance,
+ *   session-transcript chat window) and returns a routed turn plan whose
+ *   delivery posts back to Basecamp
  *
  * Bot-loop protection facts (§2.13) are attached when the sender is another
  * configured Basecamp persona.
@@ -23,6 +27,8 @@
 import type { ChannelInboundEventRunnerParams, InboundMediaFacts } from "openclaw/plugin-sdk/channel-inbound";
 import {
   buildChannelInboundEventContext,
+  classifyChannelInboundEvent,
+  resolveUnmentionedGroupInboundPolicy,
   runChannelInboundEvent,
   toInboundMediaFacts,
 } from "openclaw/plugin-sdk/channel-inbound";
@@ -45,6 +51,7 @@ import {
   resolveBasecampAllowFrom,
   resolveBasecampBucketAllowFrom,
   resolveBasecampDmPolicy,
+  resolveBasecampHistoryLimit,
   resolveCircuitBreakerConfig,
   resolvePersonaAccountId,
 } from "./config.js";
@@ -68,6 +75,9 @@ import { DEFAULT_ENGAGE } from "./types.js";
 type DispatchReplyFromConfig = NonNullable<
   Parameters<typeof import("openclaw/plugin-sdk/reply-runtime").dispatchInboundMessage>[0]["dispatchReplyFromConfig"]
 >;
+
+/** "user_request" | "room_event" — the SDK's inbound event kind (SPEC §2.4). */
+export type BasecampInboundEventKind = ReturnType<typeof classifyChannelInboundEvent>;
 
 /** Per-account outbound circuit breakers. Separate from poller CBs. */
 const outboundCircuitBreakers = new Map<string, CircuitBreaker>();
@@ -188,6 +198,7 @@ type TurnState = {
     matchedBy?: string;
   };
   ingress: ResolvedChannelMessageIngress;
+  inboundEventKind: BasecampInboundEventKind;
   outboundAccount: ResolvedBasecampAccount;
   outboundBasecampAccountId: string;
 };
@@ -217,9 +228,10 @@ export function createBasecampTurnAdapter(msg: BasecampInboundMessage, options: 
       raw,
     }),
 
-    // Every admitted Basecamp event is a full user turn for now. Ambient
-    // room_event classification for engage: conversation/activity is a
-    // separate product decision (SPEC §2.4) layered on the message adapter.
+    // Every admitted Basecamp event may start an agent turn. Whether it is a
+    // directed user request or ambient room context is decided in preflight
+    // (`inboundEventKind`, SPEC §2.4) once the route's agent is known — the
+    // SDK's unmentioned-group policy is per-agent overridable.
     classify: () => ({ kind: "message" as const, canStartAgentTurn: true }),
 
     preflight: async () => {
@@ -281,6 +293,13 @@ export function createBasecampTurnAdapter(msg: BasecampInboundMessage, options: 
         return { kind: "drop" as const, reason: `engagement:${engagement}` };
       }
 
+      // ----- Ambient vs directed (§2.4) -----
+      // Engaged-but-ambient traffic (unmentioned Campfire lines/comments,
+      // card moves, to-do completions) becomes quiet room context when the
+      // operator's unmentioned-group policy says so; the agent then speaks
+      // only through the message tool.
+      const inboundEventKind = classifyBasecampInboundEventKind({ cfg, agentId: route.agentId, chatKind, engagement });
+
       // ----- Bucket sender gate for direct Pings (plugin-owned) -----
       // For group conversations the bucket allowlist rides as an ingress
       // route descriptor; the kernel's DM sender gate does not consult route
@@ -305,6 +324,7 @@ export function createBasecampTurnAdapter(msg: BasecampInboundMessage, options: 
         chatKind,
         effectiveAccountId,
         messageId,
+        inboundEventKind,
         route: { agentId: route.agentId, sessionKey: route.sessionKey },
       });
 
@@ -362,6 +382,7 @@ export function createBasecampTurnAdapter(msg: BasecampInboundMessage, options: 
           matchedBy: route.matchedBy,
         },
         ingress,
+        inboundEventKind,
         outboundAccount,
         outboundBasecampAccountId,
       };
@@ -372,21 +393,27 @@ export function createBasecampTurnAdapter(msg: BasecampInboundMessage, options: 
         matchedBy: route.matchedBy,
         peer: `${msg.peer.kind}:${msg.peer.id}`,
         recordableType: msg.meta.recordableType,
+        engagement,
+        inboundEventKind,
       });
 
       return {
-        message: { rawBody: msg.text, bodyForAgent: msg.text },
+        message: { rawBody: msg.text, bodyForAgent: msg.text, inboundEventKind },
         media: buildBasecampMediaFacts(msg),
       };
     },
 
     resolveTurn: async () => {
       if (!state) throw new Error("basecamp turn adapter: resolveTurn called without successful preflight");
-      const { route, ingress, outboundAccount, outboundBasecampAccountId } = state;
+      const { route, ingress, inboundEventKind, outboundAccount, outboundBasecampAccountId } = state;
       const surface = resolveInboundSurface(options.channelRuntime);
 
       const surfacePrompt = getSurfacePrompt(msg.meta.recordableType);
       const promptContext = buildChannelPromptContext(msg, { includeSurfacePrompt: chatKind === "direct" });
+      const timestamp = new Date(msg.createdAt).getTime();
+      // Group surfaces get a chat window of recent session turns (§2.2
+      // sessionTranscript); direct Pings already are the session thread.
+      const historyLimit = chatKind === "group" ? resolveBasecampHistoryLimit(cfg, route.accountId) : 0;
 
       const ctxPayload = await surface.buildContext({
         channel: "basecamp",
@@ -394,7 +421,7 @@ export function createBasecampTurnAdapter(msg: BasecampInboundMessage, options: 
         provider: "basecamp",
         surface: "basecamp",
         messageId,
-        timestamp: new Date(msg.createdAt).getTime(),
+        timestamp,
         from: `basecamp:${msg.sender.id}`,
         sender: { id: msg.sender.id, name: msg.sender.name },
         conversation: {
@@ -415,7 +442,12 @@ export function createBasecampTurnAdapter(msg: BasecampInboundMessage, options: 
         message: {
           rawBody: msg.text,
           bodyForAgent: msg.text,
-          inboundEventKind: "user_request",
+          inboundEventKind,
+        },
+        sessionTranscript: {
+          chatWindow: true,
+          historyLimit,
+          beforeTimestampMs: timestamp,
         },
         access: {
           mentions: {
@@ -545,9 +577,10 @@ async function resolveBasecampIngress(params: {
   chatKind: "direct" | "group";
   effectiveAccountId: string;
   messageId: string;
+  inboundEventKind: BasecampInboundEventKind;
   route: { agentId: string; sessionKey: string };
 }): Promise<ResolvedChannelMessageIngress> {
-  const { cfg, msg, chatKind, effectiveAccountId, messageId, route } = params;
+  const { cfg, msg, chatKind, effectiveAccountId, messageId, inboundEventKind, route } = params;
   const section = cfg.channels?.basecamp as BasecampChannelConfig | undefined;
 
   const resolver = createChannelIngressResolver({
@@ -608,7 +641,7 @@ async function resolveBasecampIngress(params: {
       agentId: route.agentId,
       sessionKey: route.sessionKey,
       messageId,
-      inboundEventKind: "user_request",
+      inboundEventKind,
     },
     event: { kind: "message", authMode: "inbound", mayPair: chatKind === "direct" },
     dmPolicy,
@@ -796,6 +829,36 @@ export function resolveEngagePolicy(cfg: OpenClawConfig, bucketId: string): Base
   if (section?.engage) return section.engage;
 
   return DEFAULT_ENGAGE;
+}
+
+/** Engagements that are room activity rather than something addressed to the agent. */
+const AMBIENT_ENGAGEMENTS: ReadonlySet<BasecampEngagementType> = new Set(["conversation", "activity"]);
+
+/**
+ * Ambient-vs-directed classification (SPEC §2.4, §3.7).
+ *
+ * Engaged events whose engagement is `conversation` or `activity` in a group
+ * surface are unmentioned room traffic; they become `room_event` (quiet
+ * context — the agent speaks only via the message tool) when the operator's
+ * unmentioned-group policy asks for it (`messages.groupChat.unmentionedInbound`
+ * or the per-agent `groupChat.unmentionedInbound`, resolved by the SDK; the
+ * SDK default is `user_request`). DMs, @mentions, assignments and check-ins
+ * are always directed user requests. The engage gate runs first — events
+ * outside the engage list never reach this classification.
+ */
+export function classifyBasecampInboundEventKind(params: {
+  cfg: OpenClawConfig;
+  agentId?: string;
+  chatKind: "direct" | "group";
+  engagement: BasecampEngagementType;
+}): BasecampInboundEventKind {
+  const { cfg, agentId, chatKind, engagement } = params;
+  return classifyChannelInboundEvent({
+    conversation: { kind: chatKind },
+    unmentionedGroupPolicy: resolveUnmentionedGroupInboundPolicy({ cfg, agentId }),
+    // Directed engagements address the agent the way a mention does.
+    wasMentioned: !AMBIENT_ENGAGEMENTS.has(engagement),
+  });
 }
 
 /**

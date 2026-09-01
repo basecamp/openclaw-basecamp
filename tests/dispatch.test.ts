@@ -13,6 +13,7 @@ import {
   resolveBasecampAllowFrom,
   resolveBasecampBucketAllowFrom,
   resolveBasecampDmPolicy,
+  resolveBasecampHistoryLimit,
   resolvePersonaAccountId,
 } from "../src/config.js";
 import { dispatchBasecampEvent } from "../src/dispatch.js";
@@ -32,6 +33,7 @@ vi.mock("../src/config.js", () => ({
   resolveBasecampAllowFrom: vi.fn(() => []),
   resolveCircuitBreakerConfig: vi.fn(() => ({ threshold: 5, cooldownMs: 300000 })),
   resolveBasecampBucketAllowFrom: vi.fn(() => undefined),
+  resolveBasecampHistoryLimit: vi.fn(() => 50),
 }));
 vi.mock("../src/outbound/send.js", () => ({
   postReplyToEvent: vi.fn(),
@@ -122,6 +124,7 @@ beforeEach(() => {
   vi.mocked(resolveBasecampBucketAllowFrom).mockReturnValue(undefined);
   vi.mocked(resolveBasecampDmPolicy).mockReturnValue("open");
   vi.mocked(resolveBasecampAllowFrom).mockReturnValue([]);
+  vi.mocked(resolveBasecampHistoryLimit).mockReturnValue(50);
   vi.mocked(postReplyToEvent).mockResolvedValue({ ok: true, messageId: "reply-1" });
   mockCfg = baseCfg();
   kernel.runtime.channel.routing.resolveAgentRoute.mockReturnValue({
@@ -513,6 +516,152 @@ describe("engagement gates", () => {
 
     const result = await dispatchBasecampEvent(msg, { account: mockAccount, cfg: mockCfg });
     expect(result).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Ambient room events (§2.4 / §3.7)
+// ---------------------------------------------------------------------------
+
+describe("ambient room events", () => {
+  const ambient = (overrides: Partial<BasecampInboundMessage["meta"]>): BasecampInboundMessage => ({
+    ...mockMsg,
+    meta: { ...mockMsg.meta, mentionsAgent: false, ...overrides },
+  });
+  const buildParams = () => kernel.runtime.channel.inbound.buildContext.mock.calls[0][0];
+
+  beforeEach(() => {
+    mockCfg.messages = { groupChat: { unmentionedInbound: "room_event" } };
+  });
+
+  it("classifies an engaged, unmentioned Campfire line as room_event", async () => {
+    mockCfg.channels.basecamp.engage = ["mention", "conversation"];
+
+    const result = await dispatchBasecampEvent(ambient({ recordableType: "Chat::Line" }), {
+      account: mockAccount,
+      cfg: mockCfg,
+    });
+
+    expect(result).toBe(true);
+    expect(kernel.lastCtx().InboundEventKind).toBe("room_event");
+    expect(buildParams().message.inboundEventKind).toBe("room_event");
+  });
+
+  it("keeps @mentions as user requests", async () => {
+    const result = await dispatchBasecampEvent(mockMsg, { account: mockAccount, cfg: mockCfg });
+
+    expect(result).toBe(true);
+    expect(kernel.lastCtx().InboundEventKind).toBe("user_request");
+  });
+
+  it("classifies an engaged card move as room_event", async () => {
+    mockCfg.channels.basecamp.engage = ["activity"];
+    const cardMove = ambient({
+      recordableType: "Kanban::Card",
+      eventKind: "card_moved",
+      column: "In progress",
+      columnPrevious: "Triage",
+    });
+
+    const result = await dispatchBasecampEvent(cardMove, { account: mockAccount, cfg: mockCfg });
+
+    expect(result).toBe(true);
+    expect(kernel.lastCtx().InboundEventKind).toBe("room_event");
+  });
+
+  it("keeps assignments and check-ins as user requests", async () => {
+    await dispatchBasecampEvent(ambient({ recordableType: "Todo", assignedToAgent: true }), {
+      account: mockAccount,
+      cfg: mockCfg,
+    });
+    expect(kernel.lastCtx().InboundEventKind).toBe("user_request");
+
+    await dispatchBasecampEvent(ambient({ recordableType: "Question", sources: ["readings"] }), {
+      account: mockAccount,
+      cfg: mockCfg,
+    });
+    expect(kernel.lastCtx().InboundEventKind).toBe("user_request");
+  });
+
+  it("keeps direct Pings as user requests", async () => {
+    await dispatchBasecampEvent(dmMsg(), { account: mockAccount, cfg: mockCfg });
+    expect(kernel.lastCtx().InboundEventKind).toBe("user_request");
+  });
+
+  it("defaults ambient traffic to user_request when no unmentioned-group policy is configured", async () => {
+    mockCfg.messages = undefined;
+    mockCfg.channels.basecamp.engage = ["conversation"];
+
+    await dispatchBasecampEvent(ambient({ recordableType: "Chat::Line" }), { account: mockAccount, cfg: mockCfg });
+
+    expect(kernel.lastCtx().InboundEventKind).toBe("user_request");
+  });
+
+  it("honors the routed agent's groupChat.unmentionedInbound over the global policy", async () => {
+    mockCfg.channels.basecamp.engage = ["conversation"];
+    mockCfg.agents = { list: [{ id: "agent-1", groupChat: { unmentionedInbound: "user_request" } }] };
+
+    await dispatchBasecampEvent(ambient({ recordableType: "Chat::Line" }), { account: mockAccount, cfg: mockCfg });
+
+    expect(kernel.lastCtx().InboundEventKind).toBe("user_request");
+  });
+
+  it("applies a per-agent room_event policy when the global policy is unset", async () => {
+    mockCfg.messages = undefined;
+    mockCfg.channels.basecamp.engage = ["conversation"];
+    mockCfg.agents = { list: [{ id: "agent-1", groupChat: { unmentionedInbound: "room_event" } }] };
+
+    await dispatchBasecampEvent(ambient({ recordableType: "Chat::Line" }), { account: mockAccount, cfg: mockCfg });
+
+    expect(kernel.lastCtx().InboundEventKind).toBe("room_event");
+  });
+
+  it("still drops ambient events outside the engage list (the engage gate runs first)", async () => {
+    const result = await dispatchBasecampEvent(ambient({ recordableType: "Chat::Line" }), {
+      account: mockAccount,
+      cfg: mockCfg,
+    });
+
+    expect(result).toBe(false);
+    expect(kernel.lastResult().admission.reason).toBe("engagement:conversation");
+    expect(kernel.plans).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Session transcript chat window (§2.2 sessionTranscript)
+// ---------------------------------------------------------------------------
+
+describe("session transcript chat window", () => {
+  const buildParams = () => kernel.runtime.channel.inbound.buildContext.mock.calls[0][0];
+
+  it("passes the resolved history limit as a chat window for group surfaces", async () => {
+    vi.mocked(resolveBasecampHistoryLimit).mockReturnValue(7);
+
+    await dispatchBasecampEvent(mockMsg, { account: mockAccount, cfg: mockCfg });
+
+    expect(resolveBasecampHistoryLimit).toHaveBeenCalledWith(mockCfg, "test-acct");
+    expect(buildParams().sessionTranscript).toEqual({
+      chatWindow: true,
+      historyLimit: 7,
+      beforeTimestampMs: new Date(mockMsg.createdAt).getTime(),
+    });
+    expect(kernel.lastCtx().SessionTranscriptContext).toMatchObject({ chatWindow: true, historyLimit: 7 });
+  });
+
+  it("disables the window for direct Pings", async () => {
+    await dispatchBasecampEvent(dmMsg(), { account: mockAccount, cfg: mockCfg });
+
+    expect(buildParams().sessionTranscript).toMatchObject({ historyLimit: 0 });
+    expect(kernel.lastCtx().SessionTranscriptContext).toBeUndefined();
+  });
+
+  it("omits the window when the configured limit is 0", async () => {
+    vi.mocked(resolveBasecampHistoryLimit).mockReturnValue(0);
+
+    await dispatchBasecampEvent(mockMsg, { account: mockAccount, cfg: mockCfg });
+
+    expect(kernel.lastCtx().SessionTranscriptContext).toBeUndefined();
   });
 });
 
