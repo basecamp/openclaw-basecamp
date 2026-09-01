@@ -19,6 +19,7 @@ import { normalizeAccountId } from "openclaw/plugin-sdk/account-id";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import { cliMe, cliProfileList } from "../basecamp-cli.js";
 import { listBasecampAccountIds } from "../config.js";
+import { getRuntimeLogger } from "../logging.js";
 import {
   interactiveLogin,
   isValidLaunchpadClientId,
@@ -445,7 +446,8 @@ export async function hatchIdentity(cfg: OpenClawConfig, prompter: WizardPrompte
       }
     } catch {
       // All move attempts failed — keep temp path
-      console.warn(`[basecamp:hatch] Could not relocate token file for account ${accountId}; using temporary path`);
+      const warn = getRuntimeLogger({ subsystem: "hatch" })?.warn ?? console.warn;
+      warn(`[basecamp:hatch] Could not relocate token file for account ${accountId}; using temporary path`);
     }
     oauthTokenFile = relocated ? finalPath : oauthResult.tempTokenFile;
     oauthClientId = oauthResult.clientId;
