@@ -21,6 +21,7 @@
   },
   "files": [
     "dist/",
+    "!dist/scripts/",
     "openclaw.plugin.json"
   ],
   "engines": {
@@ -35,7 +36,9 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "lint": "biome check .",
-    "lint:fix": "biome check --write ."
+    "lint:fix": "biome check --write .",
+    "manifest:gen": "npm run build && node dist/scripts/generate-manifest.js",
+    "prepack": "npm run build"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.7",
@@ -54,7 +57,83 @@
       "selectionLabel": "Basecamp (Campfire, Cards, Todos, Check-ins, Pings)",
       "docsPath": "/channels/basecamp",
       "docsLabel": "basecamp",
-      "blurb": "Campfire chats, card tables, to-do lists, check-ins, pings — every Basecamp surface as a live agent interaction point."
+      "blurb": "Campfire chats, card tables, to-do lists, check-ins, pings — every Basecamp surface as a live agent interaction point.",
+      "detailLabel": "Basecamp (Campfire, Cards, Todos, Check-ins, Pings)",
+      "systemImage": "building.2",
+      "markdownCapable": true,
+      "aliases": [
+        "bc"
+      ],
+      "commands": {
+        "nativeCommandsAutoEnabled": false,
+        "nativeSkillsAutoEnabled": false
+      },
+      "doctorCapabilities": {
+        "dmAllowFromMode": "topOnly",
+        "groupModel": "route"
+      },
+      "setup": {
+        "fields": [
+          {
+            "key": "token",
+            "kind": "string",
+            "sensitive": true,
+            "cli": {
+              "flags": "--token <token>",
+              "description": "Inline OAuth token (prefer --token-file)"
+            }
+          },
+          {
+            "key": "tokenFile",
+            "kind": "string",
+            "cli": {
+              "flags": "--token-file <path>",
+              "description": "Path to file containing OAuth token"
+            }
+          },
+          {
+            "key": "personId",
+            "kind": "string",
+            "cli": {
+              "flags": "--person-id <id>",
+              "description": "Basecamp person ID (numeric)"
+            }
+          },
+          {
+            "key": "basecampAccountId",
+            "kind": "string",
+            "cli": {
+              "flags": "--basecamp-account-id <id>",
+              "description": "Numeric Basecamp account ID"
+            }
+          },
+          {
+            "key": "oauthClientId",
+            "kind": "string",
+            "cli": {
+              "flags": "--oauth-client-id <id>",
+              "description": "Basecamp OAuth app client ID for browser-based login"
+            }
+          },
+          {
+            "key": "oauthClientSecret",
+            "kind": "string",
+            "sensitive": true,
+            "cli": {
+              "flags": "--oauth-client-secret <secret>",
+              "description": "Basecamp OAuth app client secret"
+            }
+          },
+          {
+            "key": "cliProfile",
+            "kind": "string",
+            "cli": {
+              "flags": "--cli-profile <profile>",
+              "description": "Basecamp CLI profile for identity discovery during setup"
+            }
+          }
+        ]
+      }
     },
     "install": {
       "npmSpec": "@37signals/openclaw-basecamp",
@@ -67,7 +146,8 @@
     "build": {
       "openclawVersion": "2026.8.1",
       "pluginSdkVersion": "2026.8.1"
-    }
+    },
+    "setupEntry": "./dist/setup-entry.js"
   },
   "dependencies": {
     "@37signals/basecamp": "0.13.0",
