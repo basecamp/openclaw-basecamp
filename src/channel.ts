@@ -1,12 +1,14 @@
 import { buildChannelConfigSchema } from "openclaw/plugin-sdk/channel-config-schema";
 import { type ChannelPlugin, createChannelPluginBase, createChatChannelPlugin } from "openclaw/plugin-sdk/channel-core";
 import { deleteAccountFromConfigSection, setAccountEnabledInConfigSection } from "openclaw/plugin-sdk/core";
+import { channelBlockedPatch, channelReadyPatch, channelStoppedPatch } from "openclaw/plugin-sdk/gateway-runtime";
 import { basecampActionsAdapter } from "./adapters/actions.js";
 import { basecampAgentPromptAdapter } from "./adapters/agent-prompt.js";
 import { basecampAgentTools } from "./adapters/agent-tools.js";
 import { basecampDirectoryAdapter } from "./adapters/directory.js";
 import { basecampGroupAdapter } from "./adapters/groups.js";
 import { basecampHeartbeatAdapter } from "./adapters/heartbeat.js";
+import { basecampLifecycleAdapter } from "./adapters/lifecycle.js";
 import { basecampMentionAdapter } from "./adapters/mentions.js";
 import { basecampMessagingAdapter } from "./adapters/messaging.js";
 import { basecampSetupWizard } from "./adapters/onboarding.js";
@@ -32,9 +34,11 @@ import {
 } from "./config.js";
 import { dispatchBasecampEvent } from "./dispatch.js";
 import { closeAccountDedup } from "./inbound/dedup-registry.js";
+import { closeRecordingIndex } from "./inbound/recording-index.js";
 import { resolvePluginStateDir } from "./inbound/state-dir.js";
 import { deactivateWebhooks, reconcileWebhooks } from "./inbound/webhook-lifecycle.js";
 import { flushWebhookSecrets, getWebhookSecretRegistry } from "./inbound/webhooks.js";
+import { recordIngressAvailable, recordIngressUnavailable } from "./metrics.js";
 import { sendBasecampMedia, sendBasecampText } from "./outbound/send.js";
 import type { BasecampChannelConfig, BasecampInboundMessage, ResolvedBasecampAccount } from "./types.js";
 import { withTimeout } from "./util.js";
@@ -195,6 +199,8 @@ const basecampChannelBase = {
 
   heartbeat: basecampHeartbeatAdapter,
 
+  lifecycle: basecampLifecycleAdapter,
+
   mentions: basecampMentionAdapter,
 
   actions: basecampActionsAdapter,
@@ -232,6 +238,16 @@ const basecampChannelBase = {
   gateway: {
     startAccount: async (ctx) => {
       const account = await resolveBasecampAccountAsync(ctx.cfg, ctx.account.accountId);
+
+      ctx.setStatus({ ...ctx.getStatus(), accountId: account.accountId, lifecycle: "starting" });
+
+      // Fatal startup failure: publish a blocked lifecycle patch and throw so
+      // the host records the reason instead of a silent not-running account.
+      const failStartup: (message: string) => never = (message) => {
+        ctx.log?.error(`[${account.accountId}] ${message}`);
+        ctx.setStatus({ ...ctx.getStatus(), ...channelBlockedPatch(message) });
+        throw new Error(message);
+      };
 
       // ----- Startup validation -----
       // Verify critical config is valid. Log warnings but don't block startup.
@@ -284,21 +300,16 @@ const basecampChannelBase = {
           const tm = createTokenManager(account);
           await tm.getToken(); // validates + refreshes if needed
         } catch (err) {
-          ctx.log?.error(`[${account.accountId}] cannot start: OAuth token invalid: ${String(err)}`);
-          return;
+          failStartup(`cannot start: OAuth token invalid: ${String(err)}`);
         }
       }
 
       if (account.tokenSource === "none") {
-        ctx.log?.error(`[${account.accountId}] cannot start: no authentication configured`);
-        return;
+        failStartup("cannot start: no authentication configured");
       }
 
       if (!account.token && account.tokenSource !== "oauth") {
-        ctx.log?.error(
-          `[${account.accountId}] cannot start: no token (check tokenFile or token config) and no oauthTokenFile`,
-        );
-        return;
+        failStartup("cannot start: no token (check tokenFile or token config) and no oauthTokenFile");
       }
 
       // Resolve the numeric Basecamp account ID for API calls.
@@ -323,8 +334,7 @@ const basecampChannelBase = {
         const pollerMod = await import("./inbound/poller.js");
         startCompositePoller = pollerMod.startCompositePoller;
       } catch (err) {
-        ctx.log?.error(`[${account.accountId}] failed to load poller module: ${String(err)}`);
-        return;
+        failStartup(`failed to load poller module: ${String(err)}`);
       }
 
       // Resolve state directory for cursor + dedup persistence.
@@ -375,9 +385,13 @@ const basecampChannelBase = {
           const active = [...result.created, ...result.existing, ...result.recovered];
           if (active.length > 0) {
             webhookActiveProjects = new Set(active);
+            recordIngressAvailable(account.accountId);
+          } else {
+            recordIngressUnavailable(account.accountId, "webhook reconciliation left no active webhooks");
           }
         } catch (err) {
           ctx.log?.error(`[${account.accountId}] webhook reconciliation failed: ${String(err)}`);
+          recordIngressUnavailable(account.accountId, `webhook reconciliation failed: ${String(err)}`);
         }
       }
 
@@ -397,11 +411,11 @@ const basecampChannelBase = {
         });
       };
 
-      // Mark channel as running
+      // Mark channel as running + ready
       ctx.setStatus({
+        ...ctx.getStatus(),
         accountId: account.accountId,
-        running: true,
-        lastStartAt: Date.now(),
+        ...channelReadyPatch({ lastStartAt: Date.now() }),
       });
 
       // Start the composite poller (activity feed + readings)
@@ -466,11 +480,22 @@ const basecampChannelBase = {
         );
 
         ctx.setStatus({
+          ...ctx.getStatus(),
           accountId: account.accountId,
-          running: false,
-          lastStopAt: Date.now(),
+          ...channelStoppedPatch({ lastStopAt: Date.now() }),
         });
       }
+    },
+    stopAccount: async (ctx) => {
+      const accountId = ctx.accountId;
+
+      // Idempotent with startAccount's finally block — an orderly stop may
+      // run both paths; each flush/close tolerates repeats.
+      closeAccountDedup(accountId);
+      flushWebhookSecrets();
+      await closeRecordingIndex(accountId);
+
+      ctx.setStatus({ ...ctx.getStatus(), accountId, ...channelStoppedPatch({ lastStopAt: Date.now() }) });
     },
     logoutAccount: async ({ accountId, cfg }) => {
       const account = resolveBasecampAccount(cfg, accountId);
