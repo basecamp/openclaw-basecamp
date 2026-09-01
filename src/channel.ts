@@ -1,6 +1,4 @@
-import { buildChannelConfigSchema } from "openclaw/plugin-sdk/channel-config-schema";
 import { type ChannelPlugin, createChannelPluginBase, createChatChannelPlugin } from "openclaw/plugin-sdk/channel-core";
-import { deleteAccountFromConfigSection, setAccountEnabledInConfigSection } from "openclaw/plugin-sdk/core";
 import { basecampActionsAdapter } from "./adapters/actions.js";
 import { basecampAgentPromptAdapter } from "./adapters/agent-prompt.js";
 import { basecampAgentTools } from "./adapters/agent-tools.js";
@@ -18,14 +16,17 @@ import { basecampSetupAdapter } from "./adapters/setup.js";
 import type { BasecampAudit, BasecampProbe } from "./adapters/status.js";
 import { basecampStatusAdapter } from "./adapters/status.js";
 import { clearClient } from "./basecamp-client.js";
-import { basecampChannelCapabilities, basecampChannelMeta } from "./channel-setup.js";
 import {
-  BasecampConfigSchema,
+  basecampChannelCapabilities,
+  basecampChannelMeta,
+  basecampConfigAdapter,
+  basecampConfigSchema,
+} from "./channel-setup.js";
+import {
   listBasecampAccountIds,
   resolveAccountForBucket,
   resolveBasecampAccount,
   resolveBasecampAccountAsync,
-  resolveBasecampAllowFrom,
   resolveDefaultBasecampAccountId,
   resolveWebhooksConfig,
   scopeWebhookProjects,
@@ -70,68 +71,7 @@ const basecampChannelBase = {
 
     reload: { configPrefixes: ["channels.basecamp"] },
 
-    configSchema: {
-      ...buildChannelConfigSchema(BasecampConfigSchema),
-      uiHints: {
-        "accounts.*.tokenFile": {
-          label: "Token file path",
-          help: "Path to file containing OAuth token",
-          sensitive: true,
-        },
-        "accounts.*.token": {
-          label: "Token",
-          help: "Inline OAuth token (prefer tokenFile)",
-          sensitive: true,
-          advanced: true,
-        },
-        "accounts.*.cliProfile": {
-          label: "Basecamp CLI profile",
-          help: "CLI profile for identity discovery during setup (not used at runtime)",
-        },
-        "accounts.*.personId": { label: "Person ID", help: "Your Basecamp person ID (numeric)" },
-        "accounts.*.basecampAccountId": {
-          label: "Basecamp Account ID",
-          help: "Numeric Basecamp account ID (auto-set during onboarding)",
-        },
-        "accounts.*.oauthTokenFile": {
-          label: "OAuth token file",
-          help: "Path to OAuth token JSON (auto-managed)",
-          sensitive: true,
-        },
-        "accounts.*.oauthClientId": {
-          label: "OAuth Client ID (override)",
-          help: "Override channel-level OAuth client ID for this account",
-        },
-        "accounts.*.oauthClientSecret": {
-          label: "OAuth Client Secret (override)",
-          help: "Override channel-level OAuth secret",
-          sensitive: true,
-        },
-        "oauth.clientId": { label: "OAuth Client ID", help: "Basecamp OAuth app client ID for browser-based login" },
-        "oauth.clientSecret": { label: "OAuth Client Secret", help: "Basecamp OAuth app secret", sensitive: true },
-        personas: {
-          label: "Agent personas",
-          help: "Maps agent IDs to Basecamp account IDs for multi-identity outbound",
-          advanced: true,
-        },
-        virtualAccounts: {
-          label: "Project scopes",
-          help: "Maps synthetic account IDs to specific projects",
-          advanced: true,
-        },
-        dmPolicy: { label: "DM policy", help: "Controls who can DM agents: pairing, allowlist, open, disabled" },
-        allowFrom: { label: "Allowed senders", help: "Basecamp person IDs allowed to message agents" },
-        engage: {
-          label: "Engagement policy",
-          help: "Event types that trigger agent response: dm, mention, assignment, checkin, conversation, activity",
-        },
-        buckets: {
-          label: "Per-project settings",
-          help: "Override engage, requireMention, and tool policies per bucket",
-          advanced: true,
-        },
-      },
-    },
+    configSchema: basecampConfigSchema,
 
     security: basecampSecurityAdapter,
 
@@ -142,45 +82,7 @@ const basecampChannelBase = {
 
   capabilities: basecampChannelCapabilities,
 
-  config: {
-    listAccountIds: (cfg) => listBasecampAccountIds(cfg),
-    resolveAccount: (cfg, accountId) => resolveBasecampAccount(cfg, accountId),
-    defaultAccountId: (cfg) => resolveDefaultBasecampAccountId(cfg),
-    isConfigured: (account) =>
-      Boolean(account.token?.trim() || account.config.tokenFile || account.config.oauthTokenFile),
-    isEnabled: (account) => account.enabled,
-    disabledReason: () => "Manually disabled",
-    unconfiguredReason: () => "No token or OAuth token file configured",
-    describeAccount: (account) => ({
-      accountId: account.accountId,
-      name: account.displayName,
-      enabled: account.enabled,
-      configured: Boolean(account.token?.trim() || account.config.tokenFile || account.config.oauthTokenFile),
-      tokenSource: account.tokenSource,
-      cliProfile: account.cliProfile,
-    }),
-    setAccountEnabled: ({ cfg, accountId, enabled }) =>
-      setAccountEnabledInConfigSection({ cfg, sectionKey: "basecamp", accountId, enabled }),
-    deleteAccount: ({ cfg, accountId }) => {
-      const updated = deleteAccountFromConfigSection({
-        cfg,
-        sectionKey: "basecamp",
-        accountId,
-      });
-      // Clean up persona entries pointing to the deleted account
-      const section = updated.channels?.basecamp as BasecampChannelConfig | undefined;
-      if (section?.personas) {
-        const cleaned = { ...section.personas };
-        for (const [agentId, targetId] of Object.entries(cleaned)) {
-          if (targetId === accountId) delete cleaned[agentId];
-        }
-        (updated.channels!.basecamp as any).personas = cleaned;
-      }
-      return updated;
-    },
-    resolveAllowFrom: ({ cfg }) => resolveBasecampAllowFrom(cfg),
-    formatAllowFrom: ({ allowFrom }) => allowFrom.map((entry) => `Person ${entry}`),
-  },
+  config: basecampConfigAdapter,
 
   // Bucket/recording bindings are project-level, not conversation-level (SPEC §2.21).
   conversationBindings: { supportsCurrentConversationBinding: false },
