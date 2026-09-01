@@ -1,12 +1,479 @@
 {
-  "id": "openclaw-basecamp",
+  "id": "basecamp",
   "name": "Basecamp",
   "description": "Campfire chats, card tables, to-do lists, check-ins, pings — every Basecamp surface as a live agent interaction point.",
   "version": "0.1.0",
-  "channels": ["basecamp"],
+  "icon": "https://cdn.simpleicons.org/basecamp",
+  "channels": [
+    "basecamp"
+  ],
+  "activation": {
+    "onStartup": false,
+    "onChannels": [
+      "basecamp"
+    ]
+  },
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
     "properties": {}
+  },
+  "contracts": {
+    "tools": [
+      "basecamp_create_todo",
+      "basecamp_complete_todo",
+      "basecamp_reopen_todo",
+      "basecamp_read_history",
+      "basecamp_add_boost",
+      "basecamp_move_card",
+      "basecamp_post_message",
+      "basecamp_answer_checkin",
+      "basecamp_api_read",
+      "basecamp_api_write"
+    ]
+  },
+  "toolMetadata": {
+    "basecamp_create_todo": {
+      "sideEffecting": true
+    },
+    "basecamp_complete_todo": {
+      "sideEffecting": true
+    },
+    "basecamp_reopen_todo": {
+      "sideEffecting": true
+    },
+    "basecamp_read_history": {
+      "replaySafe": true
+    },
+    "basecamp_add_boost": {
+      "sideEffecting": true
+    },
+    "basecamp_move_card": {
+      "sideEffecting": true
+    },
+    "basecamp_post_message": {
+      "sideEffecting": true
+    },
+    "basecamp_answer_checkin": {
+      "sideEffecting": true
+    },
+    "basecamp_api_read": {
+      "replaySafe": true
+    },
+    "basecamp_api_write": {
+      "sideEffecting": true
+    }
+  },
+  "backupResources": [
+    {
+      "disposition": "include",
+      "scope": "state",
+      "relativePath": "plugins/basecamp"
+    }
+  ],
+  "channelConfigs": {
+    "basecamp": {
+      "label": "Basecamp",
+      "description": "Campfire chats, card tables, to-do lists, check-ins, pings — every Basecamp surface as a live agent interaction point.",
+      "commands": {
+        "nativeCommandsAutoEnabled": false,
+        "nativeSkillsAutoEnabled": false
+      },
+      "schema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "accounts": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "object",
+              "properties": {
+                "tokenFile": {
+                  "type": "string"
+                },
+                "token": {
+                  "type": "string"
+                },
+                "personId": {
+                  "type": "string"
+                },
+                "displayName": {
+                  "type": "string"
+                },
+                "attachableSgid": {
+                  "type": "string"
+                },
+                "enabled": {
+                  "type": "boolean"
+                },
+                "cliProfile": {
+                  "type": "string"
+                },
+                "basecampAccountId": {
+                  "type": "string"
+                },
+                "oauthTokenFile": {
+                  "type": "string"
+                },
+                "oauthClientId": {
+                  "type": "string"
+                },
+                "oauthClientSecret": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "personId"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "virtualAccounts": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "object",
+              "properties": {
+                "accountId": {
+                  "type": "string"
+                },
+                "bucketId": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "accountId",
+                "bucketId"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "personas": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "dmPolicy": {
+            "type": "string",
+            "enum": [
+              "pairing",
+              "allowlist",
+              "open",
+              "disabled"
+            ]
+          },
+          "allowFrom": {
+            "type": "array",
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "number"
+                }
+              ]
+            }
+          },
+          "buckets": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "object",
+              "properties": {
+                "requireMention": {
+                  "type": "boolean"
+                },
+                "tools": {
+                  "type": "object",
+                  "properties": {
+                    "allow": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "deny": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                "enabled": {
+                  "type": "boolean"
+                },
+                "engage": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "dm",
+                      "mention",
+                      "assignment",
+                      "checkin",
+                      "conversation",
+                      "activity"
+                    ]
+                  }
+                },
+                "allowFrom": {
+                  "type": "array",
+                  "items": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "number"
+                      }
+                    ]
+                  }
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "engage": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "dm",
+                "mention",
+                "assignment",
+                "checkin",
+                "conversation",
+                "activity"
+              ]
+            }
+          },
+          "webhookSecret": {
+            "type": "string"
+          },
+          "webhooks": {
+            "type": "object",
+            "properties": {
+              "payloadUrl": {
+                "type": "string",
+                "format": "uri"
+              },
+              "projects": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "types": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "autoRegister": {
+                "type": "boolean"
+              },
+              "deactivateOnStop": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false
+          },
+          "oauth": {
+            "type": "object",
+            "properties": {
+              "clientId": {
+                "type": "string"
+              },
+              "clientSecret": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "clientId"
+            ],
+            "additionalProperties": false
+          },
+          "polling": {
+            "type": "object",
+            "properties": {
+              "activityIntervalMs": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "readingsIntervalMs": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "assignmentsIntervalMs": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              }
+            },
+            "additionalProperties": false
+          },
+          "retry": {
+            "type": "object",
+            "properties": {
+              "maxAttempts": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "baseDelayMs": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "maxDelayMs": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "jitter": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false
+          },
+          "circuitBreaker": {
+            "type": "object",
+            "properties": {
+              "threshold": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "cooldownMs": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              }
+            },
+            "additionalProperties": false
+          },
+          "safetyNet": {
+            "type": "object",
+            "properties": {
+              "projects": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "intervalMs": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              }
+            },
+            "additionalProperties": false
+          },
+          "reconciliation": {
+            "type": "object",
+            "properties": {
+              "enabled": {
+                "type": "boolean"
+              },
+              "intervalMs": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "gapThreshold": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      },
+      "uiHints": {
+        "dmPolicy": {
+          "label": "DM policy",
+          "help": "Controls who can DM agents: pairing, allowlist, open, disabled"
+        },
+        "accounts.*.tokenFile": {
+          "label": "Token file path",
+          "help": "Path to file containing OAuth token",
+          "sensitive": true
+        },
+        "accounts.*.token": {
+          "label": "Token",
+          "help": "Inline OAuth token (prefer tokenFile)",
+          "sensitive": true,
+          "advanced": true
+        },
+        "accounts.*.cliProfile": {
+          "label": "Basecamp CLI profile",
+          "help": "CLI profile for identity discovery during setup (not used at runtime)"
+        },
+        "accounts.*.personId": {
+          "label": "Person ID",
+          "help": "Your Basecamp person ID (numeric)"
+        },
+        "accounts.*.basecampAccountId": {
+          "label": "Basecamp Account ID",
+          "help": "Numeric Basecamp account ID (auto-set during onboarding)"
+        },
+        "accounts.*.oauthTokenFile": {
+          "label": "OAuth token file",
+          "help": "Path to OAuth token JSON (auto-managed)",
+          "sensitive": true
+        },
+        "accounts.*.oauthClientId": {
+          "label": "OAuth Client ID (override)",
+          "help": "Override channel-level OAuth client ID for this account"
+        },
+        "accounts.*.oauthClientSecret": {
+          "label": "OAuth Client Secret (override)",
+          "help": "Override channel-level OAuth secret",
+          "sensitive": true
+        },
+        "oauth.clientId": {
+          "label": "OAuth Client ID",
+          "help": "Basecamp OAuth app client ID for browser-based login"
+        },
+        "oauth.clientSecret": {
+          "label": "OAuth Client Secret",
+          "help": "Basecamp OAuth app secret",
+          "sensitive": true
+        },
+        "personas": {
+          "label": "Agent personas",
+          "help": "Maps agent IDs to Basecamp account IDs for multi-identity outbound",
+          "advanced": true
+        },
+        "virtualAccounts": {
+          "label": "Project scopes",
+          "help": "Maps synthetic account IDs to specific projects",
+          "advanced": true
+        },
+        "allowFrom": {
+          "label": "Allowed senders",
+          "help": "Basecamp person IDs allowed to message agents"
+        },
+        "engage": {
+          "label": "Engagement policy",
+          "help": "Event types that trigger agent response: dm, mention, assignment, checkin, conversation, activity"
+        },
+        "buckets": {
+          "label": "Per-project settings",
+          "help": "Override engage, requireMention, and tool policies per bucket",
+          "advanced": true
+        }
+      }
+    }
   }
 }

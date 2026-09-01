@@ -12,5 +12,5 @@
     "declarationMap": true,
     "sourceMap": true
   },
-  "include": ["index.ts", "src/**/*.ts"]
+  "include": ["index.ts", "setup-entry.ts", "src/**/*.ts", "scripts/generate-manifest.ts"]
 }

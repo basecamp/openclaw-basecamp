@@ -1,7 +1,7 @@
 import { DEFAULT_ACCOUNT_ID, normalizeAccountId } from "openclaw/plugin-sdk/account-id";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import { z } from "zod";
-import { isValidLaunchpadClientId } from "./oauth-credentials.js";
+import { isValidLaunchpadClientId } from "./oauth-constants.js";
 import type {
   BasecampAccountConfig,
   BasecampChannelConfig,
