@@ -1,6 +1,7 @@
 import { DEFAULT_ACCOUNT_ID, normalizeAccountId } from "openclaw/plugin-sdk/account-id";
 import { buildChannelAccountSchemaParts, requireOpenAllowFrom } from "openclaw/plugin-sdk/channel-config-schema";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
+import { DEFAULT_GROUP_HISTORY_LIMIT } from "openclaw/plugin-sdk/reply-history";
 import { buildSecretInputSchema, registerSensitiveConfigSchema } from "openclaw/plugin-sdk/secret-input";
 import { resolveSecretInputString } from "openclaw/plugin-sdk/secret-input-runtime";
 import { z } from "zod";
@@ -486,6 +487,22 @@ export function resolveBasecampAllowFrom(cfg: OpenClawConfig, accountId?: string
         ?.allowFrom
     : undefined;
   return (accountAllowFrom ?? section?.allowFrom ?? []).map((entry) => String(entry));
+}
+
+/**
+ * Group history window for the inbound turn's session transcript
+ * (SPEC §2.2 `sessionTranscript.historyLimit`). Per-account `historyLimit`
+ * (SDK account schema part) → channel-level → `messages.groupChat.historyLimit`
+ * → SDK default. Never negative; 0 disables the window.
+ */
+export function resolveBasecampHistoryLimit(cfg: OpenClawConfig, accountId?: string | null): number {
+  const section = getBasecampSection(cfg);
+  const accountLimit = accountId
+    ? (section?.accounts?.[normalizeAccountId(accountId)] as { historyLimit?: number } | undefined)?.historyLimit
+    : undefined;
+  const limit =
+    accountLimit ?? section?.historyLimit ?? cfg.messages?.groupChat?.historyLimit ?? DEFAULT_GROUP_HISTORY_LIMIT;
+  return Math.max(0, Math.floor(limit));
 }
 
 /** Get the allow-from list for a specific bucket. Returns undefined if unset (all senders allowed). */

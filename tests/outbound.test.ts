@@ -1,7 +1,10 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { isRecentOutboundMessageIdentity } from "openclaw/plugin-sdk/channel-outbound";
+import {
+  isRecentOutboundMessageIdentity,
+  verifyChannelMessageAdapterCapabilityProofs,
+} from "openclaw/plugin-sdk/channel-outbound";
 import { PlatformMessageNotDispatchedError } from "openclaw/plugin-sdk/error-runtime";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { clearBasecampRuntime, setBasecampRuntime } from "../src/runtime.js";
@@ -586,6 +589,82 @@ describe("outbound adapter contract", () => {
 
   it("declares durable-final text delivery only", () => {
     expect(basecampChannel.outbound!.deliveryCapabilities).toEqual({ durableFinal: { text: true } });
+  });
+
+  it("exposes a message adapter bridged from the composed outbound adapter (SPEC §2.6)", () => {
+    const message = basecampChannel.message!;
+    expect(message.id).toBe("basecamp");
+    expect(typeof message.send?.text).toBe("function");
+    expect(typeof message.send?.media).toBe("function");
+    // Durable-final capabilities come from the SAME outbound declaration.
+    expect(message.durableFinal?.capabilities).toEqual(basecampChannel.outbound!.deliveryCapabilities!.durableFinal);
+    expect(message.durableFinal?.capabilities).toEqual({ text: true });
+    expect(message.receive).toEqual({
+      defaultAckPolicy: "after_agent_dispatch",
+      supportedAckPolicies: ["after_agent_dispatch"],
+    });
+  });
+
+  it("message.send.text delivers through the outbound send path and returns a receipt", async () => {
+    const accountId = nextAccountId();
+    const index = await getRecordingIndex(accountId, stateDir);
+    index.record("902", { bucketId: "10", recordableType: "Todo" });
+    mockClient.comments.create.mockResolvedValue({ id: 9002 });
+
+    const result = await basecampChannel.message!.send!.text!({
+      cfg: makeCfg(accountId),
+      to: "recording:902",
+      text: "via message adapter",
+      accountId,
+    } as any);
+
+    expect(mockClient.comments.create).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({ messageId: "9002" });
+    expect(result.receipt).toMatchObject({
+      primaryPlatformMessageId: "9002",
+      platformMessageIds: ["9002"],
+      parts: [{ index: 0, kind: "text", platformMessageId: "9002" }],
+    });
+  });
+
+  it("proves the declared durable-final text capability through the SDK contract verifier", async () => {
+    const accountId = nextAccountId();
+    const index = await getRecordingIndex(accountId, stateDir);
+    index.record("903", { bucketId: "10", recordableType: "Todo" });
+    mockClient.comments.create.mockResolvedValue({ id: 9003 });
+
+    const results = await verifyChannelMessageAdapterCapabilityProofs({
+      adapterName: "basecamp",
+      adapter: basecampChannel.message!,
+      proofs: {
+        // Text is durable-final only because one API write yields the
+        // recording id that the receipt carries back.
+        text: async () => {
+          const result = await basecampChannel.message!.send!.text!({
+            cfg: makeCfg(accountId),
+            to: "recording:903",
+            text: "proof",
+            accountId,
+          } as any);
+          expect(result.receipt?.primaryPlatformMessageId).toBe("9003");
+          expect(mockClient.comments.create).toHaveBeenCalledTimes(1);
+        },
+      },
+    });
+
+    expect(results).toEqual(
+      expect.arrayContaining([
+        { capability: "text", status: "verified" },
+        { capability: "media", status: "not_declared" },
+      ]),
+    );
+  });
+
+  it("declares a configured-binding provider (SPEC §2.21)", () => {
+    expect(basecampChannel.conversationBindings).toEqual({ supportsCurrentConversationBinding: false });
+    expect(typeof basecampChannel.bindings?.compileConfiguredBinding).toBe("function");
+    expect(typeof basecampChannel.bindings?.matchInboundConversation).toBe("function");
+    expect(typeof basecampChannel.bindings?.resolveCommandConversation).toBe("function");
   });
 
   it("stamps the channel id on sendText results via attachedResults", async () => {

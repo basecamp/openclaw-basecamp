@@ -1,9 +1,11 @@
 import { buildDmGroupAccountAllowlistAdapter } from "openclaw/plugin-sdk/allowlist-config-edit";
 import { type ChannelPlugin, createChannelPluginBase, createChatChannelPlugin } from "openclaw/plugin-sdk/channel-core";
+import { createChannelMessageAdapterFromOutbound } from "openclaw/plugin-sdk/channel-outbound";
 import { channelBlockedPatch, channelReadyPatch, channelStoppedPatch } from "openclaw/plugin-sdk/gateway-runtime";
 import { basecampActionsAdapter } from "./adapters/actions.js";
 import { basecampAgentPromptAdapter } from "./adapters/agent-prompt.js";
 import { basecampAgentTools } from "./adapters/agent-tools.js";
+import { basecampBindingsProvider } from "./adapters/bindings.js";
 import { basecampDirectoryAdapter } from "./adapters/directory.js";
 import { basecampDoctorAdapter } from "./adapters/doctor.js";
 import { basecampGroupAdapter } from "./adapters/groups.js";
@@ -95,6 +97,10 @@ const basecampChannelBase = {
 
   // Bucket/recording bindings are project-level, not conversation-level (SPEC §2.21).
   conversationBindings: { supportsCurrentConversationBinding: false },
+
+  // Configured `agents.bindings[]` rules: a `bucket:<id>` binding covers every
+  // recording inside the project; exact recording bindings outrank it.
+  bindings: basecampBindingsProvider,
 
   // Allowlist adapter (SPEC §2.22): lets `openclaw allowlist` / `openclaw
   // pairing` CLI read and edit the channel's config-backed sender lists.
@@ -461,38 +467,66 @@ const basecampChannelBase = {
   },
 } satisfies Partial<ChannelPlugin<ResolvedBasecampAccount, BasecampProbe, BasecampAudit>>;
 
-export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampProbe, BasecampAudit> =
-  createChatChannelPlugin<ResolvedBasecampAccount, BasecampProbe, BasecampAudit>({
-    base: basecampChannelBase,
+const composedChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampProbe, BasecampAudit> = createChatChannelPlugin<
+  ResolvedBasecampAccount,
+  BasecampProbe,
+  BasecampAudit
+>({
+  base: basecampChannelBase,
 
-    pairing: basecampPairingAdapter,
+  pairing: basecampPairingAdapter,
 
-    outbound: {
-      base: {
-        deliveryMode: "direct",
-        textChunkLimit: BASECAMP_TEXT_CHUNK_LIMIT,
-        // SDK core chunker (fence/table-aware); no custom chunker (SPEC §2.8).
-        chunkerMode: "markdown",
-        presentationCapabilities: BASECAMP_PRESENTATION_CAPABILITIES,
-        // Text posts are single, atomic API writes with a returned recording
-        // id. Media is not durable-final: chat targets only get a link, so
-        // only `text` is declared (SPEC §2.5).
-        deliveryCapabilities: { durableFinal: { text: true } },
-        renderPresentation: ({ payload, presentation }) => {
-          const text = renderBasecampPresentationMarkdown(presentation);
-          return text === null ? null : { ...payload, text };
-        },
-        resolveTarget: ({ to }) => {
-          const result = resolveOutboundTarget(to ?? "");
-          if (result.ok) return { ok: true, to: result.to };
-          return { ok: false, error: new Error(result.error) };
-        },
+  outbound: {
+    base: {
+      deliveryMode: "direct",
+      textChunkLimit: BASECAMP_TEXT_CHUNK_LIMIT,
+      // SDK core chunker (fence/table-aware); no custom chunker (SPEC §2.8).
+      chunkerMode: "markdown",
+      presentationCapabilities: BASECAMP_PRESENTATION_CAPABILITIES,
+      // Text posts are single, atomic API writes with a returned recording
+      // id. Media is not durable-final: chat targets only get a link, so
+      // only `text` is declared (SPEC §2.5).
+      deliveryCapabilities: { durableFinal: { text: true } },
+      renderPresentation: ({ payload, presentation }) => {
+        const text = renderBasecampPresentationMarkdown(presentation);
+        return text === null ? null : { ...payload, text };
       },
-      attachedResults: {
-        channel: "basecamp",
-        sendText: ({ cfg, to, text, accountId }) => sendBasecampText({ cfg, to, text, accountId }),
-        sendMedia: ({ cfg, to, text, mediaUrl, accountId, mediaReadFile }) =>
-          sendBasecampMedia({ cfg, to, text, mediaUrl, accountId, mediaReadFile }),
+      resolveTarget: ({ to }) => {
+        const result = resolveOutboundTarget(to ?? "");
+        if (result.ok) return { ok: true, to: result.to };
+        return { ok: false, error: new Error(result.error) };
       },
     },
-  });
+    attachedResults: {
+      channel: "basecamp",
+      sendText: ({ cfg, to, text, accountId }) => sendBasecampText({ cfg, to, text, accountId }),
+      sendMedia: ({ cfg, to, text, mediaUrl, accountId, mediaReadFile }) =>
+        sendBasecampMedia({ cfg, to, text, mediaUrl, accountId, mediaReadFile }),
+    },
+  },
+});
+
+const composedOutbound = composedChannel.outbound;
+if (!composedOutbound) throw new Error("basecamp channel: createChatChannelPlugin produced no outbound adapter");
+
+/**
+ * Message adapter (SPEC §2.6): the typed send surface core uses for the
+ * shared `message` tool, queued/durable-final sends, and receipts. Bridged
+ * from the SAME outbound adapter createChatChannelPlugin composed, so target
+ * grammar, chunking, presentation rendering, attached results, and the
+ * durable-final declaration (text only — media posts a link, SPEC §2.5)
+ * stay single-sourced. Room-event turns (SPEC §2.4) can only speak here.
+ */
+export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampProbe, BasecampAudit> = {
+  ...composedChannel,
+  message: createChannelMessageAdapterFromOutbound({
+    id: "basecamp",
+    outbound: composedOutbound,
+    receive: {
+      // Inbound events are acknowledged once the agent turn is dispatched;
+      // the poller/webhook replay guard already makes redelivery idempotent.
+      defaultAckPolicy: "after_agent_dispatch",
+      supportedAckPolicies: ["after_agent_dispatch"],
+    },
+  }),
+};

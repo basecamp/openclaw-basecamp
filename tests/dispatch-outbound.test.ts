@@ -23,6 +23,7 @@ vi.mock("../src/config.js", () => ({
   resolveBasecampAllowFrom: vi.fn(() => []),
   resolveCircuitBreakerConfig: vi.fn(() => ({ threshold: 5, cooldownMs: 300000 })),
   resolveBasecampBucketAllowFrom: vi.fn(() => undefined),
+  resolveBasecampHistoryLimit: vi.fn(() => 50),
 }));
 vi.mock("../src/outbound/send.js", () => ({
   postReplyToEvent: vi.fn(),

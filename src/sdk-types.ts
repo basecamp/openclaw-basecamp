@@ -29,3 +29,5 @@ export type ChannelSecurityDmPolicy<ResolvedAccount = unknown> = NonNullable<
 export type SecurityAuditFinding = Awaited<
   ReturnType<NonNullable<ChannelSecurityAdapter["collectAuditFindings"]>>
 >[number];
+
+export type ChannelConfiguredBindingProvider = NonNullable<ChannelPlugin["bindings"]>;
