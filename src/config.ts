@@ -403,7 +403,9 @@ export function resolveBasecampAccount(
     accountId: effectiveId,
     enabled: accountCfg.enabled !== false,
     displayName:
-      accountCfg.displayName ?? (effectiveId === DEFAULT_ACCOUNT_ID ? getBasecampSection(cfg)?.name : undefined),
+      accountCfg.displayName ??
+      accountCfg.name ??
+      (effectiveId === DEFAULT_ACCOUNT_ID ? getBasecampSection(cfg)?.name : undefined),
     personId: accountCfg.personId ?? "",
     attachableSgid: accountCfg.attachableSgid,
     token,
@@ -492,9 +494,20 @@ export function resolveCircuitBreakerConfig(cfg: OpenClawConfig): { threshold: n
 export function resolveBasecampDmPolicy(cfg: OpenClawConfig, accountId?: string | null) {
   const section = getBasecampSection(cfg);
   const accountPolicy = accountId
-    ? (section?.accounts?.[normalizeAccountId(accountId)] as { dmPolicy?: string } | undefined)?.dmPolicy
+    ? (section?.accounts?.[concreteAccountId(cfg, normalizeAccountId(accountId))] as { dmPolicy?: string } | undefined)
+        ?.dmPolicy
     : undefined;
   return (accountPolicy ?? section?.dmPolicy ?? "pairing") as "pairing" | "allowlist" | "open" | "disabled";
+}
+
+/**
+ * Concrete account id behind a virtualAccounts alias; identity otherwise.
+ * Aliases carry only {accountId, bucketId}, so every per-account policy read
+ * must land on the backing account — reading accounts[alias] silently falls
+ * through to channel-level defaults.
+ */
+function concreteAccountId(cfg: OpenClawConfig, accountId: string): string {
+  return resolveProjectScope(cfg, accountId)?.accountId ?? accountId;
 }
 
 /**
@@ -504,8 +517,11 @@ export function resolveBasecampDmPolicy(cfg: OpenClawConfig, accountId?: string 
 export function resolveBasecampAllowFrom(cfg: OpenClawConfig, accountId?: string | null): string[] {
   const section = getBasecampSection(cfg);
   const accountAllowFrom = accountId
-    ? (section?.accounts?.[normalizeAccountId(accountId)] as { allowFrom?: Array<string | number> } | undefined)
-        ?.allowFrom
+    ? (
+        section?.accounts?.[concreteAccountId(cfg, normalizeAccountId(accountId))] as
+          | { allowFrom?: Array<string | number> }
+          | undefined
+      )?.allowFrom
     : undefined;
   return (accountAllowFrom ?? section?.allowFrom ?? []).map((entry) => String(entry));
 }
@@ -517,8 +533,11 @@ export function resolveBasecampAllowFrom(cfg: OpenClawConfig, accountId?: string
 export function resolveBasecampGroupAllowFrom(cfg: OpenClawConfig, accountId?: string | null): string[] {
   const section = getBasecampSection(cfg);
   const accountList = accountId
-    ? (section?.accounts?.[normalizeAccountId(accountId)] as { groupAllowFrom?: Array<string | number> } | undefined)
-        ?.groupAllowFrom
+    ? (
+        section?.accounts?.[concreteAccountId(cfg, normalizeAccountId(accountId))] as
+          | { groupAllowFrom?: Array<string | number> }
+          | undefined
+      )?.groupAllowFrom
     : undefined;
   return (accountList ?? section?.groupAllowFrom ?? []).map((entry) => String(entry));
 }
@@ -530,7 +549,11 @@ export function resolveBasecampGroupPolicy(
 ): "allowlist" | "open" | "disabled" {
   const section = getBasecampSection(cfg);
   const accountPolicy = accountId
-    ? (section?.accounts?.[normalizeAccountId(accountId)] as { groupPolicy?: string } | undefined)?.groupPolicy
+    ? (
+        section?.accounts?.[concreteAccountId(cfg, normalizeAccountId(accountId))] as
+          | { groupPolicy?: string }
+          | undefined
+      )?.groupPolicy
     : undefined;
   return (accountPolicy ?? section?.groupPolicy ?? "open") as "allowlist" | "open" | "disabled";
 }
@@ -544,7 +567,11 @@ export function resolveBasecampGroupPolicy(
 export function resolveBasecampHistoryLimit(cfg: OpenClawConfig, accountId?: string | null): number {
   const section = getBasecampSection(cfg);
   const accountLimit = accountId
-    ? (section?.accounts?.[normalizeAccountId(accountId)] as { historyLimit?: number } | undefined)?.historyLimit
+    ? (
+        section?.accounts?.[concreteAccountId(cfg, normalizeAccountId(accountId))] as
+          | { historyLimit?: number }
+          | undefined
+      )?.historyLimit
     : undefined;
   const limit =
     accountLimit ?? section?.historyLimit ?? cfg.messages?.groupChat?.historyLimit ?? DEFAULT_GROUP_HISTORY_LIMIT;

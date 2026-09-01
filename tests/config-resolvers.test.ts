@@ -231,3 +231,43 @@ describe("virtual account backing namespace", () => {
     expect(resolveBasecampAccount(cfg, "ops").backingAccountId).toBeUndefined();
   });
 });
+
+describe("policy resolution through virtual-account aliases", () => {
+  it("reads the backing account's policies when given an alias", async () => {
+    const {
+      resolveBasecampAllowFrom,
+      resolveBasecampDmPolicy,
+      resolveBasecampGroupAllowFrom,
+      resolveBasecampGroupPolicy,
+    } = await import("../src/config.js");
+    const cfg = {
+      channels: {
+        basecamp: {
+          groupPolicy: "open",
+          accounts: {
+            ops: {
+              personId: "9",
+              dmPolicy: "disabled",
+              allowFrom: ["5"],
+              groupPolicy: "allowlist",
+              groupAllowFrom: ["6"],
+            },
+          },
+          virtualAccounts: { "proj-a": { accountId: "ops", bucketId: "111" } },
+        },
+      },
+    } as any;
+    expect(resolveBasecampDmPolicy(cfg, "proj-a")).toBe("disabled");
+    expect(resolveBasecampAllowFrom(cfg, "proj-a")).toEqual(["5"]);
+    expect(resolveBasecampGroupPolicy(cfg, "proj-a")).toBe("allowlist");
+    expect(resolveBasecampGroupAllowFrom(cfg, "proj-a")).toEqual(["6"]);
+  });
+});
+
+describe("account display name", () => {
+  it("falls back to the standard per-account name field", async () => {
+    const { resolveBasecampAccount } = await import("../src/config.js");
+    const cfg = { channels: { basecamp: { accounts: { work: { personId: "9", name: "Bot" } } } } } as any;
+    expect(resolveBasecampAccount(cfg, "work").displayName).toBe("Bot");
+  });
+});

@@ -43,9 +43,12 @@ export function repairBasecampConfig({ cfg }: { cfg: OpenClawConfig }): DoctorMu
   // --- Dangling persona refs ---------------------------------------------
   const accounts = (section.accounts ?? {}) as Record<string, Record<string, unknown>>;
   if (section.personas) {
+    // virtualAccounts aliases are valid persona targets — they resolve to a
+    // concrete account with a project scope at dispatch time.
+    const virtualAccounts = (section.virtualAccounts ?? {}) as Record<string, unknown>;
     const cleaned: Record<string, string> = {};
     for (const [agentId, targetAccountId] of Object.entries(section.personas)) {
-      if (accounts[targetAccountId]) {
+      if (accounts[targetAccountId] || virtualAccounts[targetAccountId]) {
         cleaned[agentId] = targetAccountId;
       } else {
         changes.push(`channels.basecamp.personas.${agentId}: removed — account "${targetAccountId}" does not exist`);

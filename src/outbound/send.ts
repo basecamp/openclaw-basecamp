@@ -575,20 +575,58 @@ function mediaNameAndType(mediaUrl: string): { name: string; contentType: string
   return { name, contentType: MEDIA_CONTENT_TYPES[ext] ?? "application/octet-stream" };
 }
 
+/** Default remote-media cap when the account sets no mediaMaxMb. */
+const DEFAULT_MEDIA_MAX_MB = 25;
+
+async function readBoundedBody(response: Response, maxBytes: number, mediaUrl: string): Promise<Uint8Array> {
+  const reader = response.body?.getReader();
+  if (!reader) {
+    const buffer = new Uint8Array(await response.arrayBuffer());
+    if (buffer.byteLength > maxBytes) {
+      notDispatched(`Media from ${mediaUrl} exceeds the ${Math.floor(maxBytes / 1024 / 1024)} MB limit`);
+    }
+    return buffer;
+  }
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel().catch(() => {});
+      notDispatched(`Media from ${mediaUrl} exceeds the ${Math.floor(maxBytes / 1024 / 1024)} MB limit`);
+    }
+    chunks.push(value);
+  }
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return out;
+}
+
 async function loadMediaBytes(params: {
   mediaUrl: string;
+  maxBytes: number;
   mediaReadFile?: (filePath: string) => Promise<Buffer>;
 }): Promise<{ data: Uint8Array; contentType: string; name: string }> {
-  const { mediaUrl, mediaReadFile } = params;
+  const { mediaUrl, maxBytes, mediaReadFile } = params;
   const { name, contentType } = mediaNameAndType(mediaUrl);
   if (/^https?:\/\//.test(mediaUrl)) {
     const response = await fetch(mediaUrl);
     if (!response.ok) {
       notDispatched(`Failed to fetch media from ${mediaUrl}: HTTP ${response.status}`, { retryable: true });
     }
+    const declared = Number(response.headers.get("content-length") ?? "");
+    if (Number.isFinite(declared) && declared > maxBytes) {
+      notDispatched(`Media from ${mediaUrl} exceeds the ${Math.floor(maxBytes / 1024 / 1024)} MB limit`);
+    }
     const headerType = response.headers.get("content-type")?.split(";")[0]?.trim();
     return {
-      data: new Uint8Array(await response.arrayBuffer()),
+      data: await readBoundedBody(response, maxBytes, mediaUrl),
       contentType: headerType || contentType,
       name,
     };
@@ -636,7 +674,12 @@ export async function sendBasecampMedia(params: {
     return postToTarget(target, content, account);
   }
 
-  const media = await loadMediaBytes({ mediaUrl, mediaReadFile: params.mediaReadFile });
+  const mediaMaxMb = (account.config as { mediaMaxMb?: number }).mediaMaxMb ?? DEFAULT_MEDIA_MAX_MB;
+  const media = await loadMediaBytes({
+    mediaUrl,
+    maxBytes: mediaMaxMb * 1024 * 1024,
+    mediaReadFile: params.mediaReadFile,
+  });
   let sgid: string | undefined;
   try {
     const client = getClient(account);

@@ -414,8 +414,10 @@ export type BasecampAccountConfig = {
   token?: string;
   /** Basecamp person ID for this service account. */
   personId: string;
-  /** Human-readable display name. */
+  /** Human-readable display name (legacy field). */
   displayName?: string;
+  /** Standard per-account display name written by the setup contract. */
+  name?: string;
   /** Pre-resolved attachable SGID (auto-resolved at startup if absent). */
   attachableSgid?: string;
   /** Whether this account is enabled. */

@@ -303,6 +303,11 @@ export const basecampSetupContract: NonNullable<ChannelPlugin["setupContract"]> 
       const existingAccount = accounts[accountId] ?? {};
 
       const tokenConfig = input.tokenFile ? { tokenFile: input.tokenFile } : input.token ? { token: input.token } : {};
+      // A new credential source replaces the old one: resolveBasecampAccount
+      // prefers token over tokenFile, so a stale inline token would silently
+      // shadow a newly supplied --token-file (and vice versa).
+      const { token: _staleToken, tokenFile: _staleTokenFile, ...existingWithoutTokens } = existingAccount;
+      const baseAccount = Object.keys(tokenConfig).length > 0 ? existingWithoutTokens : existingAccount;
 
       return {
         ...namedConfig,
@@ -314,7 +319,7 @@ export const basecampSetupContract: NonNullable<ChannelPlugin["setupContract"]> 
             accounts: {
               ...accounts,
               [accountId]: {
-                ...existingAccount,
+                ...baseAccount,
                 enabled: true,
                 ...tokenConfig,
                 ...(input.personId ? { personId: input.personId } : {}),

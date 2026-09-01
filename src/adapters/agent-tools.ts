@@ -227,6 +227,33 @@ type BasecampToolSpec<T extends TSchema> = {
   run: (client: BasecampClient, params: Static<T>) => Promise<BasecampToolResult>;
 };
 
+/**
+ * Project-scope guard for tool targets: a persona mapped to a virtualAccounts
+ * alias may only touch its declared bucket. Checks the explicit bucketId
+ * params and the /buckets/<id>/ prefix of generic API paths; targetless
+ * params pass (nothing to scope).
+ */
+export function resolveToolScopeViolation(account: ResolvedBasecampAccount, rawParams: unknown): string | undefined {
+  const scoped = account.scopedBucketId;
+  if (!scoped) return undefined;
+  const params = rawParams as { bucketId?: string | number; path?: string };
+  if (params.bucketId !== undefined && String(params.bucketId) !== String(scoped)) {
+    return (
+      `Account "${account.accountId}" is scoped to bucket ${scoped}; ` + `refusing to act on bucket ${params.bucketId}`
+    );
+  }
+  if (params.path !== undefined) {
+    const match = params.path.match(/^\/buckets\/(\d+)(?:\/|\.json)/);
+    if (!match || match[1] !== String(scoped)) {
+      return (
+        `Account "${account.accountId}" is scoped to bucket ${scoped}; ` +
+        `API paths must start with /buckets/${scoped}/`
+      );
+    }
+  }
+  return undefined;
+}
+
 function defineBasecampTool<T extends TSchema>(
   ctx: OpenClawPluginToolContext,
   spec: BasecampToolSpec<T>,
@@ -239,6 +266,8 @@ function defineBasecampTool<T extends TSchema>(
     execute: async (_toolCallId, rawParams) => {
       const resolved = resolveToolClient(ctx);
       if (!resolved.ok) return toolErr(resolved.error);
+      const scopeError = resolveToolScopeViolation(resolved.account, rawParams);
+      if (scopeError) return toolErr(scopeError);
       try {
         return await spec.run(resolved.client, rawParams as Static<T>);
       } catch (err) {

@@ -410,6 +410,30 @@ describe("outbound.sendBasecampMedia", () => {
     expect(result.messageId).toBe("7001");
   });
 
+  it("rejects remote media larger than the account's media limit", async () => {
+    const accountId = nextAccountId();
+    const index = await getRecordingIndex(accountId, stateDir);
+    index.record("779", { bucketId: "10", recordableType: "Todo" });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("x", { status: 200, headers: { "content-length": String(999 * 1024 * 1024) } })),
+    );
+    try {
+      await expect(
+        sendBasecampMedia({
+          cfg: makeCfg(accountId),
+          to: "recording:779",
+          text: "huge",
+          mediaUrl: "https://example.com/huge.png",
+          accountId,
+        }),
+      ).rejects.toThrow(/exceeds the 25 MB limit/);
+      expect(mockClient.attachments.create).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("sends caption + URL as a line for campfire targets (no native chat embeds)", async () => {
     const accountId = nextAccountId();
     const index = await getRecordingIndex(accountId, stateDir);

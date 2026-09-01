@@ -35,6 +35,19 @@ describe("repairBasecampConfig", () => {
     expect(result.config).toBe(healthy);
   });
 
+  it("keeps personas that target virtualAccounts aliases", () => {
+    const result = repairBasecampConfig({
+      cfg: cfg({
+        accounts: { main: { personId: "1" } },
+        virtualAccounts: { "proj-a": { accountId: "main", bucketId: "42" } },
+        personas: { scoped: "proj-a" },
+      }),
+    });
+    const section = (result.config.channels as any).basecamp;
+    expect(section.personas).toEqual({ scoped: "proj-a" });
+    expect(result.changes).toEqual([]);
+  });
+
   it("removes personas pointing at missing accounts", () => {
     const result = repairBasecampConfig({
       cfg: cfg({

@@ -34,7 +34,12 @@ vi.mock("../src/outbound/format.js", async () => {
   return { basecampHtmlToPlainText: vi.fn((html: string) => stripHtml(html)) };
 });
 
-import { buildBasecampTools, registerBasecampTools, resolveToolAccount } from "../src/adapters/agent-tools.js";
+import {
+  buildBasecampTools,
+  registerBasecampTools,
+  resolveToolAccount,
+  resolveToolScopeViolation,
+} from "../src/adapters/agent-tools.js";
 import { getClient } from "../src/basecamp-client.js";
 import { BASECAMP_TOOL_METADATA, BASECAMP_TOOL_NAMES, isBasecampToolName } from "../src/tools/catalog.js";
 
@@ -778,5 +783,22 @@ describe("basecamp_api_write", () => {
 
     expect(result.details).toEqual({ ok: false, error: expect.stringContaining("no whitespace") });
     expect(mockClient.raw.PUT).not.toHaveBeenCalled();
+  });
+});
+
+describe("resolveToolScopeViolation", () => {
+  const scoped = { accountId: "proj-a", scopedBucketId: "111" } as any;
+
+  it("passes unscoped accounts and matching targets", () => {
+    expect(resolveToolScopeViolation({ accountId: "ops" } as any, { bucketId: "222" })).toBeUndefined();
+    expect(resolveToolScopeViolation(scoped, { bucketId: "111" })).toBeUndefined();
+    expect(resolveToolScopeViolation(scoped, { path: "/buckets/111/todos/9.json" })).toBeUndefined();
+    expect(resolveToolScopeViolation(scoped, {})).toBeUndefined();
+  });
+
+  it("rejects other buckets and out-of-scope API paths", () => {
+    expect(resolveToolScopeViolation(scoped, { bucketId: "222" })).toContain("scoped to bucket 111");
+    expect(resolveToolScopeViolation(scoped, { path: "/buckets/222/todos/9.json" })).toContain("scoped to bucket 111");
+    expect(resolveToolScopeViolation(scoped, { path: "/projects.json" })).toContain("/buckets/111/");
   });
 });
