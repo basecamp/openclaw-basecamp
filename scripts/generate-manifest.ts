@@ -54,6 +54,7 @@ export function buildBasecampManifest(rootDir: string): Record<string, unknown> 
     configSchema: { type: "object", additionalProperties: false, properties: {} },
     contracts: { tools },
     toolMetadata,
+    doctorContract: { configRepair: true },
     backupResources: [{ disposition: "include", scope: "state", relativePath: "plugins/basecamp" }],
     channelConfigs: {
       basecamp: {

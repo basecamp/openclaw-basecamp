@@ -73,11 +73,13 @@ describe("openclaw.plugin.json contract", () => {
     expect(channel.uiHints["accounts.*.token"].sensitive).toBe(true);
   });
 
-  it("does not declare WP2-owned or forbidden manifest surfaces yet", () => {
-    // doctorContract ships with the WP2 doctor adapter; the rest are
-    // permanently out per SPEC §1.3 "Do NOT add".
-    expect(manifest).not.toHaveProperty("doctorContract");
+  it("declares the doctor contract and no forbidden manifest surfaces", () => {
+    // doctorContract pairs with the doctor adapter + doctor-contract-api
+    // sidecar; the rest are permanently out per SPEC §1.3 "Do NOT add".
+    expect(manifest.doctorContract).toEqual({ configRepair: true });
     expect(manifest).not.toHaveProperty("configContracts");
+    expect(manifest).not.toHaveProperty("runtimeExtensions");
+    expect(manifest).not.toHaveProperty("setupFeatures");
   });
 });
 
@@ -119,20 +121,13 @@ describe("package.json openclaw contract", () => {
     expect(typeof channel.detailLabel).toBe("string");
   });
 
-  it("mirrors the setup contract fields from SPEC §2.11", () => {
-    // WP2 lands `setupContract: defineChannelSetupContract(...)`; once it
-    // does, this assertion should compare against
-    // `setupContract.metadata.fields` instead of a hardcoded list.
+  it("mirrors the setup contract fields", async () => {
+    const { basecampSetupContract } = await import("../src/channel-setup.js");
+    const contractKeys = (basecampSetupContract.metadata as { fields: Array<{ key: string }> }).fields.map(
+      (f) => f.key,
+    );
     const keys = oc.channel.setup.fields.map((f: { key: string }) => f.key);
-    expect(keys).toEqual([
-      "token",
-      "tokenFile",
-      "personId",
-      "basecampAccountId",
-      "oauthClientId",
-      "oauthClientSecret",
-      "cliProfile",
-    ]);
+    expect(keys).toEqual(contractKeys);
     for (const field of oc.channel.setup.fields) {
       expect(field.kind, field.key).toBe("string");
       expect(field.cli.flags, field.key).toMatch(/^--[a-z-]+ </);
