@@ -1,5 +1,6 @@
 import { defineChannelPluginEntry } from "openclaw/plugin-sdk/channel-core";
 import { basecampChannel } from "./src/channel.js";
+import { closeAllRecordingIndexes } from "./src/inbound/recording-index.js";
 import { flushWebhookSecrets, handleBasecampWebhook } from "./src/inbound/webhooks.js";
 import { setBasecampRuntime } from "./src/runtime.js";
 
@@ -18,8 +19,9 @@ const basecampPluginEntry: ReturnType<typeof defineChannelPluginEntry<typeof bas
         handler: handleBasecampWebhook,
         auth: "plugin",
       });
-      api.on("gateway_stop", () => {
+      api.on("gateway_stop", async () => {
         flushWebhookSecrets();
+        await closeAllRecordingIndexes();
       });
     },
   });

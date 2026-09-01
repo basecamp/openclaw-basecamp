@@ -109,4 +109,59 @@ describe("groups.resolveToolPolicy", () => {
 
     expect(result).toBeUndefined();
   });
+
+  it("wildcard bucket tools apply via scope-tree defaults", () => {
+    const result = basecampGroupAdapter.resolveToolPolicy!({
+      cfg: cfg({ buckets: { "*": { tools: { allow: ["read"] } } } }),
+      groupId: "bucket:999",
+    } as any);
+
+    expect(result).toEqual({ allow: ["read"] });
+  });
+
+  it("applies toolsBySender overlays for matching senders (SPEC §2.22)", () => {
+    const config = cfg({
+      buckets: {
+        "123": {
+          tools: { allow: ["read"] },
+          toolsBySender: { "777": { allow: ["read", "write"] } },
+        },
+      },
+    });
+
+    const matched = basecampGroupAdapter.resolveToolPolicy!({
+      cfg: config,
+      groupId: "bucket:123",
+      senderId: "777",
+    } as any);
+    expect(matched).toEqual({ allow: ["read", "write"] });
+
+    const unmatched = basecampGroupAdapter.resolveToolPolicy!({
+      cfg: config,
+      groupId: "bucket:123",
+      senderId: "888",
+    } as any);
+    expect(unmatched).toEqual({ allow: ["read"] });
+  });
+
+  it("senderPolicyMode 'never' skips wildcard toolsBySender but keeps base tools", () => {
+    const config = cfg({
+      buckets: {
+        "*": {
+          tools: { allow: ["read"] },
+          toolsBySender: { "*": { allow: ["read", "write", "admin"] } },
+        },
+      },
+    });
+
+    const result = basecampGroupAdapter.resolveToolPolicy!({
+      cfg: config,
+      groupId: "bucket:123",
+      senderId: "777",
+      senderPolicyMode: "never",
+    } as any);
+
+    // Sender overlay skipped; base tools restriction preserved.
+    expect(result).toEqual({ allow: ["read"] });
+  });
 });

@@ -1,16 +1,41 @@
 /**
  * Dispatch bridge — connects inbound Basecamp events to OpenClaw agents.
  *
- * This is the critical bridge between the inbound event fabric and OpenClaw's
- * agent routing/reply system. For each normalized BasecampInboundMessage it:
+ * SPEC §2.2/§2.3: each normalized BasecampInboundMessage runs through the
+ * channel turn kernel (`runtime.channel.inbound.run`) with a
+ * ChannelTurnAdapter:
  *
- * 1. Calls resolveAgentRoute with peer + parentPeer to find the target agent
- * 2. Builds a MsgContext with all Basecamp-specific fields
- * 3. Calls dispatchReplyWithBufferedBlockDispatcher to run the agent
- * 4. The deliver callback uses persona resolution and postReplyToEvent
- *    to send the agent's response back to the correct Basecamp surface
+ * - ingest: project the message into NormalizedTurnInput
+ * - classify: always "message" for now (room_event classification is a
+ *   follow-up product decision — see SPEC §2.4)
+ * - preflight: plugin-owned gates (self/echo filter, engagement policy) and
+ *   the shared ingress resolver (DM policy, pairing store, per-bucket
+ *   allowFrom route descriptor); pairing challenges are delivered as
+ *   Basecamp Pings
+ * - resolveTurn: builds the inbound event context (BodyForAgent, typed
+ *   channelContext, media facts, supplemental quote/surface guidance) and
+ *   returns a routed turn plan whose delivery posts back to Basecamp
+ *
+ * Bot-loop protection facts (§2.13) are attached when the sender is another
+ * configured Basecamp persona.
  */
 
+import type { ChannelInboundEventRunnerParams, InboundMediaFacts } from "openclaw/plugin-sdk/channel-inbound";
+import {
+  buildChannelInboundEventContext,
+  runChannelInboundEvent,
+  toInboundMediaFacts,
+} from "openclaw/plugin-sdk/channel-inbound";
+import type {
+  ChannelIngressRouteDescriptor,
+  ResolvedChannelMessageIngress,
+} from "openclaw/plugin-sdk/channel-ingress-runtime";
+import {
+  createChannelIngressResolver,
+  defineStableChannelIngressIdentity,
+} from "openclaw/plugin-sdk/channel-ingress-runtime";
+import { isRecentOutboundMessageIdentity } from "openclaw/plugin-sdk/channel-outbound";
+import { createChannelPairingChallengeIssuer } from "openclaw/plugin-sdk/channel-pairing";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import { BASECAMP_TEXT_CHUNK_LIMIT, chunkMarkdownText } from "./adapters/outbound.js";
 import { isBasecampError } from "./basecamp-client.js";
@@ -36,6 +61,14 @@ import type {
 } from "./types.js";
 import { DEFAULT_ENGAGE } from "./types.js";
 
+/**
+ * Instance-bound reply dispatcher type, derived from the typed reply-runtime
+ * surface (`DispatchReplyFromConfig` itself has no typed subpath export).
+ */
+type DispatchReplyFromConfig = NonNullable<
+  Parameters<typeof import("openclaw/plugin-sdk/reply-runtime").dispatchInboundMessage>[0]["dispatchReplyFromConfig"]
+>;
+
 /** Per-account outbound circuit breakers. Separate from poller CBs. */
 const outboundCircuitBreakers = new Map<string, CircuitBreaker>();
 
@@ -49,6 +82,21 @@ function getOutboundCircuitBreaker(cfg: OpenClawConfig, accountId: string): Circ
   return cb;
 }
 
+/**
+ * Stable Basecamp sender identity for the shared ingress resolver.
+ * Person IDs are immutable numeric strings from authenticated API payloads:
+ * the boundary vouches for the sender without binding the exact identifier.
+ */
+const basecampIngressIdentity = defineStableChannelIngressIdentity({
+  key: "basecamp-person-id",
+  normalize: (value) => {
+    const stripped = value.replace(/^(basecamp|bc):/i, "").trim();
+    return stripped.length > 0 ? stripped : undefined;
+  },
+  authentication: "asserted",
+  entryIdPrefix: "basecamp-person",
+});
+
 export type DispatchOptions = {
   /** The resolved account that received this event. */
   account: ResolvedBasecampAccount;
@@ -61,250 +109,643 @@ export type DispatchOptions = {
     debug?: (msg: string) => void;
     error: (msg: string) => void;
   };
+  /**
+   * Host-injected channel runtime surface from the gateway context
+   * (`ctx.channelRuntime`). Preferred over the plugin runtime when it carries
+   * an inbound surface; verified structurally at runtime.
+   */
+  channelRuntime?: unknown;
+  /**
+   * Instance-bound reply dispatcher override for the assembled turn.
+   * Left unset in production (core supplies its own); integration tests
+   * inject a fake dispatcher here to run the real kernel end to end.
+   */
+  dispatchReplyFromConfig?: DispatchReplyFromConfig;
 };
+
+type InboundSurface = {
+  buildContext: typeof buildChannelInboundEventContext;
+  run: typeof runChannelInboundEvent;
+};
+
+/**
+ * Resolve the inbound kernel surface: prefer the host-injected gateway
+ * `ctx.channelRuntime.inbound` when it is populated (documented "for external
+ * channel plugins" but optional — verify shape at runtime), then the injected
+ * plugin runtime, then the standalone builders from channel-inbound.
+ */
+function resolveInboundSurface(channelRuntime: unknown): InboundSurface {
+  const injected = (channelRuntime as { inbound?: Partial<InboundSurface> } | undefined)?.inbound;
+  if (typeof injected?.buildContext === "function" && typeof injected?.run === "function") {
+    return { buildContext: injected.buildContext, run: injected.run };
+  }
+  const runtime = tryRuntimeInbound();
+  if (runtime) return runtime;
+  return { buildContext: buildChannelInboundEventContext, run: runChannelInboundEvent };
+}
+
+function tryRuntimeInbound(): InboundSurface | undefined {
+  try {
+    const inbound = getBasecampRuntime().channel.inbound as Partial<InboundSurface> | undefined;
+    if (typeof inbound?.buildContext === "function" && typeof inbound?.run === "function") {
+      return { buildContext: inbound.buildContext, run: inbound.run };
+    }
+  } catch {
+    // runtime not initialized — fall through to the standalone builders
+  }
+  return undefined;
+}
 
 /**
  * Dispatch a normalized Basecamp inbound message to the OpenClaw agent pipeline.
  *
  * Returns true if the message was dispatched, false if it was dropped
- * (e.g., no matching agent route, self-message, etc.).
+ * (e.g., no matching agent route, self-message, ingress denial, etc.).
  */
 export async function dispatchBasecampEvent(msg: BasecampInboundMessage, options: DispatchOptions): Promise<boolean> {
-  const runtime = getBasecampRuntime();
-  const { account, cfg, log } = options;
-  const slog = createStructuredLog(log, { accountId: account.accountId, source: "dispatch" });
-  const correlationId = msg.correlationId;
-
-  // ----- Self-message filtering -----
-  // Skip messages from our own service account to avoid loops.
-  if (msg.sender.id === account.personId) {
-    slog.debug("self_message_skipped", { correlationId, personId: msg.sender.id });
-    return false;
-  }
-
-  // ----- Project-scope routing override -----
-  // Check if the event's bucketId matches a virtualAccounts entry;
-  // if so, override the accountId to the scope alias so agent bindings match.
-  const effectiveAccountId = resolveProjectScopeAccountId(cfg, msg) ?? msg.accountId;
-
-  // ----- Route resolution -----
-  // Map BasecampPeerKind ("dm" | "group") → ChatType ("direct" | "group")
-  const toRoutePeer = (p?: { kind: "dm" | "group"; id: string }) =>
-    p ? { kind: (p.kind === "dm" ? "direct" : p.kind) as "direct" | "group", id: p.id } : undefined;
-
-  const route = runtime.channel.routing.resolveAgentRoute({
-    cfg,
+  const surface = resolveInboundSurface(options.channelRuntime);
+  const adapter = createBasecampTurnAdapter(msg, options);
+  const result = await surface.run({
     channel: "basecamp",
-    accountId: effectiveAccountId,
-    peer: toRoutePeer(msg.peer),
-    parentPeer: toRoutePeer(msg.parentPeer),
+    accountId: msg.accountId,
+    raw: msg,
+    adapter,
   });
-
-  if (!route) {
-    slog.debug("no_route", { correlationId, peer: msg.peer.id });
-    return false;
-  }
-
-  // ----- Engagement gate -----
-  // Classify the event, then check it against the configured engagement
-  // policy. Defaults to ["dm", "mention", "assignment", "checkin"].
-  // Per-bucket overrides take precedence over channel-level config.
-  const engagement = classifyEngagement(msg);
-  const engagePolicy = resolveEngagePolicy(cfg, msg.meta.bucketId);
-  if (!engagePolicy.includes(engagement)) {
-    slog.debug("engagement_gate_dropped", {
-      correlationId,
-      engagement,
-      event: msg.meta.eventKind,
-      type: msg.meta.recordableType,
-      peer: msg.peer.id,
-      policy: engagePolicy.join(","),
-    });
-    return false;
-  }
-
-  // ----- Per-bucket sender gate -----
-  // When a bucket configures allowFrom, only listed senders can trigger
-  // the agent — regardless of engagement type. This is distinct from the
-  // DM policy allowFrom which only applies to Pings.
-  const bucketAllowFrom = resolveBasecampBucketAllowFrom(cfg, msg.meta.bucketId);
-  if (bucketAllowFrom && !bucketAllowFrom.includes(msg.sender.id)) {
-    slog.debug("bucket_sender_gate_dropped", {
-      correlationId,
-      sender: msg.sender.id,
-      bucket: msg.meta.bucketId,
-      engagement,
-    });
-    return false;
-  }
-
-  // ----- DM policy enforcement -----
-  // Even when engagement=dm passes the engage gate, verify the sender is
-  // allowed under the configured DM policy (SDK vocabulary:
-  // pairing | allowlist | open | disabled).
-  if (engagement === "dm") {
-    const dmPolicy = resolveBasecampDmPolicy(cfg);
-    if (dmPolicy === "disabled") {
-      slog.info("dm_policy_dropped", { correlationId, sender: msg.sender.id, policy: "disabled" });
-      return false;
-    }
-    if (dmPolicy === "pairing" || dmPolicy === "allowlist") {
-      const allowFrom = resolveBasecampAllowFrom(cfg);
-      if (!allowFrom.includes(msg.sender.id)) {
-        slog.info("dm_policy_dropped", {
-          correlationId,
-          sender: msg.sender.id,
-          policy: dmPolicy,
-          allowFrom: allowFrom.join(","),
-        });
-        return false;
-      }
-    }
-    // dmPolicy === "open" → allow all DMs through
-  }
-
-  slog.info("dispatching", {
-    correlationId,
-    agent: route.agentId,
-    matchedBy: route.matchedBy,
-    peer: `${msg.peer.kind}:${msg.peer.id}`,
-    recordableType: msg.meta.recordableType,
-  });
-
-  // ----- Resolve persona for outbound -----
-  // The agent may have a dedicated Basecamp persona (service account).
-  const personaAccountId = resolvePersonaAccountId(cfg, route.agentId);
-  const outboundAccount = personaAccountId ? resolveBasecampAccount(cfg, personaAccountId) : account;
-  // Resolve the numeric account ID for circuit breaker keying and logging.
-  const outboundBasecampAccountId =
-    outboundAccount.config.basecampAccountId ??
-    (/^\d+$/.test(outboundAccount.accountId) ? outboundAccount.accountId : undefined);
-  if (!outboundBasecampAccountId) {
-    slog.error("outbound_account_id_missing", {
-      outboundAccount: outboundAccount.accountId,
-      hint: "Set config.basecampAccountId to a valid Basecamp account id",
-    });
-    return false;
-  }
-
-  // ----- Build MsgContext -----
-  // OpenClaw expects ChatType "direct" | "group" — NOT "dm"
-  const chatType = msg.peer.kind === "dm" ? "direct" : "group";
-
-  const ctx = {
-    Body: msg.text,
-    RawBody: msg.text,
-    // Namespace From/To with basecamp: prefix for allowlists, audits, debug
-    From: `basecamp:${msg.sender.id}`,
-    To: `basecamp:${msg.peer.id}`,
-    SenderId: msg.sender.id,
-    SenderName: msg.sender.name,
-    ChatType: chatType,
-    Provider: "basecamp",
-    Surface: "basecamp",
-    Timestamp: new Date(msg.createdAt).getTime(),
-    // MessageSid: messageId for comment/message events, recordingId for
-    // non-message events (card moves, todo completions, etc.)
-    MessageSid: msg.meta.messageId ?? msg.meta.recordingId,
-    AccountId: msg.accountId,
-    OriginatingChannel: "basecamp" as const,
-    OriginatingTo: `basecamp:${msg.peer.id}`,
-    WasMentioned: msg.meta.mentionsAgent || undefined,
-    // Basecamp-specific context via ChannelPromptContext
-    ChannelPromptContext: buildChannelPromptContext(msg),
-    // Session key from route
-    SessionKey: route.sessionKey,
-  };
-
-  // ----- Dispatch with buffered block dispatcher -----
-  let dispatchHadError = false;
-
-  // Outbound circuit breaker: fail fast when Basecamp API is persistently down.
-  // Key by effective Basecamp account ID so virtual accounts sharing the same real
-  // Basecamp account share a single breaker instance.
-  const outboundCb = getOutboundCircuitBreaker(cfg, outboundBasecampAccountId);
-  const outboundCbKey = "outbound";
-
-  await runtime.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
-    ctx,
-    cfg,
-    dispatcherOptions: {
-      deliver: async (payload, info) => {
-        if (!payload.text) return;
-
-        // Chunk long agent output to fit within Basecamp's character limit.
-        // Each chunk is converted to HTML and sent as a separate message.
-        const chunks = chunkMarkdownText(payload.text, BASECAMP_TEXT_CHUNK_LIMIT);
-
-        for (const chunk of chunks) {
-          const htmlContent = markdownToBasecampHtml(chunk);
-
-          const result = await postReplyToEvent({
-            bucketId: msg.meta.bucketId,
-            recordingId: msg.meta.recordingId,
-            recordableType: msg.meta.recordableType,
-            peerId: msg.peer.id,
-            content: htmlContent,
-            account: outboundAccount,
-            retries: 2,
-            circuitBreaker: { instance: outboundCb, key: outboundCbKey },
-            correlationId,
-          });
-
-          if (!result.ok) {
-            // Preserve original error for classifyDispatchError
-            if (result.error instanceof Error) throw result.error;
-            throw new Error(result.message ?? "Outbound delivery failed");
-          }
-        }
-      },
-      onError: (err) => {
-        dispatchHadError = true;
-        const errorType = classifyDispatchError(err);
-        slog.error("delivery_failed", {
-          correlationId,
-          agent: route.agentId,
-          event: msg.meta.eventKind,
-          recording: msg.meta.recordingId,
-          sender: msg.sender.id,
-          type: errorType,
-          error: String(err),
-        });
-        recordDispatchFailure(outboundAccount.accountId);
-        // Dead-letter entry: structured log with enough context to replay or investigate
-        slog.error("dead_letter", {
-          correlationId,
-          agent: route.agentId,
-          event: msg.meta.eventKind,
-          recordableType: msg.meta.recordableType,
-          recording: msg.meta.recordingId,
-          bucket: msg.meta.bucketId,
-          sender: msg.sender.id,
-          peer: msg.peer.id,
-          type: errorType,
-          error: String(err),
-          timestamp: Date.now(),
-        });
-        syncOutboundCircuitBreakerMetrics(outboundCb, outboundCbKey, outboundBasecampAccountId, cfg);
-      },
-    },
-  });
-
-  if (!dispatchHadError) {
-    syncOutboundCircuitBreakerMetrics(outboundCb, outboundCbKey, outboundBasecampAccountId, cfg);
-    slog.info("delivered", {
-      correlationId,
-      agent: route.agentId,
-      event: msg.meta.eventKind,
-      recording: msg.meta.recordingId,
-    });
-  }
-
-  return true;
+  return result.dispatched === true;
 }
 
 // ---------------------------------------------------------------------------
-// Helpers
+// Turn adapter
+// ---------------------------------------------------------------------------
+
+/** Per-turn state resolved in preflight and consumed by resolveTurn. */
+type TurnState = {
+  effectiveAccountId: string;
+  route: {
+    agentId: string;
+    sessionKey: string;
+    accountId: string;
+    matchedBy?: string;
+  };
+  ingress: ResolvedChannelMessageIngress;
+  outboundAccount: ResolvedBasecampAccount;
+  outboundBasecampAccountId: string;
+};
+
+export type BasecampTurnAdapter = ChannelInboundEventRunnerParams<BasecampInboundMessage>["adapter"];
+
+/**
+ * Build the ChannelTurnAdapter for one inbound Basecamp message.
+ * Exported so tests can exercise ingest/classify/preflight/resolveTurn
+ * directly against a hand-built cfg.
+ */
+export function createBasecampTurnAdapter(msg: BasecampInboundMessage, options: DispatchOptions): BasecampTurnAdapter {
+  const { account, cfg, log } = options;
+  const slog = createStructuredLog(log, { accountId: account.accountId, source: "dispatch" });
+  const correlationId = msg.correlationId;
+  const chatKind = msg.peer.kind === "dm" ? ("direct" as const) : ("group" as const);
+  const messageId = msg.meta.messageId ?? msg.meta.recordingId;
+
+  let state: TurnState | undefined;
+
+  return {
+    ingest: (raw: BasecampInboundMessage) => ({
+      id: raw.dedupKey,
+      timestamp: new Date(raw.createdAt).getTime(),
+      rawText: raw.text,
+      textForAgent: raw.text,
+      raw,
+    }),
+
+    // Every admitted Basecamp event is a full user turn for now. Ambient
+    // room_event classification for engage: conversation/activity is a
+    // separate product decision (SPEC §2.4) layered on the message adapter.
+    classify: () => ({ kind: "message" as const, canStartAgentTurn: true }),
+
+    preflight: async () => {
+      // ----- Self-message filtering -----
+      if (msg.sender.id === account.personId) {
+        slog.debug("self_message_skipped", { correlationId, personId: msg.sender.id });
+        return { kind: "drop" as const, reason: "self_message" };
+      }
+
+      // ----- Outbound echo suppression (§2.12 consumer side) -----
+      // The personId check above is the primary guard; the shared outbound
+      // identity registry catches multi-persona echoes the moment the send
+      // path records them.
+      if (
+        isRecentOutboundMessageIdentity({
+          channel: "basecamp",
+          accountId: msg.accountId,
+          conversationId: msg.peer.id,
+          messageId,
+        })
+      ) {
+        slog.debug("outbound_echo_skipped", { correlationId, messageId });
+        return { kind: "drop" as const, reason: "outbound_echo" };
+      }
+
+      // ----- Project-scope routing override -----
+      const effectiveAccountId = resolveProjectScopeAccountId(cfg, msg) ?? msg.accountId;
+
+      // ----- Route resolution -----
+      const runtime = getBasecampRuntime();
+      const toRoutePeer = (p?: { kind: "dm" | "group"; id: string }) =>
+        p ? { kind: (p.kind === "dm" ? "direct" : p.kind) as "direct" | "group", id: p.id } : undefined;
+
+      const route = runtime.channel.routing.resolveAgentRoute({
+        cfg,
+        channel: "basecamp",
+        accountId: effectiveAccountId,
+        peer: toRoutePeer(msg.peer),
+        parentPeer: toRoutePeer(msg.parentPeer),
+      });
+
+      if (!route) {
+        slog.debug("no_route", { correlationId, peer: msg.peer.id });
+        return { kind: "drop" as const, reason: "no_route" };
+      }
+
+      // ----- Engagement gate (plugin-owned; no SDK analogue) -----
+      const engagement = classifyEngagement(msg);
+      const engagePolicy = resolveEngagePolicy(cfg, msg.meta.bucketId);
+      if (!engagePolicy.includes(engagement)) {
+        slog.debug("engagement_gate_dropped", {
+          correlationId,
+          engagement,
+          event: msg.meta.eventKind,
+          type: msg.meta.recordableType,
+          peer: msg.peer.id,
+          policy: engagePolicy.join(","),
+        });
+        return { kind: "drop" as const, reason: `engagement:${engagement}` };
+      }
+
+      // ----- Bucket sender gate for direct Pings (plugin-owned) -----
+      // For group conversations the bucket allowlist rides as an ingress
+      // route descriptor; the kernel's DM sender gate does not consult route
+      // allowlists, so keep the direct-conversation check plugin-owned.
+      const directBucketAllowFrom = chatKind === "direct" && resolveBasecampBucketAllowFrom(cfg, msg.meta.bucketId);
+      if (directBucketAllowFrom && !directBucketAllowFrom.includes(msg.sender.id)) {
+        slog.debug("bucket_sender_gate_dropped", {
+          correlationId,
+          sender: msg.sender.id,
+          bucket: msg.meta.bucketId,
+        });
+        return { kind: "drop" as const, reason: "bucket_sender_not_allowlisted" };
+      }
+
+      // ----- Ingress authorization (§2.3) -----
+      // The shared resolver owns DM policy, pairing-store fallback, and the
+      // per-bucket allowFrom route descriptor (group conversations). Resolved
+      // after final route selection so contextBinding freezes agent + session.
+      const ingress = await resolveBasecampIngress({
+        cfg,
+        msg,
+        chatKind,
+        effectiveAccountId,
+        messageId,
+        route: { agentId: route.agentId, sessionKey: route.sessionKey },
+      });
+
+      const admission = ingress.ingress.admission;
+      if (admission === "pairing-required") {
+        await issueBasecampPairingChallenge({ cfg, msg, effectiveAccountId, slog, correlationId });
+        return { kind: "handled" as const, reason: "pairing_challenge" };
+      }
+      if (admission !== "dispatch") {
+        slog.info("ingress_dropped", {
+          correlationId,
+          sender: msg.sender.id,
+          admission,
+          reason: ingress.ingress.reasonCode,
+        });
+        return { kind: "drop" as const, reason: `ingress:${ingress.ingress.reasonCode}` };
+      }
+
+      // ----- Resolve persona for outbound -----
+      const personaAccountId = resolvePersonaAccountId(cfg, route.agentId);
+      const outboundAccount = personaAccountId ? resolveBasecampAccount(cfg, personaAccountId) : account;
+      const outboundBasecampAccountId =
+        outboundAccount.config.basecampAccountId ??
+        (/^\d+$/.test(outboundAccount.accountId) ? outboundAccount.accountId : undefined);
+      if (!outboundBasecampAccountId) {
+        slog.error("outbound_account_id_missing", {
+          outboundAccount: outboundAccount.accountId,
+          hint: "Set config.basecampAccountId to a valid Basecamp account id",
+        });
+        return { kind: "drop" as const, reason: "outbound_account_id_missing" };
+      }
+
+      // Second echo check under the persona account's identity scope: the
+      // send path records outbound identities under the account that posted,
+      // which may be a persona rather than the inbound account.
+      if (
+        outboundAccount.accountId !== msg.accountId &&
+        isRecentOutboundMessageIdentity({
+          channel: "basecamp",
+          accountId: outboundAccount.accountId,
+          conversationId: msg.peer.id,
+          messageId,
+        })
+      ) {
+        slog.debug("outbound_echo_skipped", { correlationId, messageId, scope: outboundAccount.accountId });
+        return { kind: "drop" as const, reason: "outbound_echo" };
+      }
+
+      state = {
+        effectiveAccountId,
+        route: {
+          agentId: route.agentId,
+          sessionKey: route.sessionKey,
+          accountId: route.accountId ?? effectiveAccountId,
+          matchedBy: route.matchedBy,
+        },
+        ingress,
+        outboundAccount,
+        outboundBasecampAccountId,
+      };
+
+      slog.info("dispatching", {
+        correlationId,
+        agent: route.agentId,
+        matchedBy: route.matchedBy,
+        peer: `${msg.peer.kind}:${msg.peer.id}`,
+        recordableType: msg.meta.recordableType,
+      });
+
+      return {
+        message: { rawBody: msg.text, bodyForAgent: msg.text },
+        media: buildBasecampMediaFacts(msg),
+      };
+    },
+
+    resolveTurn: async () => {
+      if (!state) throw new Error("basecamp turn adapter: resolveTurn called without successful preflight");
+      const { route, ingress, outboundAccount, outboundBasecampAccountId } = state;
+      const surface = resolveInboundSurface(options.channelRuntime);
+
+      const surfacePrompt = getSurfacePrompt(msg.meta.recordableType);
+      const promptContext = buildChannelPromptContext(msg, { includeSurfacePrompt: chatKind === "direct" });
+
+      const ctxPayload = await surface.buildContext({
+        channel: "basecamp",
+        accountId: msg.accountId,
+        provider: "basecamp",
+        surface: "basecamp",
+        messageId,
+        timestamp: new Date(msg.createdAt).getTime(),
+        from: `basecamp:${msg.sender.id}`,
+        sender: { id: msg.sender.id, name: msg.sender.name },
+        conversation: {
+          kind: chatKind,
+          id: msg.peer.id,
+          parentId: msg.parentPeer?.id,
+          routePeer: { kind: chatKind, id: msg.peer.id },
+        },
+        route: {
+          agentId: route.agentId,
+          accountId: route.accountId,
+          routeSessionKey: route.sessionKey,
+        },
+        reply: {
+          to: `basecamp:${msg.peer.id}`,
+          originatingTo: `basecamp:${msg.peer.id}`,
+        },
+        message: {
+          rawBody: msg.text,
+          bodyForAgent: msg.text,
+          inboundEventKind: "user_request",
+        },
+        access: {
+          mentions: {
+            canDetectMention: true,
+            wasMentioned: msg.meta.mentionsAgent,
+          },
+        },
+        media: buildBasecampMediaFacts(msg),
+        supplemental: buildBasecampSupplemental(msg, chatKind === "direct" ? undefined : surfacePrompt),
+        channelContext: {
+          sender: {
+            id: msg.sender.id,
+            name: msg.sender.name,
+            personId: msg.sender.id,
+          },
+          chat: {
+            id: msg.peer.id,
+            bucketId: msg.meta.bucketId,
+            recordingId: msg.meta.recordingId,
+            recordableType: msg.meta.recordableType,
+          },
+        },
+        extra: promptContext.length > 0 ? { ChannelPromptContext: promptContext } : undefined,
+        // Exact host-resolved ingress result — never rebuilt (§2.3).
+        channelIngress: ingress,
+      });
+
+      // Outbound circuit breaker: fail fast when Basecamp API is persistently down.
+      // Keyed by effective Basecamp account ID so virtual accounts sharing the same
+      // real Basecamp account share a single breaker instance.
+      const outboundCb = getOutboundCircuitBreaker(cfg, outboundBasecampAccountId);
+      const outboundCbKey = "outbound";
+
+      return {
+        cfg,
+        channel: "basecamp",
+        accountId: route.accountId,
+        route: {
+          agentId: route.agentId,
+          sessionKey: route.sessionKey,
+        },
+        ctxPayload,
+        ...(options.dispatchReplyFromConfig ? { dispatchReplyFromConfig: options.dispatchReplyFromConfig } : {}),
+        botLoopProtection: buildBotLoopProtectionFacts({ cfg, msg, account, chatKind }),
+        delivery: {
+          deliver: async (payload: { text?: string }) => {
+            if (!payload.text) return {};
+
+            // Chunk long agent output to fit within Basecamp's character limit.
+            // Each chunk is converted to HTML and sent as a separate message.
+            const chunks = chunkMarkdownText(payload.text, BASECAMP_TEXT_CHUNK_LIMIT);
+            const messageIds: string[] = [];
+
+            for (const chunk of chunks) {
+              const htmlContent = markdownToBasecampHtml(chunk);
+
+              const result = await postReplyToEvent({
+                bucketId: msg.meta.bucketId,
+                recordingId: msg.meta.recordingId,
+                recordableType: msg.meta.recordableType,
+                peerId: msg.peer.id,
+                content: htmlContent,
+                account: outboundAccount,
+                retries: 2,
+                circuitBreaker: { instance: outboundCb, key: outboundCbKey },
+                correlationId,
+              });
+
+              if (!result.ok) {
+                // Preserve original error for classifyDispatchError
+                if (result.error instanceof Error) throw result.error;
+                throw new Error(result.message ?? "Outbound delivery failed");
+              }
+              if (result.messageId) messageIds.push(result.messageId);
+            }
+
+            syncOutboundCircuitBreakerMetrics(outboundCb, outboundCbKey, outboundBasecampAccountId, cfg);
+            slog.info("delivered", {
+              correlationId,
+              agent: route.agentId,
+              event: msg.meta.eventKind,
+              recording: msg.meta.recordingId,
+            });
+            return messageIds.length > 0 ? { messageIds } : {};
+          },
+          onError: (err: unknown) => {
+            const errorType = classifyDispatchError(err);
+            slog.error("delivery_failed", {
+              correlationId,
+              agent: route.agentId,
+              event: msg.meta.eventKind,
+              recording: msg.meta.recordingId,
+              sender: msg.sender.id,
+              type: errorType,
+              error: String(err),
+            });
+            recordDispatchFailure(outboundAccount.accountId);
+            // Dead-letter entry: structured log with enough context to replay or investigate
+            slog.error("dead_letter", {
+              correlationId,
+              agent: route.agentId,
+              event: msg.meta.eventKind,
+              recordableType: msg.meta.recordableType,
+              recording: msg.meta.recordingId,
+              bucket: msg.meta.bucketId,
+              sender: msg.sender.id,
+              peer: msg.peer.id,
+              type: errorType,
+              error: String(err),
+              timestamp: Date.now(),
+            });
+            syncOutboundCircuitBreakerMetrics(outboundCb, outboundCbKey, outboundBasecampAccountId, cfg);
+          },
+        },
+      };
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Ingress
+// ---------------------------------------------------------------------------
+
+async function resolveBasecampIngress(params: {
+  cfg: OpenClawConfig;
+  msg: BasecampInboundMessage;
+  chatKind: "direct" | "group";
+  effectiveAccountId: string;
+  messageId: string;
+  route: { agentId: string; sessionKey: string };
+}): Promise<ResolvedChannelMessageIngress> {
+  const { cfg, msg, chatKind, effectiveAccountId, messageId, route } = params;
+  const section = cfg.channels?.basecamp as BasecampChannelConfig | undefined;
+
+  const resolver = createChannelIngressResolver({
+    channelId: "basecamp",
+    accountId: effectiveAccountId,
+    identity: basecampIngressIdentity,
+    readStoreAllowFrom: async () => {
+      // Honor pairing-store approvals via the plugin runtime.
+      try {
+        return await getBasecampRuntime().channel.pairing.readAllowFromStore({
+          channel: "basecamp",
+          accountId: effectiveAccountId,
+        });
+      } catch {
+        return undefined;
+      }
+    },
+  });
+
+  // Per-bucket allowFrom becomes a route descriptor with sender replacement:
+  // when a bucket configures its own allowlist, it replaces the effective
+  // channel-level sender allowlist for events in that bucket.
+  const bucketAllowFrom = resolveBasecampBucketAllowFrom(cfg, msg.meta.bucketId);
+  const bucketRoute: ChannelIngressRouteDescriptor | undefined = bucketAllowFrom
+    ? {
+        id: "bucket",
+        kind: "routeSender",
+        configured: true,
+        matched: true,
+        allowed: true,
+        senderPolicy: "replace",
+        senderAllowFrom: bucketAllowFrom,
+        blockReason: "bucket_sender_not_allowlisted",
+      }
+    : undefined;
+
+  const dmPolicy = resolveBasecampDmPolicy(cfg, effectiveAccountId);
+  const allowFrom = resolveBasecampAllowFrom(cfg, effectiveAccountId);
+  // The kernel treats "open" as requiring an explicit "*" allowlist entry
+  // (the doctor repairs configs to spell it out). Preserve the channel's
+  // documented open semantics until the config schema writes "*" itself.
+  const effectiveAllowFrom = dmPolicy === "open" && !allowFrom.includes("*") ? [...allowFrom, "*"] : allowFrom;
+
+  // A bucket-level allowlist turns group sender policy into an allowlist
+  // whose entries come from the route descriptor (senderPolicy: "replace").
+  const configuredGroupPolicy = (section as { groupPolicy?: "allowlist" | "open" | "disabled" } | undefined)
+    ?.groupPolicy;
+  const groupPolicy = bucketAllowFrom ? "allowlist" : (configuredGroupPolicy ?? "open");
+
+  return resolver.message({
+    subject: { stableId: msg.sender.id },
+    conversation: {
+      kind: chatKind,
+      id: msg.peer.id,
+      parentId: msg.parentPeer?.id,
+    },
+    contextBinding: {
+      agentId: route.agentId,
+      sessionKey: route.sessionKey,
+      messageId,
+      inboundEventKind: "user_request",
+    },
+    event: { kind: "message", authMode: "inbound", mayPair: chatKind === "direct" },
+    dmPolicy,
+    groupPolicy,
+    allowFrom: effectiveAllowFrom,
+    route: bucketRoute,
+  });
+}
+
+async function issueBasecampPairingChallenge(params: {
+  cfg: OpenClawConfig;
+  msg: BasecampInboundMessage;
+  effectiveAccountId: string;
+  slog: ReturnType<typeof createStructuredLog>;
+  correlationId: string;
+}): Promise<void> {
+  const { cfg, msg, effectiveAccountId, slog, correlationId } = params;
+  const runtime = getBasecampRuntime();
+
+  const issueChallenge = createChannelPairingChallengeIssuer({
+    channel: "basecamp",
+    accountId: effectiveAccountId,
+    upsertPairingRequest: (request) =>
+      runtime.channel.pairing.upsertPairingRequest({
+        channel: "basecamp",
+        accountId: effectiveAccountId,
+        id: request.id,
+        meta: request.meta,
+      }),
+  });
+
+  const result = await issueChallenge({
+    senderId: msg.sender.id,
+    senderIdLine: `Your Basecamp person ID: ${msg.sender.id}`,
+    meta: { name: msg.sender.name },
+    sendPairingReply: async (text) => {
+      // Challenge delivery via Basecamp Ping (circles endpoint — not in the
+      // OpenAPI spec, so raw client).
+      const { getClient, rawOrThrow } = await import("./basecamp-client.js");
+      const account = resolveBasecampAccount(cfg, effectiveAccountId);
+      const client = getClient(account);
+      await rawOrThrow(
+        // biome-ignore lint/suspicious/noExplicitAny: circles endpoint is not in the OpenAPI spec
+        await client.raw.POST(`/circles/people/${msg.sender.id}/lines.json` as any, {
+          body: { content: `<p>${text}</p>` } as any,
+        }),
+      );
+    },
+    onReplyError: (err) => {
+      slog.warn("pairing_challenge_delivery_failed", { correlationId, sender: msg.sender.id, error: String(err) });
+    },
+  });
+
+  slog.info("pairing_challenge", {
+    correlationId,
+    sender: msg.sender.id,
+    created: result.created,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Bot-loop protection (§2.13)
+// ---------------------------------------------------------------------------
+
+/**
+ * Attach bot-loop facts when the sender is another configured Basecamp
+ * persona (a service account this deployment also operates). Prevents
+ * persona ping-pong in shared Campfires.
+ */
+function buildBotLoopProtectionFacts(params: {
+  cfg: OpenClawConfig;
+  msg: BasecampInboundMessage;
+  account: ResolvedBasecampAccount;
+  chatKind: "direct" | "group";
+}):
+  | {
+      scopeId: string;
+      conversationId: string;
+      senderId: string;
+      receiverId: string;
+      eventId?: string;
+      config?: Record<string, unknown>;
+      defaultsConfig?: Record<string, unknown>;
+      defaultEnabled: boolean;
+    }
+  | undefined {
+  const { cfg, msg, account } = params;
+  if (!account.personId) return undefined;
+
+  const section = cfg.channels?.basecamp as BasecampChannelConfig | undefined;
+  const knownPersonaPersonIds = new Set<string>();
+  for (const acct of Object.values(section?.accounts ?? {})) {
+    if (acct?.personId) knownPersonaPersonIds.add(String(acct.personId));
+  }
+  knownPersonaPersonIds.delete(account.personId);
+
+  if (!knownPersonaPersonIds.has(msg.sender.id)) return undefined;
+
+  const channelDefaults = (cfg.channels as { defaults?: { botLoopProtection?: Record<string, unknown> } } | undefined)
+    ?.defaults;
+  const sectionConfig = (section as { botLoopProtection?: Record<string, unknown> } | undefined)?.botLoopProtection;
+
+  return {
+    scopeId: account.accountId,
+    conversationId: msg.peer.id,
+    senderId: msg.sender.id,
+    receiverId: account.personId,
+    eventId: msg.dedupKey,
+    config: sectionConfig,
+    defaultsConfig: channelDefaults?.botLoopProtection,
+    defaultEnabled: true,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Media facts
+// ---------------------------------------------------------------------------
+
+/**
+ * Project Basecamp attachments into inbound media facts. Basecamp
+ * attachments are URL-addressed (download requires auth) — the kernel's
+ * media understanding treats them as remote facts.
+ */
+function buildBasecampMediaFacts(msg: BasecampInboundMessage): InboundMediaFacts[] | undefined {
+  const attachments = msg.meta.attachments.filter((a) => a.url);
+  if (attachments.length === 0) return undefined;
+  return toInboundMediaFacts(
+    attachments.map((a) => ({
+      url: a.url,
+      contentType: a.contentType,
+      messageId: msg.meta.messageId ?? msg.meta.recordingId,
+    })),
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Engagement classification (plugin-owned; no SDK analogue)
 // ---------------------------------------------------------------------------
 
 /**
@@ -318,7 +759,7 @@ export async function dispatchBasecampEvent(msg: BasecampInboundMessage, options
  *   conversation — chat lines, comments in bound surfaces
  *   activity     — everything else (card moves, todo completions, edits…)
  */
-function classifyEngagement(msg: BasecampInboundMessage): BasecampEngagementType {
+export function classifyEngagement(msg: BasecampInboundMessage): BasecampEngagementType {
   if (msg.peer.kind === "dm") return "dm";
   if (msg.meta.mentionsAgent) return "mention";
   if (msg.meta.assignedToAgent) return "assignment";
@@ -344,7 +785,7 @@ function classifyEngagement(msg: BasecampInboundMessage): BasecampEngagementType
  * Resolve the engagement policy for a given bucket.
  * Per-bucket `engage` overrides channel-level; falls back to DEFAULT_ENGAGE.
  */
-function resolveEngagePolicy(cfg: OpenClawConfig, bucketId: string): BasecampEngagementType[] {
+export function resolveEngagePolicy(cfg: OpenClawConfig, bucketId: string): BasecampEngagementType[] {
   const section = cfg.channels?.basecamp as BasecampChannelConfig | undefined;
 
   // Per-bucket override (exact match → wildcard fallback)
@@ -428,12 +869,15 @@ function resolveProjectScopeAccountId(cfg: OpenClawConfig, msg: BasecampInboundM
   return undefined;
 }
 
+// ---------------------------------------------------------------------------
+// Surface guidance + prompt context
+// ---------------------------------------------------------------------------
+
 /**
  * Surface-specific prompt guidance, keyed by recordable type.
  *
- * Temporary home: until the WP3 turn-kernel migration these flow to the agent
- * as ChannelPromptContext lines (the 2.0 SDK removed the before_agent_start
- * hook that used to inject them as prepended context).
+ * Flows into the turn context as GroupSystemPrompt (group surfaces) or a
+ * ChannelPromptContext line (direct Pings) via the context builder.
  */
 const SURFACE_PROMPTS: Record<string, string> = {
   "Chat::Transcript": [
@@ -493,48 +937,57 @@ export function getSurfacePrompt(recordableType: string): string | undefined {
 }
 
 /**
- * Build ChannelPromptContext entries from Basecamp-specific metadata.
- * These are passed to the agent as untrusted channel context (not system instructions).
+ * Structured Basecamp event metadata for the agent — rendered by prompt
+ * assembly as fenced JSON, never as system instructions.
  */
-function buildChannelPromptContext(msg: BasecampInboundMessage): string[] {
+function buildBasecampSupplemental(msg: BasecampInboundMessage, groupSystemPrompt?: string) {
+  const payload: Record<string, unknown> = {
+    recordableType: msg.meta.recordableType,
+    eventKind: msg.meta.eventKind,
+    bucketId: msg.meta.bucketId,
+    recordingId: msg.meta.recordingId,
+  };
+  if (msg.meta.column) payload.column = msg.meta.column;
+  if (msg.meta.columnPrevious) payload.columnPrevious = msg.meta.columnPrevious;
+  if (msg.meta.assignedToAgent) payload.assignedToAgent = true;
+  if (msg.meta.stateMarker) payload.stateMarker = msg.meta.stateMarker;
+  if (msg.meta.dueOn) payload.dueOn = msg.meta.dueOn;
+  if (msg.meta.mentions.length > 0) payload.mentions = msg.meta.mentions;
+  if (msg.meta.assignees && msg.meta.assignees.length > 0) payload.assignees = msg.meta.assignees;
+  if (msg.html && msg.html !== msg.text) payload.originalHtml = msg.html;
+
+  // Comment-on-recording: surface the parent recording as quote context.
+  const parentRecordingMatch = msg.peer.id.match(/^recording:(\d+)$/);
+  const quote =
+    msg.meta.recordableType === "Comment" && parentRecordingMatch && parentRecordingMatch[1] !== msg.meta.recordingId
+      ? { id: parentRecordingMatch[1] }
+      : undefined;
+
+  return {
+    ...(quote ? { quote } : {}),
+    ...(groupSystemPrompt ? { groupSystemPrompt } : {}),
+    channelStructuredContext: [
+      {
+        label: "Basecamp event",
+        source: "basecamp",
+        type: "basecamp_event",
+        payload,
+      },
+    ],
+  };
+}
+
+/**
+ * ChannelPromptContext lines (channel metadata, not system instructions).
+ * Carries surface guidance for direct Pings, where GroupSystemPrompt does
+ * not apply.
+ */
+function buildChannelPromptContext(msg: BasecampInboundMessage, opts: { includeSurfacePrompt: boolean }): string[] {
   const lines: string[] = [];
-
-  const surfacePrompt = getSurfacePrompt(msg.meta.recordableType);
-  if (surfacePrompt) {
-    lines.push(`[basecamp] surface guidance: ${surfacePrompt}`);
+  if (opts.includeSurfacePrompt) {
+    const surfacePrompt = getSurfacePrompt(msg.meta.recordableType);
+    if (surfacePrompt) lines.push(`[basecamp] surface guidance: ${surfacePrompt}`);
   }
-
-  lines.push(`[basecamp] recordableType=${msg.meta.recordableType}`);
-  lines.push(`[basecamp] eventKind=${msg.meta.eventKind}`);
-  lines.push(`[basecamp] bucketId=${msg.meta.bucketId} recordingId=${msg.meta.recordingId}`);
-
-  if (msg.meta.column) {
-    lines.push(`[basecamp] column=${msg.meta.column}`);
-  }
-  if (msg.meta.columnPrevious) {
-    lines.push(`[basecamp] columnPrevious=${msg.meta.columnPrevious}`);
-  }
-  if (msg.meta.assignedToAgent) {
-    lines.push(`[basecamp] assignedToAgent=true`);
-  }
-  if (msg.meta.stateMarker) {
-    lines.push(`[basecamp] stateMarker=${msg.meta.stateMarker}`);
-  }
-  if (msg.meta.dueOn) {
-    lines.push(`[basecamp] dueOn=${msg.meta.dueOn}`);
-  }
-  if (msg.meta.mentions.length > 0) {
-    lines.push(`[basecamp] mentions=${msg.meta.mentions.join(",")}`);
-  }
-  if (msg.meta.assignees && msg.meta.assignees.length > 0) {
-    lines.push(`[basecamp] assignees=${msg.meta.assignees.join(",")}`);
-  }
-
-  // Include original HTML for the agent if it's different from plain text
-  if (msg.html && msg.html !== msg.text) {
-    lines.push(`[basecamp] originalHtml=${msg.html}`);
-  }
-
   return lines;
 }
 

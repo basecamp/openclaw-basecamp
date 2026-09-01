@@ -43,6 +43,8 @@ type IndexFile = Record<string, RecordingIndexEntry>;
 const MAX_ENTRY_AGE_MS = 90 * 24 * 60 * 60 * 1000; // 90 days
 
 const instances = new Map<string, Promise<RecordingIndex>>();
+/** Loaded instances, mirrored for synchronous consumers (messaging grammar). */
+const loadedInstances = new Map<string, RecordingIndex>();
 
 function indexFilePath(accountId: string, stateDir?: string): string {
   const dir = stateDir ?? resolvePluginStateDir();
@@ -85,10 +87,28 @@ async function loadIndex(accountId: string, stateDir?: string): Promise<Recordin
 export function getRecordingIndex(accountId: string, stateDir?: string): Promise<RecordingIndex> {
   let instance = instances.get(accountId);
   if (!instance) {
-    instance = loadIndex(accountId, stateDir);
+    instance = loadIndex(accountId, stateDir).then((index) => {
+      // Mirror only when still current (not closed while loading).
+      if (instances.get(accountId) === instance) loadedInstances.set(accountId, index);
+      return index;
+    });
     instances.set(accountId, instance);
   }
   return instance;
+}
+
+/**
+ * Synchronous cross-account lookup for already-loaded indexes. Used by
+ * synchronous SDK hooks (e.g. `messaging.resolveSessionConversation`) that
+ * have no account context and cannot await. Returns undefined until an
+ * account's index has finished loading, or when the recording is unknown.
+ */
+export function findRecordingEntrySync(recordingId: string): RecordingIndexEntry | undefined {
+  for (const index of loadedInstances.values()) {
+    const entry = index.get(recordingId);
+    if (entry) return entry;
+  }
+  return undefined;
 }
 
 /** Flush and drop one account's index (account removal / logout). */
@@ -96,6 +116,7 @@ export async function closeRecordingIndex(accountId: string): Promise<void> {
   const instance = instances.get(accountId);
   if (!instance) return;
   instances.delete(accountId);
+  loadedInstances.delete(accountId);
   await (await instance).flush();
 }
 

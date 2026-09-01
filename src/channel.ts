@@ -1,3 +1,4 @@
+import { buildDmGroupAccountAllowlistAdapter } from "openclaw/plugin-sdk/allowlist-config-edit";
 import { type ChannelPlugin, createChannelPluginBase, createChatChannelPlugin } from "openclaw/plugin-sdk/channel-core";
 import { basecampActionsAdapter } from "./adapters/actions.js";
 import { basecampAgentPromptAdapter } from "./adapters/agent-prompt.js";
@@ -27,11 +28,12 @@ import {
 import {
   resolveBasecampAccount,
   resolveBasecampAccountAsync,
+  resolveBasecampAllowFrom,
   resolveWebhooksConfig,
   scopeWebhookProjects,
 } from "./config.js";
 import { dispatchBasecampEvent } from "./dispatch.js";
-import { closeAccountDedup } from "./inbound/dedup-registry.js";
+import { closeRecordingIndex } from "./inbound/recording-index.js";
 import { resolvePluginStateDir } from "./inbound/state-dir.js";
 import { deactivateWebhooks, reconcileWebhooks } from "./inbound/webhook-lifecycle.js";
 import { flushWebhookSecrets, getWebhookSecretRegistry } from "./inbound/webhooks.js";
@@ -89,6 +91,26 @@ const basecampChannelBase = {
 
   // Bucket/recording bindings are project-level, not conversation-level (SPEC §2.21).
   conversationBindings: { supportsCurrentConversationBinding: false },
+
+  // Allowlist adapter (SPEC §2.22): lets `openclaw allowlist` / `openclaw
+  // pairing` CLI read and edit the channel's config-backed sender lists.
+  // Per-bucket allowFrom overrides remain runtime route descriptors
+  // (dispatch.ts); they are channel-level config, not account-scoped, so
+  // they are not surfaced as group overrides here.
+  allowlist: buildDmGroupAccountAllowlistAdapter<ResolvedBasecampAccount>({
+    channelId: "basecamp",
+    resolveAccount: ({ cfg, accountId }) => resolveBasecampAccount(cfg, accountId ?? undefined),
+    normalize: ({ values }) =>
+      values
+        .map((value) =>
+          String(value)
+            .replace(/^(basecamp|bc):/i, "")
+            .trim(),
+        )
+        .filter(Boolean),
+    resolveDmAllowFrom: (account, { cfg }) => resolveBasecampAllowFrom(cfg, account.accountId),
+    resolveGroupAllowFrom: () => undefined,
+  }),
 
   status: basecampStatusAdapter,
 
@@ -299,6 +321,9 @@ const basecampChannelBase = {
           account,
           cfg: ctx.cfg,
           log: ctx.log as any,
+          // Host-injected channel runtime surface (preferred inbound kernel
+          // entry when populated — verified structurally in dispatch).
+          channelRuntime: (ctx as { channelRuntime?: unknown }).channelRuntime,
         });
       };
 
@@ -359,10 +384,12 @@ const basecampChannelBase = {
           );
         }
 
-        // Close account dedup (flush + close SQLite) + flush secret stores (with timeout)
+        // Flush recording index + secret stores (with timeout). Replay-guard
+        // state is committed per event in the shared plugin-state store —
+        // nothing to flush.
         await withTimeout(
-          Promise.resolve().then(() => {
-            closeAccountDedup(account.accountId);
+          Promise.resolve().then(async () => {
+            await closeRecordingIndex(account.accountId);
             flushWebhookSecrets();
           }),
           5000,
@@ -403,8 +430,8 @@ const basecampChannelBase = {
       clearTokenManager(accountId);
       clearClient(accountId);
 
-      // Close account dedup DB
-      closeAccountDedup(accountId);
+      // Flush + drop the account's recording index
+      await closeRecordingIndex(accountId);
 
       return { cleared, loggedOut: cleared };
     },

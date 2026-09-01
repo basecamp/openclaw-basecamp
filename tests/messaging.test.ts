@@ -106,3 +106,101 @@ describe("messaging.formatTargetDisplay", () => {
     expect(format({ target: "unknown:abc" })).toBe("unknown:abc");
   });
 });
+
+// ---------------------------------------------------------------------------
+// SPEC §2.20: target prefixes, chat-type inference, session grammar
+// ---------------------------------------------------------------------------
+
+describe("messaging.targetPrefixes", () => {
+  it("declares basecamp and bc prefixes", () => {
+    expect(basecampMessagingAdapter.targetPrefixes).toEqual(["basecamp", "bc"]);
+  });
+
+  it("normalizeTarget strips the bc: alias too", () => {
+    expect(basecampMessagingAdapter.normalizeTarget!("bc:recording:123")).toBe("recording:123");
+    expect(basecampMessagingAdapter.normalizeTarget!("bc:456")).toBe("recording:456");
+  });
+});
+
+describe("messaging.inferTargetChatType", () => {
+  const infer = basecampMessagingAdapter.inferTargetChatType!;
+
+  it("pings are direct", () => {
+    expect(infer({ to: "ping:789" })).toBe("direct");
+    expect(infer({ to: "basecamp:ping:789" })).toBe("direct");
+  });
+
+  it("recordings and buckets are group", () => {
+    expect(infer({ to: "recording:123" })).toBe("group");
+    expect(infer({ to: "bucket:456" })).toBe("group");
+    expect(infer({ to: "123" })).toBe("group");
+  });
+
+  it("returns undefined for non-Basecamp targets", () => {
+    expect(infer({ to: "user@example.com" })).toBeUndefined();
+  });
+});
+
+describe("messaging.resolveSessionConversation", () => {
+  it("returns bucket parent candidates for indexed recordings", async () => {
+    const { mkdtempSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const { getRecordingIndex, closeRecordingIndex } = await import("../src/inbound/recording-index.js");
+
+    const stateDir = mkdtempSync(join(tmpdir(), "msg-index-"));
+    const index = await getRecordingIndex("msg-test-acct", stateDir);
+    index.record("31337", { bucketId: "9000", recordableType: "Kanban::Card" });
+
+    const resolved = basecampMessagingAdapter.resolveSessionConversation!({ kind: "group", rawId: "recording:31337" });
+    expect(resolved).toEqual({
+      id: "recording:31337",
+      baseConversationId: "bucket:9000",
+      parentConversationCandidates: ["bucket:9000"],
+    });
+
+    await closeRecordingIndex("msg-test-acct");
+  });
+
+  it("returns the bare conversation when the recording is unknown", () => {
+    const resolved = basecampMessagingAdapter.resolveSessionConversation!({
+      kind: "group",
+      rawId: "recording:40404040",
+    });
+    expect(resolved).toEqual({ id: "recording:40404040" });
+  });
+
+  it("buckets have no parent", () => {
+    const resolved = basecampMessagingAdapter.resolveSessionConversation!({ kind: "group", rawId: "bucket:456" });
+    expect(resolved).toEqual({ id: "bucket:456" });
+  });
+});
+
+describe("messaging.resolveOutboundSessionRoute", () => {
+  const resolveRoute = basecampMessagingAdapter.resolveOutboundSessionRoute!;
+  const cfg = {} as never;
+
+  it("routes pings as direct conversations", async () => {
+    const route = await resolveRoute({ cfg, agentId: "agent-1", accountId: "acct", target: "ping:789" });
+    expect(route).toMatchObject({
+      chatType: "direct",
+      to: "ping:789",
+      peer: { kind: "direct", id: "ping:789" },
+      recipientSessionExact: true,
+    });
+    expect(route!.sessionKey).toContain("agent-1");
+  });
+
+  it("routes recordings as group conversations", async () => {
+    const route = await resolveRoute({ cfg, agentId: "agent-1", accountId: "acct", target: "bc:recording:123" });
+    expect(route).toMatchObject({
+      chatType: "group",
+      to: "recording:123",
+      peer: { kind: "group", id: "recording:123" },
+    });
+  });
+
+  it("returns null for non-Basecamp targets", async () => {
+    expect(await resolveRoute({ cfg, agentId: "agent-1", accountId: "acct", target: "slack:C123" })).toBeNull();
+  });
+});

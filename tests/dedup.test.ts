@@ -1,181 +1,175 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { DedupSource } from "../src/inbound/dedup.js";
-import { EventDedup } from "../src/inbound/dedup.js";
+/**
+ * Tests: replay-guard semantics (SPEC §2.14).
+ *
+ * Behavioral rewrite of the old EventDedup tests: the plugin's replay guard
+ * wraps openclaw/plugin-sdk/persistent-dedupe with claim → process → commit
+ * semantics, source-prefixed primary keys, and cross-source secondary keys.
+ * These tests run against the real SDK store under a temp OPENCLAW_STATE_DIR.
+ */
 
-describe("EventDedup", () => {
-  let dedup: EventDedup;
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+  createBasecampReplayGuard,
+  getReplayGuard,
+  type ReplayGuard,
+  replayPrimaryKey,
+  replaySecondaryKey,
+  resetReplayGuard,
+} from "../src/inbound/replay-guard.js";
+
+describe("replay key helpers", () => {
+  it("replayPrimaryKey builds source:id strings", () => {
+    expect(replayPrimaryKey("activity", "12345")).toBe("activity:12345");
+    expect(replayPrimaryKey("reading", 678)).toBe("reading:678");
+    expect(replayPrimaryKey("webhook", "9")).toBe("webhook:9");
+  });
+
+  it("replaySecondaryKey builds recordingId:action:createdAt strings", () => {
+    expect(replaySecondaryKey("456", "created", "2025-01-15T10:00:00Z")).toBe("456:created:2025-01-15T10:00:00Z");
+    expect(replaySecondaryKey(789, "moved", "2025-02-01T00:00:00Z")).toBe("789:moved:2025-02-01T00:00:00Z");
+  });
+});
+
+describe("replay guard", () => {
+  let stateDir: string;
+  let guard: ReplayGuard;
 
   beforeEach(() => {
-    dedup = new EventDedup({ ttlMs: 5000 });
+    stateDir = mkdtempSync(join(tmpdir(), "replay-guard-"));
+    process.env.OPENCLAW_STATE_DIR = stateDir;
+    guard = createBasecampReplayGuard();
   });
 
-  describe("primaryKey", () => {
-    it("builds source:id strings", () => {
-      expect(EventDedup.primaryKey("activity", "123")).toBe("activity:123");
-      expect(EventDedup.primaryKey("reading", 456)).toBe("reading:456");
-      expect(EventDedup.primaryKey("webhook", "abc")).toBe("webhook:abc");
-      expect(EventDedup.primaryKey("direct", 0)).toBe("direct:0");
-    });
+  afterEach(() => {
+    guard.clearMemory();
+    delete process.env.OPENCLAW_STATE_DIR;
+    rmSync(stateDir, { recursive: true, force: true });
   });
 
-  describe("secondaryKey", () => {
-    it("builds recordingId:action:createdAt strings", () => {
-      expect(EventDedup.secondaryKey("456", "created", "2025-01-15T10:00:00Z")).toBe(
-        "456:created:2025-01-15T10:00:00Z",
-      );
+  const evt = (primaryKey: string, secondaryKey?: string) => ({ accountId: "acct", primaryKey, secondaryKey });
 
-      expect(EventDedup.secondaryKey(789, "updated", "2025-06-01T12:30:00Z")).toBe("789:updated:2025-06-01T12:30:00Z");
-    });
+  it("processes an event exactly once", async () => {
+    let runs = 0;
+    const run = () =>
+      guard.processGuarded(evt("activity:1"), async () => {
+        runs++;
+        return "ok";
+      });
+
+    expect(await run()).toEqual({ kind: "processed", value: "ok" });
+    expect((await run()).kind).toBe("duplicate");
+    expect(runs).toBe(1);
   });
 
-  describe("isDuplicate", () => {
-    it("returns false on first call (not a duplicate)", () => {
-      expect(dedup.isDuplicate("activity:1")).toBe(false);
-    });
-
-    it("returns true on second call with the same primary key", () => {
-      dedup.isDuplicate("activity:1");
-      expect(dedup.isDuplicate("activity:1")).toBe(true);
-    });
-
-    it("returns false for different primary keys", () => {
-      dedup.isDuplicate("activity:1");
-      expect(dedup.isDuplicate("activity:2")).toBe(false);
-      expect(dedup.isDuplicate("reading:1")).toBe(false);
-    });
-
-    it("cross-source dedup: same secondary key returns true even with different primary", () => {
-      const secondary = "456:created:2025-01-15T10:00:00Z";
-      expect(dedup.isDuplicate("activity:1", secondary)).toBe(false);
-      expect(dedup.isDuplicate("reading:99", secondary)).toBe(true);
-    });
-
-    it("returns false after TTL expires", () => {
-      vi.useFakeTimers();
-      try {
-        const d = new EventDedup({ ttlMs: 1000 });
-        expect(d.isDuplicate("activity:1")).toBe(false);
-        expect(d.isDuplicate("activity:1")).toBe(true);
-
-        vi.advanceTimersByTime(1001);
-
-        expect(d.isDuplicate("activity:1")).toBe(false);
-      } finally {
-        vi.useRealTimers();
-      }
-    });
+  it("distinct primary keys process independently", async () => {
+    expect((await guard.processGuarded(evt("activity:1"), async () => 1)).kind).toBe("processed");
+    expect((await guard.processGuarded(evt("activity:2"), async () => 2)).kind).toBe("processed");
   });
 
-  describe("record", () => {
-    it("manually records without checking, making future isDuplicate return true", () => {
-      dedup.record("activity:42");
-      expect(dedup.isDuplicate("activity:42")).toBe(true);
-    });
-
-    it("records with a secondary key", () => {
-      const secondary = "100:created:2025-01-01T00:00:00Z";
-      dedup.record("activity:1", secondary);
-      // Same secondary from a different source is a duplicate
-      expect(dedup.isDuplicate("webhook:999", secondary)).toBe(true);
-    });
+  it("collapses cross-source events sharing a secondary key", async () => {
+    const secondary = replaySecondaryKey("456", "created", "2025-01-15T10:00:00Z");
+    expect((await guard.processGuarded(evt("activity:1", secondary), async () => "a")).kind).toBe("processed");
+    // Different source, different primary key, same underlying event
+    expect((await guard.processGuarded(evt("webhook:99", secondary), async () => "b")).kind).toBe("duplicate");
   });
 
-  describe("prune", () => {
-    it("removes expired entries and keeps fresh ones", () => {
-      vi.useFakeTimers();
-      try {
-        const d = new EventDedup({ ttlMs: 1000 });
-
-        d.record("activity:1");
-        d.record("activity:2");
-
-        vi.advanceTimersByTime(500);
-        d.record("activity:3");
-
-        vi.advanceTimersByTime(501);
-        // activity:1 and activity:2 are now >1000ms old; activity:3 is 501ms old
-        d.prune();
-
-        expect(d.size).toBe(1);
-        // The surviving entry should still be detected as a duplicate
-        expect(d.isDuplicate("activity:3")).toBe(true);
-        // Pruned entries should not be duplicates
-        expect(d.isDuplicate("activity:1")).toBe(false);
-      } finally {
-        vi.useRealTimers();
-      }
-    });
-
-    it("cleans up secondary keys that reference expired primaries", () => {
-      vi.useFakeTimers();
-      try {
-        const d = new EventDedup({ ttlMs: 1000 });
-        const secondary = "50:created:2025-01-01T00:00:00Z";
-
-        d.record("activity:1", secondary);
-        vi.advanceTimersByTime(1001);
-        d.prune();
-
-        // Secondary key should be cleaned up, so a new event with the same
-        // secondary key should not be flagged as a duplicate
-        expect(d.isDuplicate("reading:2", secondary)).toBe(false);
-      } finally {
-        vi.useRealTimers();
-      }
-    });
+  it("does not collapse events with different secondary keys", async () => {
+    const s1 = replaySecondaryKey("456", "created", "2025-01-15T10:00:00Z");
+    const s2 = replaySecondaryKey("456", "completed", "2025-01-15T11:00:00Z");
+    expect((await guard.processGuarded(evt("activity:1", s1), async () => "a")).kind).toBe("processed");
+    expect((await guard.processGuarded(evt("activity:2", s2), async () => "b")).kind).toBe("processed");
   });
 
-  describe("size", () => {
-    it("reflects the number of tracked primary entries", () => {
-      expect(dedup.size).toBe(0);
-      dedup.record("activity:1");
-      expect(dedup.size).toBe(1);
-      dedup.record("activity:2");
-      expect(dedup.size).toBe(2);
-      // Recording the same key again updates in place
-      dedup.record("activity:1");
-      expect(dedup.size).toBe(2);
-    });
+  it("record marks an event seen without processing", async () => {
+    await guard.record(evt("activity:1", "456:created:t"));
+    expect(await guard.hasRecent(evt("activity:1"))).toBe(true);
+    // Secondary key alone also matches
+    expect(await guard.hasRecent(evt("webhook:2", "456:created:t"))).toBe(true);
+    expect((await guard.processGuarded(evt("activity:1"), async () => "x")).kind).toBe("duplicate");
   });
 
-  describe("clear", () => {
-    it("resets everything to 0", () => {
-      dedup.record("activity:1");
-      dedup.record("activity:2");
-      dedup.record("reading:3");
-      expect(dedup.size).toBe(3);
-
-      dedup.clear();
-
-      expect(dedup.size).toBe(0);
-      // Previously recorded keys should no longer be duplicates
-      expect(dedup.isDuplicate("activity:1")).toBe(false);
-    });
+  it("hasRecent never claims — a probed event still processes", async () => {
+    expect(await guard.hasRecent(evt("activity:1"))).toBe(false);
+    expect((await guard.processGuarded(evt("activity:1"), async () => "x")).kind).toBe("processed");
   });
 
-  describe("auto-prune on insertions", () => {
-    it("triggers prune every pruneInterval record() calls", () => {
-      vi.useFakeTimers();
-      try {
-        const d = new EventDedup({ ttlMs: 1000, pruneInterval: 3 });
+  it("a processing failure releases the claim for retry", async () => {
+    await expect(
+      guard.processGuarded(evt("activity:1", "456:created:t"), async () => {
+        throw new Error("boom");
+      }),
+    ).rejects.toThrow("boom");
 
-        // Record 2 entries, then let them expire
-        d.record("activity:1");
-        d.record("activity:2");
-        vi.advanceTimersByTime(1001);
+    expect(await guard.hasRecent(evt("activity:1"))).toBe(false);
+    expect((await guard.processGuarded(evt("activity:1", "456:created:t"), async () => "retry")).kind).toBe(
+      "processed",
+    );
+  });
 
-        // These are expired but not yet pruned
-        expect(d.size).toBe(2);
+  it("a failure on a shared secondary key releases it for the other source", async () => {
+    const secondary = replaySecondaryKey("456", "created", "t1");
+    await expect(
+      guard.processGuarded(evt("activity:1", secondary), async () => {
+        throw new Error("boom");
+      }),
+    ).rejects.toThrow("boom");
 
-        // 3rd insertion triggers auto-prune (insertionCount hits 3)
-        d.record("activity:3");
+    // Webhook delivery of the same logical event can now claim it
+    expect((await guard.processGuarded(evt("webhook:9", secondary), async () => "wh")).kind).toBe("processed");
+  });
 
-        // After auto-prune, the 2 expired entries are removed,
-        // only activity:3 remains
-        expect(d.size).toBe(1);
-      } finally {
-        vi.useRealTimers();
-      }
-    });
+  it("concurrent processing of the same event runs once (inflight skip)", async () => {
+    let runs = 0;
+    const slow = () =>
+      guard.processGuarded(evt("activity:1"), async () => {
+        runs++;
+        await new Promise((r) => setTimeout(r, 20));
+        return "done";
+      });
+
+    const [a, b] = await Promise.all([slow(), slow()]);
+    const kinds = [a.kind, b.kind].sort();
+    expect(kinds).toEqual(["inflight", "processed"]);
+    expect(runs).toBe(1);
+  });
+
+  it("forget removes committed keys", async () => {
+    await guard.record(evt("activity:1", "456:created:t"));
+    expect(await guard.forget(evt("activity:1", "456:created:t"))).toBe(true);
+    expect(await guard.hasRecent(evt("activity:1"))).toBe(false);
+    expect((await guard.processGuarded(evt("activity:1"), async () => "x")).kind).toBe("processed");
+  });
+
+  it("isolates accounts by namespace", async () => {
+    await guard.record({ accountId: "a", primaryKey: "activity:1" });
+    expect(await guard.hasRecent({ accountId: "a", primaryKey: "activity:1" })).toBe(true);
+    expect(await guard.hasRecent({ accountId: "b", primaryKey: "activity:1" })).toBe(false);
+  });
+
+  it("expires entries after the TTL", async () => {
+    const shortGuard = createBasecampReplayGuard({ ttlMs: 30 });
+    await shortGuard.record(evt("activity:ttl"));
+    expect(await shortGuard.hasRecent(evt("activity:ttl"))).toBe(true);
+    await new Promise((r) => setTimeout(r, 60));
+    expect(await shortGuard.hasRecent(evt("activity:ttl"))).toBe(false);
+    shortGuard.clearMemory();
+  });
+});
+
+describe("shared replay guard", () => {
+  afterEach(() => {
+    resetReplayGuard();
+    delete process.env.OPENCLAW_STATE_DIR;
+  });
+
+  it("getReplayGuard returns a process-wide singleton until reset", () => {
+    process.env.OPENCLAW_STATE_DIR = mkdtempSync(join(tmpdir(), "replay-shared-"));
+    const a = getReplayGuard();
+    expect(getReplayGuard()).toBe(a);
+    resetReplayGuard();
+    expect(getReplayGuard()).not.toBe(a);
   });
 });

@@ -23,8 +23,8 @@ vi.mock("../src/outbound/send.js", () => ({
 import { cliMe } from "../src/basecamp-cli.js";
 import { getClient, rawOrThrow } from "../src/basecamp-client.js";
 import { pollActivityFeed } from "../src/inbound/activity.js";
-import { EventDedup } from "../src/inbound/dedup.js";
 import { pollReadings } from "../src/inbound/readings.js";
+import { createBasecampReplayGuard } from "../src/inbound/replay-guard.js";
 import type { ResolvedBasecampAccount } from "../src/types.js";
 
 // ---------------------------------------------------------------------------
@@ -208,12 +208,16 @@ describeIntegration("smoke: pollReadings", () => {
 });
 
 // ---------------------------------------------------------------------------
-// EventDedup -- cross-source dedup with real events
+// Replay guard -- dedup with real events
 // ---------------------------------------------------------------------------
 
-describeIntegration("smoke: EventDedup with real events", () => {
-  it("dedup correctly tracks real activity events", async () => {
-    const dedup = new EventDedup({ ttlMs: 60_000 });
+describeIntegration("smoke: replay guard with real events", () => {
+  it("guard correctly tracks real activity events", async () => {
+    const { mkdtempSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    process.env.OPENCLAW_STATE_DIR = mkdtempSync(join(tmpdir(), "smoke-guard-"));
+    const guard = createBasecampReplayGuard({ ttlMs: 60_000 });
 
     const result = await pollActivityFeed({ account: testAccount, log });
     expect(result.events.length).toBeGreaterThan(0);
@@ -221,25 +225,22 @@ describeIntegration("smoke: EventDedup with real events", () => {
     // First pass: nothing should be a duplicate
     let firstPassDupes = 0;
     for (const msg of result.events) {
-      if (dedup.isDuplicate(msg.dedupKey)) {
+      if (await guard.hasRecent({ accountId: testAccount.accountId, primaryKey: msg.dedupKey })) {
         firstPassDupes++;
       }
-      dedup.record(msg.dedupKey);
+      await guard.record({ accountId: testAccount.accountId, primaryKey: msg.dedupKey });
     }
     expect(firstPassDupes).toBe(0);
 
     // Second pass: everything should be a duplicate
     let secondPassDupes = 0;
     for (const msg of result.events) {
-      if (dedup.isDuplicate(msg.dedupKey)) {
+      if (await guard.hasRecent({ accountId: testAccount.accountId, primaryKey: msg.dedupKey })) {
         secondPassDupes++;
       }
     }
     expect(secondPassDupes).toBe(result.events.length);
-
-    console.log(
-      `Dedup: ${result.events.length} events, ${firstPassDupes} dupes on first pass, ${secondPassDupes} dupes on second pass`,
-    );
+    delete process.env.OPENCLAW_STATE_DIR;
   });
 });
 

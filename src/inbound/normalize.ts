@@ -26,7 +26,7 @@ import type {
   ResolvedBasecampAccount,
   WebhookEventDetails,
 } from "../types.js";
-import { EventDedup } from "./dedup.js";
+import { replayPrimaryKey } from "./replay-guard.js";
 
 // ---------------------------------------------------------------------------
 // event.kind → recordableType mapping (expanded from TimelinesApiHelper)
@@ -417,7 +417,7 @@ export async function normalizeActivityEvent(
     meta.messageId = recordingId;
   }
 
-  const dedupPrimary = EventDedup.primaryKey("activity", String(raw.id));
+  const dedupPrimary = replayPrimaryKey("activity", String(raw.id));
 
   return {
     channel: "basecamp",
@@ -510,7 +510,7 @@ export function normalizeReadingsEvent(
     sources: ["readings"],
   };
 
-  const dedupPrimary = EventDedup.primaryKey("reading", String(raw.id));
+  const dedupPrimary = replayPrimaryKey("reading", String(raw.id));
 
   return {
     channel: "basecamp",
@@ -585,7 +585,7 @@ export function normalizeAssignmentTodo(
   // Include updated_at in the dedup key so re-assignments after a previous
   // unassign→reassign cycle within the 24h TTL produce distinct keys.
   const updatedSuffix = raw.updated_at ? `:${raw.updated_at}` : "";
-  const dedupPrimary = EventDedup.primaryKey("direct", `assign:${recordingId}${updatedSuffix}`);
+  const dedupPrimary = replayPrimaryKey("direct", `assign:${recordingId}${updatedSuffix}`);
 
   return {
     channel: "basecamp",
@@ -694,7 +694,7 @@ export async function normalizeWebhookPayload(
   }
 
   const dedupPrimary = raw.id
-    ? EventDedup.primaryKey("webhook", String(raw.id))
+    ? replayPrimaryKey("webhook", String(raw.id))
     : `webhook:${recordingId}:${raw.kind}:${raw.created_at}`;
 
   return {

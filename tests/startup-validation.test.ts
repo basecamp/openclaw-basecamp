@@ -38,7 +38,6 @@ vi.mock("../src/adapters/outbound.js", () => ({
 }));
 
 vi.mock("../src/adapters/onboarding.js", () => ({ basecampSetupWizard: {} }));
-vi.mock("../src/adapters/setup.js", () => ({ basecampSetupAdapter: {} }));
 vi.mock("../src/adapters/status.js", () => ({ basecampStatusAdapter: {}, BasecampProbe: {}, BasecampAudit: {} }));
 vi.mock("../src/adapters/pairing.js", () => ({ basecampPairingAdapter: {} }));
 vi.mock("../src/adapters/directory.js", () => ({ basecampDirectoryAdapter: {} }));
