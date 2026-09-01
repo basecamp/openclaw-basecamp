@@ -10,7 +10,7 @@
  * that PR lands.
  */
 
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import {
@@ -20,6 +20,7 @@ import {
   refreshToken as sdkRefreshToken,
   TokenManager,
 } from "@37signals/basecamp/oauth";
+import { resolvePluginStateDir } from "./inbound/state-dir.js";
 import type { ResolvedBasecampAccount } from "./types.js";
 
 const LAUNCHPAD_TOKEN_ENDPOINT = "https://launchpad.37signals.com/authorization/token";
@@ -83,17 +84,58 @@ function resolveOAuthClient(
 // Token file path resolution
 // ---------------------------------------------------------------------------
 
-const DEFAULT_TOKEN_DIR = join(homedir(), ".local", "share", "openclaw", "basecamp", "tokens");
+/** Pre-2.0 default token directory. Read once for the courtesy migration below. */
+const LEGACY_TOKEN_DIR = join(homedir(), ".local", "share", "openclaw", "basecamp", "tokens");
+
+/**
+ * Default token directory (SPEC decision 4): under the plugin state dir so
+ * `openclaw backup` covers tokens via `backupResources`. Falls back to the
+ * legacy home-dir path when the runtime is unavailable (e.g. setup-only
+ * contexts before setRuntime has run).
+ */
+function defaultTokenDir(): string {
+  try {
+    return join(resolvePluginStateDir(), "tokens");
+  } catch {
+    return LEGACY_TOKEN_DIR;
+  }
+}
+
+/**
+ * One-time courtesy migration for the dogfooding deployment: when a token
+ * exists at the legacy default path but not at the new state-dir path, copy
+ * it (and its companion .client.json) to the new location. Best-effort.
+ */
+function migrateLegacyTokenFile(accountId: string, newPath: string): void {
+  try {
+    if (existsSync(newPath)) return;
+    const legacyPath = join(LEGACY_TOKEN_DIR, `${accountId}.json`);
+    if (legacyPath === newPath || !existsSync(legacyPath)) return;
+    mkdirSync(dirname(newPath), { recursive: true, mode: 0o700 });
+    copyFileSync(legacyPath, newPath);
+    const legacyClient = resolveClientFilePath(legacyPath);
+    if (existsSync(legacyClient)) {
+      copyFileSync(legacyClient, resolveClientFilePath(newPath));
+    }
+  } catch {
+    // Best-effort — a failed copy just means login is required again.
+  }
+}
 
 /**
  * Resolve the path for an OAuth token file.
  *
  * When `stateDir` is provided: `{stateDir}/tokens/{accountId}.json`
- * Otherwise: `~/.local/share/openclaw/basecamp/tokens/{accountId}.json`
+ * Otherwise: `{pluginStateDir}/tokens/{accountId}.json`, falling back to the
+ * legacy `~/.local/share/openclaw/basecamp/tokens/` when no runtime is set.
  */
 export function resolveTokenFilePath(accountId: string, stateDir?: string): string {
-  const dir = stateDir ? join(stateDir, "tokens") : DEFAULT_TOKEN_DIR;
-  return join(dir, `${accountId}.json`);
+  if (stateDir) {
+    return join(stateDir, "tokens", `${accountId}.json`);
+  }
+  const filePath = join(defaultTokenDir(), `${accountId}.json`);
+  migrateLegacyTokenFile(accountId, filePath);
+  return filePath;
 }
 
 // ---------------------------------------------------------------------------
