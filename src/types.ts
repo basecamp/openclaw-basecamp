@@ -432,6 +432,8 @@ export type BasecampAccountConfig = {
   oauthClientId?: string;
   /** Per-account OAuth client secret override. */
   oauthClientSecret?: string;
+  /** Group history window for inbound turns (SDK account schema part). Overrides the channel-level value. */
+  historyLimit?: number;
 };
 
 /**
@@ -463,6 +465,12 @@ export type BasecampChannelConfig = {
   dmPolicy?: "pairing" | "allowlist" | "open" | "disabled";
   /** Allowed sender person IDs for DM allowlist. */
   allowFrom?: Array<string | number>;
+  /**
+   * Group history window for inbound turns (recent session transcript turns
+   * surfaced as chat-window context). Falls back to
+   * `messages.groupChat.historyLimit`, then the SDK default (50).
+   */
+  historyLimit?: number;
   /** Per-bucket behavior overrides. Key is bucket ID or "*" for wildcard. */
   buckets?: Record<string, BasecampBucketConfig>;
   /**

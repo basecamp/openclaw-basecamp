@@ -2,6 +2,7 @@ import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import { describe, expect, it } from "vitest";
 import { basecampChannel } from "../src/channel.js";
 import {
+  resolveBasecampHistoryLimit,
   resolveCircuitBreakerConfig,
   resolveReconciliationConfig,
   resolveRetryConfig,
@@ -34,6 +35,41 @@ describe("resolveRetryConfig", () => {
   it("honors explicit values", () => {
     const cfg = cfgWith({ retry: { maxAttempts: 7, baseDelayMs: 50, maxDelayMs: 500, jitter: false } });
     expect(resolveRetryConfig(cfg)).toEqual({ maxAttempts: 7, baseDelayMs: 50, maxDelayMs: 500, jitter: false });
+  });
+});
+
+describe("resolveBasecampHistoryLimit", () => {
+  it("falls back to the SDK group history default", () => {
+    expect(resolveBasecampHistoryLimit(emptyCfg)).toBe(50);
+  });
+
+  it("prefers messages.groupChat.historyLimit over the default", () => {
+    const cfg = {
+      messages: { groupChat: { historyLimit: 12 } },
+      channels: { basecamp: {} },
+    } as unknown as OpenClawConfig;
+    expect(resolveBasecampHistoryLimit(cfg)).toBe(12);
+  });
+
+  it("prefers the channel-level value over messages.groupChat", () => {
+    const cfg = {
+      messages: { groupChat: { historyLimit: 12 } },
+      channels: { basecamp: { historyLimit: 20 } },
+    } as unknown as OpenClawConfig;
+    expect(resolveBasecampHistoryLimit(cfg)).toBe(20);
+  });
+
+  it("prefers the account value over the channel value, only for that account", () => {
+    const cfg = cfgWith({ historyLimit: 20, accounts: { ops: { historyLimit: 3 }, other: {} } });
+    expect(resolveBasecampHistoryLimit(cfg, "ops")).toBe(3);
+    expect(resolveBasecampHistoryLimit(cfg, "other")).toBe(20);
+    expect(resolveBasecampHistoryLimit(cfg)).toBe(20);
+  });
+
+  it("clamps negatives to 0 and floors fractions", () => {
+    expect(resolveBasecampHistoryLimit(cfgWith({ historyLimit: -4 }))).toBe(0);
+    expect(resolveBasecampHistoryLimit(cfgWith({ historyLimit: 2.9 }))).toBe(2);
+    expect(resolveBasecampHistoryLimit(cfgWith({ historyLimit: 0 }))).toBe(0);
   });
 });
 

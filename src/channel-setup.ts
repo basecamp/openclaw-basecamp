@@ -104,6 +104,16 @@ const basecampUiHints = {
     sensitive: true,
   },
   allowFrom: { label: "Allowed senders", help: "Basecamp person IDs allowed to message agents" },
+  historyLimit: {
+    label: "History window",
+    help: "Recent session turns surfaced as chat-window context on group surfaces (default 50; 0 disables)",
+    advanced: true,
+  },
+  "accounts.*.historyLimit": {
+    label: "History window (account)",
+    help: "Per-account override of the channel history window",
+    advanced: true,
+  },
   "oauth.clientId": { label: "OAuth Client ID", help: "Basecamp OAuth app client ID for browser-based login" },
   "oauth.clientSecret": { label: "OAuth Client Secret", help: "Basecamp OAuth app secret", sensitive: true },
   personas: {
