@@ -106,8 +106,8 @@ describe("withRetry", () => {
     timeoutSpy.mockRestore();
   });
 
-  it("applies jitter when enabled (delay is reduced up to 25%)", async () => {
-    vi.spyOn(Math, "random").mockReturnValue(1); // max jitter: 25% reduction
+  it("applies jitter when enabled (symmetric ±25% spread)", async () => {
+    const randomSpy = vi.spyOn(Math, "random").mockReturnValue(1); // max positive draw
     const delays: number[] = [];
     const fn = vi.fn().mockImplementation(async () => {
       throw new TypeError("fetch failed");
@@ -121,12 +121,15 @@ describe("withRetry", () => {
         return origSetTimeout(cb, 0, ...args);
       });
 
-    await expect(withRetry(fn, { maxAttempts: 2, baseDelayMs: 1000, jitter: true })).rejects.toThrow();
+    try {
+      await expect(withRetry(fn, { maxAttempts: 2, baseDelayMs: 1000, jitter: true })).rejects.toThrow();
 
-    // With random()=1, jitter = 1000 * 1 * 0.25 = 250, so delay = 750
-    expect(delays).toEqual([750]);
-    timeoutSpy.mockRestore();
-    vi.spyOn(Math, "random").mockRestore();
+      // SDK symmetric jitter: 1000 * (1 + (2·random − 1) · 0.25) = 1250 at random()=1
+      expect(delays).toEqual([1250]);
+    } finally {
+      timeoutSpy.mockRestore();
+      randomSpy.mockRestore();
+    }
   });
 
   it("custom retryable function overrides default", async () => {
