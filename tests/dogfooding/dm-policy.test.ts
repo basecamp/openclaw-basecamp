@@ -4,27 +4,17 @@
  * Validates the full dispatch gate pipeline: engagement classification,
  * per-bucket engage overrides, DM policy enforcement, and default behavior.
  */
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { dispatchBasecampEvent } from "../../src/dispatch.js";
+import { clearBasecampRuntime, setBasecampRuntime } from "../../src/runtime.js";
 import type { BasecampInboundMessage, ResolvedBasecampAccount } from "../../src/types.js";
 
 // ---------------------------------------------------------------------------
 // Mocks
 // ---------------------------------------------------------------------------
 
-const mockLoadConfig = vi.fn();
 const mockResolveRoute = vi.fn();
 const mockDispatchReply = vi.fn();
-
-vi.mock("../../src/runtime.js", () => ({
-  getBasecampRuntime: vi.fn(() => ({
-    config: { loadConfig: mockLoadConfig },
-    channel: {
-      routing: { resolveAgentRoute: (...args: unknown[]) => mockResolveRoute(...args) },
-      reply: { dispatchReplyWithBufferedBlockDispatcher: (...args: unknown[]) => mockDispatchReply(...args) },
-    },
-  })),
-}));
 
 const mockResolvePersona = vi.fn(() => undefined);
 const mockResolveAccount = vi.fn();
@@ -90,6 +80,17 @@ function msg(overrides?: Partial<BasecampInboundMessage> & { meta?: Record<strin
   } as BasecampInboundMessage;
 }
 
+function baseCfg(basecampOverrides?: Record<string, unknown>) {
+  return {
+    channels: {
+      basecamp: {
+        accounts: { "test-acct": { personId: "999", basecampAccountId: "12345" } },
+        ...basecampOverrides,
+      },
+    },
+  } as any;
+}
+
 function dmMsg(senderId = "777"): BasecampInboundMessage {
   return msg({
     peer: { kind: "dm", id: `dm:${senderId}` },
@@ -106,6 +107,13 @@ describe("dogfooding — DM policy & engagement gate", () => {
   beforeEach(() => {
     vi.clearAllMocks();
 
+    setBasecampRuntime({
+      channel: {
+        routing: { resolveAgentRoute: (...args: unknown[]) => mockResolveRoute(...args) },
+        reply: { dispatchReplyWithBufferedBlockDispatcher: (...args: unknown[]) => mockDispatchReply(...args) },
+      },
+    } as any);
+
     // Default: route exists, config is open, account resolves
     mockResolveRoute.mockReturnValue({
       agentId: "agent-1",
@@ -116,20 +124,17 @@ describe("dogfooding — DM policy & engagement gate", () => {
     mockResolveAccount.mockReturnValue(account);
     mockResolveDmPolicy.mockReturnValue("open");
     mockResolveAllowFrom.mockReturnValue([]);
-    mockLoadConfig.mockReturnValue({
-      channels: {
-        basecamp: {
-          accounts: { "test-acct": { personId: "999", basecampAccountId: "12345" } },
-        },
-      },
-    });
+  });
+
+  afterEach(() => {
+    clearBasecampRuntime();
   });
 
   // DF-012: dmPolicy disabled drops DMs
   it("DF-012: drops DMs when dmPolicy is disabled", async () => {
     mockResolveDmPolicy.mockReturnValue("disabled");
 
-    const result = await dispatchBasecampEvent(dmMsg(), { account });
+    const result = await dispatchBasecampEvent(dmMsg(), { account, cfg: baseCfg() });
 
     expect(result).toBe(false);
     expect(mockDispatchReply).not.toHaveBeenCalled();
@@ -140,7 +145,7 @@ describe("dogfooding — DM policy & engagement gate", () => {
     mockResolveDmPolicy.mockReturnValue("pairing");
     mockResolveAllowFrom.mockReturnValue(["777"]);
 
-    const result = await dispatchBasecampEvent(dmMsg("777"), { account });
+    const result = await dispatchBasecampEvent(dmMsg("777"), { account, cfg: baseCfg() });
 
     expect(result).toBe(true);
     expect(mockDispatchReply).toHaveBeenCalled();
@@ -151,7 +156,7 @@ describe("dogfooding — DM policy & engagement gate", () => {
     mockResolveDmPolicy.mockReturnValue("pairing");
     mockResolveAllowFrom.mockReturnValue(["777"]);
 
-    const result = await dispatchBasecampEvent(dmMsg("888"), { account });
+    const result = await dispatchBasecampEvent(dmMsg("888"), { account, cfg: baseCfg() });
 
     expect(result).toBe(false);
     expect(mockDispatchReply).not.toHaveBeenCalled();
@@ -162,7 +167,7 @@ describe("dogfooding — DM policy & engagement gate", () => {
     mockResolveDmPolicy.mockReturnValue("pairing");
     mockResolveAllowFrom.mockReturnValue([]);
 
-    const result = await dispatchBasecampEvent(dmMsg("777"), { account });
+    const result = await dispatchBasecampEvent(dmMsg("777"), { account, cfg: baseCfg() });
 
     expect(result).toBe(false);
     expect(mockDispatchReply).not.toHaveBeenCalled();
@@ -170,16 +175,9 @@ describe("dogfooding — DM policy & engagement gate", () => {
 
   // DF-016: engagement gate blocks DMs when "dm" not in engage policy
   it("DF-016: engagement gate drops DMs before DM policy when dm not in engage", async () => {
-    mockLoadConfig.mockReturnValue({
-      channels: {
-        basecamp: {
-          accounts: { "test-acct": { personId: "999", basecampAccountId: "12345" } },
-          engage: ["mention"],
-        },
-      },
-    });
+    const cfg = baseCfg({ engage: ["mention"] });
 
-    const result = await dispatchBasecampEvent(dmMsg(), { account });
+    const result = await dispatchBasecampEvent(dmMsg(), { account, cfg });
 
     expect(result).toBe(false);
     // DM policy should NOT have been consulted — gate drops first
@@ -188,15 +186,10 @@ describe("dogfooding — DM policy & engagement gate", () => {
 
   // DF-017: per-bucket engage override takes precedence
   it("DF-017: per-bucket engage override takes precedence over channel-level", async () => {
-    mockLoadConfig.mockReturnValue({
-      channels: {
-        basecamp: {
-          accounts: { "test-acct": { personId: "999", basecampAccountId: "12345" } },
-          engage: ["dm", "mention", "conversation"],
-          buckets: {
-            "456": { engage: ["mention"] },
-          },
-        },
+    const cfg = baseCfg({
+      engage: ["dm", "mention", "conversation"],
+      buckets: {
+        "456": { engage: ["mention"] },
       },
     });
 
@@ -208,7 +201,7 @@ describe("dogfooding — DM policy & engagement gate", () => {
       },
     });
 
-    const result = await dispatchBasecampEvent(conversationMsg, { account });
+    const result = await dispatchBasecampEvent(conversationMsg, { account, cfg });
 
     expect(result).toBe(false);
     expect(mockDispatchReply).not.toHaveBeenCalled();

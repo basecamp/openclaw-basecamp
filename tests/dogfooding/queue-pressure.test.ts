@@ -16,20 +16,6 @@ const mockDispatch = vi.fn().mockResolvedValue(true);
 vi.mock("../../src/dispatch.js", () => ({
   dispatchBasecampEvent: (...args: unknown[]) => mockDispatch(...args),
 }));
-vi.mock("../../src/runtime.js", () => ({
-  getBasecampRuntime: vi.fn(() => ({
-    config: {
-      loadConfig: () => ({
-        channels: {
-          basecamp: {
-            accounts: { default: { personId: "1" } },
-            webhookSecret: "tok-qp",
-          },
-        },
-      }),
-    },
-  })),
-}));
 vi.mock("../../src/config.js", () => ({
   resolveBasecampAccount: vi.fn(() => ({
     accountId: "default",
@@ -104,8 +90,9 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { closeAllAccountDedup } from "../../src/inbound/dedup-registry.js";
-import { handleBasecampWebhook, Semaphore } from "../../src/inbound/webhooks.js";
+import { handleBasecampWebhook } from "../../src/inbound/webhooks.js";
 import { clearMetrics, getAccountMetrics } from "../../src/metrics.js";
+import { clearBasecampRuntime, setBasecampRuntime } from "../../src/runtime.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -160,9 +147,23 @@ describe("dogfooding — queue pressure", () => {
     dedupSeq = 0;
     _testStateDir = mkdtempSync(join(tmpdir(), "dogfood-qp-"));
     closeAllAccountDedup();
+
+    setBasecampRuntime({
+      config: {
+        current: () => ({
+          channels: {
+            basecamp: {
+              accounts: { default: { personId: "1" } },
+              webhookSecret: "tok-qp",
+            },
+          },
+        }),
+      },
+    } as any);
   });
 
   afterEach(() => {
+    clearBasecampRuntime();
     closeAllAccountDedup();
     rmSync(_testStateDir, { recursive: true, force: true });
   });

@@ -110,19 +110,3 @@ describe("groups.resolveToolPolicy", () => {
     expect(result).toBeUndefined();
   });
 });
-
-// ---------------------------------------------------------------------------
-// resolveGroupIntroHint
-// ---------------------------------------------------------------------------
-
-describe("groups.resolveGroupIntroHint", () => {
-  it("returns non-empty Basecamp context string", () => {
-    const hint = basecampGroupAdapter.resolveGroupIntroHint!({
-      cfg: cfg({}),
-    } as any);
-
-    expect(hint).toBeTruthy();
-    expect(hint).toContain("Basecamp");
-    expect(hint).toContain("Campfire");
-  });
-});

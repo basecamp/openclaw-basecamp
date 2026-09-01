@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   resolveBasecampAccount,
   resolveBasecampAllowFrom,
@@ -9,16 +9,13 @@ import {
 import { dispatchBasecampEvent } from "../src/dispatch.js";
 import { markdownToBasecampHtml } from "../src/outbound/format.js";
 import { postReplyToEvent } from "../src/outbound/send.js";
-import { getBasecampRuntime } from "../src/runtime.js";
+import { clearBasecampRuntime, setBasecampRuntime } from "../src/runtime.js";
 import type { BasecampInboundMessage, ResolvedBasecampAccount } from "../src/types.js";
 
 // ---------------------------------------------------------------------------
 // Mocks
 // ---------------------------------------------------------------------------
 
-vi.mock("../src/runtime.js", () => ({
-  getBasecampRuntime: vi.fn(),
-}));
 vi.mock("../src/config.js", () => ({
   resolvePersonaAccountId: vi.fn(),
   resolveBasecampAccount: vi.fn(),
@@ -39,20 +36,20 @@ vi.mock("../src/outbound/format.js", () => ({
 // ---------------------------------------------------------------------------
 
 const mockRuntime = {
-  config: {
-    loadConfig: vi.fn(() => ({
-      channels: {
-        basecamp: {
-          accounts: { "test-acct": { personId: "999" } },
-        },
-      },
-    })),
-  },
   channel: {
     routing: { resolveAgentRoute: vi.fn() },
     reply: { dispatchReplyWithBufferedBlockDispatcher: vi.fn() },
   },
 };
+
+const baseCfg = () => ({
+  channels: {
+    basecamp: {
+      accounts: { "test-acct": { personId: "999" } },
+    },
+  },
+});
+let mockCfg: any;
 
 const mockMsg: BasecampInboundMessage = {
   channel: "basecamp",
@@ -91,23 +88,21 @@ const mockAccount: ResolvedBasecampAccount = {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  vi.mocked(getBasecampRuntime).mockReturnValue(mockRuntime as any);
+  setBasecampRuntime(mockRuntime as any);
   vi.mocked(resolvePersonaAccountId).mockReturnValue(undefined);
   vi.mocked(resolveBasecampBucketAllowFrom).mockReturnValue(undefined);
   vi.mocked(postReplyToEvent).mockResolvedValue({ ok: true });
-  mockRuntime.config.loadConfig.mockReturnValue({
-    channels: {
-      basecamp: {
-        accounts: { "test-acct": { personId: "999" } },
-      },
-    },
-  });
+  mockCfg = baseCfg();
   mockRuntime.channel.routing.resolveAgentRoute.mockReturnValue({
     agentId: "agent-1",
     matchedBy: "peer",
     sessionKey: "session:abc",
   });
   mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mockResolvedValue(undefined);
+});
+
+afterEach(() => {
+  clearBasecampRuntime();
 });
 
 // ---------------------------------------------------------------------------
@@ -117,7 +112,7 @@ beforeEach(() => {
 describe("dispatchBasecampEvent", () => {
   it("returns false for self-messages (sender.id === account.personId)", async () => {
     const selfMsg = { ...mockMsg, sender: { id: "999", name: "Bot" } };
-    const result = await dispatchBasecampEvent(selfMsg, { account: mockAccount });
+    const result = await dispatchBasecampEvent(selfMsg, { account: mockAccount, cfg: mockCfg });
 
     expect(result).toBe(false);
     expect(mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
@@ -126,14 +121,14 @@ describe("dispatchBasecampEvent", () => {
   it("returns false when no route is matched", async () => {
     mockRuntime.channel.routing.resolveAgentRoute.mockReturnValue(null);
 
-    const result = await dispatchBasecampEvent(mockMsg, { account: mockAccount });
+    const result = await dispatchBasecampEvent(mockMsg, { account: mockAccount, cfg: mockCfg });
 
     expect(result).toBe(false);
     expect(mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher).not.toHaveBeenCalled();
   });
 
   it("dispatches successfully with correct MsgContext fields", async () => {
-    const result = await dispatchBasecampEvent(mockMsg, { account: mockAccount });
+    const result = await dispatchBasecampEvent(mockMsg, { account: mockAccount, cfg: mockCfg });
 
     expect(result).toBe(true);
     expect(mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledTimes(1);
@@ -169,7 +164,7 @@ describe("dispatchBasecampEvent", () => {
       config: { personId: "888", cliProfile: "persona-profile", basecampAccountId: "67890" },
     } as any);
 
-    await dispatchBasecampEvent(mockMsg, { account: mockAccount });
+    await dispatchBasecampEvent(mockMsg, { account: mockAccount, cfg: mockCfg });
 
     const call = mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock.calls[0][0];
     const deliver = call.dispatcherOptions.deliver;
@@ -193,7 +188,7 @@ describe("dispatchBasecampEvent", () => {
     };
     const log = { info: vi.fn(), warn: vi.fn(), debug: vi.fn(), error: vi.fn() };
 
-    const result = await dispatchBasecampEvent(mockMsg, { account: accountNoId, log });
+    const result = await dispatchBasecampEvent(mockMsg, { account: accountNoId, cfg: mockCfg, log });
 
     expect(result).toBe(false);
     expect(log.error).toHaveBeenCalledTimes(1);
@@ -208,7 +203,7 @@ describe("dispatchBasecampEvent", () => {
       config: { personId: "999", basecampAccountId: "2914079" },
     };
 
-    const result = await dispatchBasecampEvent(mockMsg, { account: oauthAccount });
+    const result = await dispatchBasecampEvent(mockMsg, { account: oauthAccount, cfg: mockCfg });
 
     expect(result).toBe(true);
   });
@@ -220,7 +215,7 @@ describe("dispatchBasecampEvent", () => {
       config: { personId: "999" },
     };
 
-    const result = await dispatchBasecampEvent(mockMsg, { account: accountNumericId });
+    const result = await dispatchBasecampEvent(mockMsg, { account: accountNumericId, cfg: mockCfg });
 
     expect(result).toBe(true);
     const call = mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock.calls[0][0];
@@ -235,7 +230,7 @@ describe("dispatchBasecampEvent", () => {
   });
 
   it("deliver callback calls postReplyToEvent with correct params", async () => {
-    await dispatchBasecampEvent(mockMsg, { account: mockAccount });
+    await dispatchBasecampEvent(mockMsg, { account: mockAccount, cfg: mockCfg });
 
     const call = mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock.calls[0][0];
     const deliver = call.dispatcherOptions.deliver;
@@ -257,7 +252,7 @@ describe("dispatchBasecampEvent", () => {
   });
 
   it("deliver callback skips postReplyToEvent when payload.text is empty", async () => {
-    await dispatchBasecampEvent(mockMsg, { account: mockAccount });
+    await dispatchBasecampEvent(mockMsg, { account: mockAccount, cfg: mockCfg });
 
     const call = mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock.calls[0][0];
     const deliver = call.dispatcherOptions.deliver;
@@ -267,27 +262,55 @@ describe("dispatchBasecampEvent", () => {
     expect(postReplyToEvent).not.toHaveBeenCalled();
   });
 
-  it("UntrustedContext contains [basecamp] prefixed metadata lines", async () => {
-    await dispatchBasecampEvent(mockMsg, { account: mockAccount });
+  it("ChannelPromptContext contains [basecamp] prefixed metadata lines", async () => {
+    await dispatchBasecampEvent(mockMsg, { account: mockAccount, cfg: mockCfg });
 
     const call = mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock.calls[0][0];
     const ctx = call.ctx;
-    const untrusted: string[] = ctx.UntrustedContext;
+    const promptContext: string[] = ctx.ChannelPromptContext;
 
-    expect(untrusted.length).toBeGreaterThan(0);
-    for (const line of untrusted) {
+    expect(promptContext.length).toBeGreaterThan(0);
+    for (const line of promptContext) {
       expect(line).toMatch(/^\[basecamp\] /);
     }
-    expect(untrusted).toContainEqual(expect.stringContaining("recordableType=Chat::Transcript"));
-    expect(untrusted).toContainEqual(expect.stringContaining("eventKind=created"));
-    expect(untrusted).toContainEqual(expect.stringContaining("bucketId=456"));
-    expect(untrusted).toContainEqual(expect.stringContaining("recordingId=123"));
+    expect(promptContext).toContainEqual(expect.stringContaining("recordableType=Chat::Transcript"));
+    expect(promptContext).toContainEqual(expect.stringContaining("eventKind=created"));
+    expect(promptContext).toContainEqual(expect.stringContaining("bucketId=456"));
+    expect(promptContext).toContainEqual(expect.stringContaining("recordingId=123"));
+  });
+
+  it("ChannelPromptContext leads with surface guidance for known recordable types", async () => {
+    await dispatchBasecampEvent(mockMsg, { account: mockAccount, cfg: mockCfg });
+
+    const call = mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock.calls[0][0];
+    const promptContext: string[] = call.ctx.ChannelPromptContext;
+
+    // Chat::Transcript has a surface prompt — it must be the FIRST line
+    expect(promptContext[0]).toMatch(/^\[basecamp\] surface guidance: /);
+    expect(promptContext[0]).toContain("Campfire chat");
+    // Metadata lines follow unchanged
+    expect(promptContext[1]).toBe("[basecamp] recordableType=Chat::Transcript");
+  });
+
+  it("ChannelPromptContext omits surface guidance for unknown recordable types", async () => {
+    const uploadMsg: BasecampInboundMessage = {
+      ...mockMsg,
+      meta: { ...mockMsg.meta, recordableType: "Upload", mentionsAgent: true },
+    };
+
+    await dispatchBasecampEvent(uploadMsg, { account: mockAccount, cfg: mockCfg });
+
+    const call = mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock.calls[0][0];
+    const promptContext: string[] = call.ctx.ChannelPromptContext;
+
+    expect(promptContext[0]).toBe("[basecamp] recordableType=Upload");
+    expect(promptContext.some((line) => line.includes("surface guidance"))).toBe(false);
   });
 
   it("sets ChatType to 'direct' when msg.peer.kind is 'dm'", async () => {
     const dmMsg = { ...mockMsg, peer: { kind: "dm" as const, id: "ping:789" } };
 
-    await dispatchBasecampEvent(dmMsg, { account: mockAccount });
+    await dispatchBasecampEvent(dmMsg, { account: mockAccount, cfg: mockCfg });
 
     const call = mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock.calls[0][0];
     expect(call.ctx.ChatType).toBe("direct");
@@ -309,7 +332,7 @@ describe("dispatchBasecampEvent", () => {
       },
     };
 
-    const result = await dispatchBasecampEvent(cardMsg, { account: mockAccount });
+    const result = await dispatchBasecampEvent(cardMsg, { account: mockAccount, cfg: mockCfg });
     expect(result).toBe(false);
   });
 
@@ -324,7 +347,7 @@ describe("dispatchBasecampEvent", () => {
       },
     };
 
-    const result = await dispatchBasecampEvent(chatMsg, { account: mockAccount });
+    const result = await dispatchBasecampEvent(chatMsg, { account: mockAccount, cfg: mockCfg });
     expect(result).toBe(false);
   });
 
@@ -339,7 +362,7 @@ describe("dispatchBasecampEvent", () => {
       },
     };
 
-    const result = await dispatchBasecampEvent(mentionedMsg, { account: mockAccount });
+    const result = await dispatchBasecampEvent(mentionedMsg, { account: mockAccount, cfg: mockCfg });
     expect(result).toBe(true);
   });
 
@@ -355,7 +378,7 @@ describe("dispatchBasecampEvent", () => {
       },
     };
 
-    const result = await dispatchBasecampEvent(dmMsg, { account: mockAccount });
+    const result = await dispatchBasecampEvent(dmMsg, { account: mockAccount, cfg: mockCfg });
     expect(result).toBe(true);
   });
 
@@ -372,7 +395,7 @@ describe("dispatchBasecampEvent", () => {
       },
     };
 
-    const result = await dispatchBasecampEvent(assignMsg, { account: mockAccount });
+    const result = await dispatchBasecampEvent(assignMsg, { account: mockAccount, cfg: mockCfg });
     expect(result).toBe(true);
   });
 
@@ -387,7 +410,7 @@ describe("dispatchBasecampEvent", () => {
       },
     };
 
-    const result = await dispatchBasecampEvent(checkinMsg, { account: mockAccount });
+    const result = await dispatchBasecampEvent(checkinMsg, { account: mockAccount, cfg: mockCfg });
     expect(result).toBe(true);
   });
 
@@ -402,20 +425,20 @@ describe("dispatchBasecampEvent", () => {
       },
     };
 
-    const result = await dispatchBasecampEvent(questionMsg, { account: mockAccount });
+    const result = await dispatchBasecampEvent(questionMsg, { account: mockAccount, cfg: mockCfg });
     expect(result).toBe(false);
   });
 
   it("respects per-bucket engage override to include conversation", async () => {
     // Override config to include conversation for bucket 456
-    mockRuntime.config.loadConfig.mockReturnValue({
+    mockCfg = {
       channels: {
         basecamp: {
           accounts: { "test-acct": { personId: "999" } },
           buckets: { "456": { engage: ["dm", "mention", "conversation"] } },
         },
       },
-    });
+    };
 
     const chatMsg: BasecampInboundMessage = {
       ...mockMsg,
@@ -427,19 +450,19 @@ describe("dispatchBasecampEvent", () => {
       },
     };
 
-    const result = await dispatchBasecampEvent(chatMsg, { account: mockAccount });
+    const result = await dispatchBasecampEvent(chatMsg, { account: mockAccount, cfg: mockCfg });
     expect(result).toBe(true);
   });
 
   it("respects wildcard bucket engage override", async () => {
-    mockRuntime.config.loadConfig.mockReturnValue({
+    mockCfg = {
       channels: {
         basecamp: {
           accounts: { "test-acct": { personId: "999" } },
           buckets: { "*": { engage: ["dm", "mention", "conversation", "activity"] } },
         },
       },
-    });
+    };
 
     const cardMsg: BasecampInboundMessage = {
       ...mockMsg,
@@ -452,12 +475,12 @@ describe("dispatchBasecampEvent", () => {
       },
     };
 
-    const result = await dispatchBasecampEvent(cardMsg, { account: mockAccount });
+    const result = await dispatchBasecampEvent(cardMsg, { account: mockAccount, cfg: mockCfg });
     expect(result).toBe(true);
   });
 
   it("prefers exact bucket engage over wildcard", async () => {
-    mockRuntime.config.loadConfig.mockReturnValue({
+    mockCfg = {
       channels: {
         basecamp: {
           accounts: { "test-acct": { personId: "999" } },
@@ -467,22 +490,22 @@ describe("dispatchBasecampEvent", () => {
           },
         },
       },
-    });
+    };
 
     // Mention should be dropped — exact bucket only allows "dm"
-    const result = await dispatchBasecampEvent(mockMsg, { account: mockAccount });
+    const result = await dispatchBasecampEvent(mockMsg, { account: mockAccount, cfg: mockCfg });
     expect(result).toBe(false);
   });
 
   it("respects channel-level engage to include activity", async () => {
-    mockRuntime.config.loadConfig.mockReturnValue({
+    mockCfg = {
       channels: {
         basecamp: {
           accounts: { "test-acct": { personId: "999" } },
           engage: ["dm", "mention", "assignment", "checkin", "conversation", "activity"],
         },
       },
-    });
+    };
 
     const cardMsg: BasecampInboundMessage = {
       ...mockMsg,
@@ -495,7 +518,7 @@ describe("dispatchBasecampEvent", () => {
       },
     };
 
-    const result = await dispatchBasecampEvent(cardMsg, { account: mockAccount });
+    const result = await dispatchBasecampEvent(cardMsg, { account: mockAccount, cfg: mockCfg });
     expect(result).toBe(true);
   });
 
@@ -517,7 +540,7 @@ describe("dispatchBasecampEvent", () => {
       },
     };
 
-    const result = await dispatchBasecampEvent(dmMsg, { account: mockAccount });
+    const result = await dispatchBasecampEvent(dmMsg, { account: mockAccount, cfg: mockCfg });
     expect(result).toBe(false);
   });
 
@@ -537,7 +560,7 @@ describe("dispatchBasecampEvent", () => {
       },
     };
 
-    const result = await dispatchBasecampEvent(dmMsg, { account: mockAccount });
+    const result = await dispatchBasecampEvent(dmMsg, { account: mockAccount, cfg: mockCfg });
     expect(result).toBe(false);
   });
 
@@ -557,7 +580,7 @@ describe("dispatchBasecampEvent", () => {
       },
     };
 
-    const result = await dispatchBasecampEvent(dmMsg, { account: mockAccount });
+    const result = await dispatchBasecampEvent(dmMsg, { account: mockAccount, cfg: mockCfg });
     expect(result).toBe(true);
   });
 
@@ -576,7 +599,7 @@ describe("dispatchBasecampEvent", () => {
       },
     };
 
-    const result = await dispatchBasecampEvent(dmMsg, { account: mockAccount });
+    const result = await dispatchBasecampEvent(dmMsg, { account: mockAccount, cfg: mockCfg });
     expect(result).toBe(true);
   });
 
@@ -593,7 +616,7 @@ describe("dispatchBasecampEvent", () => {
       },
     };
 
-    const result = await dispatchBasecampEvent(dmMsg, { account: mockAccount });
+    const result = await dispatchBasecampEvent(dmMsg, { account: mockAccount, cfg: mockCfg });
     expect(result).toBe(true);
   });
 
@@ -604,14 +627,14 @@ describe("dispatchBasecampEvent", () => {
   it("drops events when sender not in bucket allowFrom", async () => {
     vi.mocked(resolveBasecampBucketAllowFrom).mockReturnValue(["111"]);
 
-    const result = await dispatchBasecampEvent(mockMsg, { account: mockAccount });
+    const result = await dispatchBasecampEvent(mockMsg, { account: mockAccount, cfg: mockCfg });
     expect(result).toBe(false);
   });
 
   it("allows events when sender is in bucket allowFrom", async () => {
     vi.mocked(resolveBasecampBucketAllowFrom).mockReturnValue(["777"]);
 
-    const result = await dispatchBasecampEvent(mockMsg, { account: mockAccount });
+    const result = await dispatchBasecampEvent(mockMsg, { account: mockAccount, cfg: mockCfg });
     expect(result).toBe(true);
   });
 
@@ -619,14 +642,14 @@ describe("dispatchBasecampEvent", () => {
     vi.mocked(resolveBasecampBucketAllowFrom).mockReturnValue(["111"]);
 
     // Enable conversation for the bucket so engagement gate passes
-    mockRuntime.config.loadConfig.mockReturnValue({
+    mockCfg = {
       channels: {
         basecamp: {
           accounts: { "test-acct": { personId: "999" } },
           buckets: { "456": { engage: ["conversation"], allowFrom: ["111"] } },
         },
       },
-    });
+    };
 
     const chatMsg: BasecampInboundMessage = {
       ...mockMsg,
@@ -638,14 +661,14 @@ describe("dispatchBasecampEvent", () => {
       },
     };
 
-    const result = await dispatchBasecampEvent(chatMsg, { account: mockAccount });
+    const result = await dispatchBasecampEvent(chatMsg, { account: mockAccount, cfg: mockCfg });
     expect(result).toBe(false);
   });
 
   it("wildcard bucket allowFrom gates all buckets", async () => {
     vi.mocked(resolveBasecampBucketAllowFrom).mockReturnValue(["111"]);
 
-    const result = await dispatchBasecampEvent(mockMsg, { account: mockAccount });
+    const result = await dispatchBasecampEvent(mockMsg, { account: mockAccount, cfg: mockCfg });
     expect(result).toBe(false);
   });
 
@@ -653,7 +676,7 @@ describe("dispatchBasecampEvent", () => {
     // The resolver handles precedence; mock returns the resolved list for bucket 456
     vi.mocked(resolveBasecampBucketAllowFrom).mockReturnValue(["777"]);
 
-    const result = await dispatchBasecampEvent(mockMsg, { account: mockAccount });
+    const result = await dispatchBasecampEvent(mockMsg, { account: mockAccount, cfg: mockCfg });
     expect(result).toBe(true);
   });
 
@@ -672,21 +695,21 @@ describe("dispatchBasecampEvent", () => {
       },
     };
 
-    const result = await dispatchBasecampEvent(dmMsg, { account: mockAccount });
+    const result = await dispatchBasecampEvent(dmMsg, { account: mockAccount, cfg: mockCfg });
     expect(result).toBe(false);
   });
 
   it("no bucket allowFrom = all senders pass (existing behavior)", async () => {
     vi.mocked(resolveBasecampBucketAllowFrom).mockReturnValue(undefined);
 
-    mockRuntime.config.loadConfig.mockReturnValue({
+    mockCfg = {
       channels: {
         basecamp: {
           accounts: { "test-acct": { personId: "999" } },
           buckets: { "456": { engage: ["conversation"] } },
         },
       },
-    });
+    };
 
     const chatMsg: BasecampInboundMessage = {
       ...mockMsg,
@@ -698,7 +721,7 @@ describe("dispatchBasecampEvent", () => {
       },
     };
 
-    const result = await dispatchBasecampEvent(chatMsg, { account: mockAccount });
+    const result = await dispatchBasecampEvent(chatMsg, { account: mockAccount, cfg: mockCfg });
     expect(result).toBe(true);
   });
 });

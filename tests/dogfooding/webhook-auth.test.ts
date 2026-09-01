@@ -17,12 +17,7 @@ vi.mock("../../src/dispatch.js", () => ({
   dispatchBasecampEvent: vi.fn().mockResolvedValue(true),
 }));
 
-const mockLoadConfig = vi.fn();
-vi.mock("../../src/runtime.js", () => ({
-  getBasecampRuntime: vi.fn(() => ({
-    config: { loadConfig: mockLoadConfig },
-  })),
-}));
+const mockCurrentConfig = vi.fn();
 
 const mockResolveAccount = vi.fn();
 const mockResolveDefaultId = vi.fn(() => "default");
@@ -101,6 +96,7 @@ import { dispatchBasecampEvent } from "../../src/dispatch.js";
 import { closeAllAccountDedup } from "../../src/inbound/dedup-registry.js";
 import { getWebhookSecretRegistry, handleBasecampWebhook } from "../../src/inbound/webhooks.js";
 import { clearMetrics } from "../../src/metrics.js";
+import { clearBasecampRuntime, setBasecampRuntime } from "../../src/runtime.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -199,8 +195,12 @@ describe("dogfooding — webhook auth", () => {
     _testStateDir = mkdtempSync(join(tmpdir(), "dogfood-auth-"));
     closeAllAccountDedup();
 
+    setBasecampRuntime({
+      config: { current: (...args: unknown[]) => mockCurrentConfig(...args) },
+    } as any);
+
     // Default config
-    mockLoadConfig.mockReturnValue(defaultConfig({ webhookSecret: "tok-auth" }));
+    mockCurrentConfig.mockReturnValue(defaultConfig({ webhookSecret: "tok-auth" }));
     mockResolveWebhookSecret.mockReturnValue("tok-auth");
     mockResolveAccount.mockReturnValue(defaultAccount);
     mockResolveAccountForBucket.mockReturnValue(undefined);
@@ -208,6 +208,7 @@ describe("dogfooding — webhook auth", () => {
   });
 
   afterEach(() => {
+    clearBasecampRuntime();
     closeAllAccountDedup();
     rmSync(_testStateDir, { recursive: true, force: true });
   });
@@ -238,7 +239,7 @@ describe("dogfooding — webhook auth", () => {
   // DF-007: no auth configured at all
   it("DF-007: returns 403 'not configured' when no auth methods exist", async () => {
     mockResolveWebhookSecret.mockReturnValue(undefined);
-    mockLoadConfig.mockReturnValue(defaultConfig());
+    mockCurrentConfig.mockReturnValue(defaultConfig());
     // No HMAC secrets registered, no webhookSecret
 
     const body = webhookBody();
@@ -255,7 +256,7 @@ describe("dogfooding — webhook auth", () => {
   it("DF-008: authenticates via bucket-scoped HMAC with correct account secret", async () => {
     // Set up multi-account config with virtualAccounts
     mockResolveWebhookSecret.mockReturnValue(undefined); // no token fallback
-    mockLoadConfig.mockReturnValue({
+    mockCurrentConfig.mockReturnValue({
       channels: {
         basecamp: {
           accounts: {
@@ -296,7 +297,7 @@ describe("dogfooding — webhook auth", () => {
   // DF-009: bucket-scoped HMAC — wrong account's secret
   it("DF-009: rejects HMAC from wrong account when bucket is scoped", async () => {
     mockResolveWebhookSecret.mockReturnValue(undefined);
-    mockLoadConfig.mockReturnValue({
+    mockCurrentConfig.mockReturnValue({
       channels: {
         basecamp: {
           accounts: {
@@ -337,7 +338,7 @@ describe("dogfooding — webhook auth", () => {
   // DF-010: fail-closed when scoped account has empty registry
   it("DF-010: fail-closed — does not fall back to other accounts when scoped registry is empty", async () => {
     mockResolveWebhookSecret.mockReturnValue(undefined);
-    mockLoadConfig.mockReturnValue({
+    mockCurrentConfig.mockReturnValue({
       channels: {
         basecamp: {
           accounts: {

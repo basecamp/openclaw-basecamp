@@ -1,17 +1,14 @@
 import { BasecampError } from "@37signals/basecamp";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resolvePersonaAccountId } from "../src/config.js";
 import { dispatchBasecampEvent } from "../src/dispatch.js";
-import { getBasecampRuntime } from "../src/runtime.js";
+import { clearBasecampRuntime, setBasecampRuntime } from "../src/runtime.js";
 import type { BasecampInboundMessage, ResolvedBasecampAccount } from "../src/types.js";
 
 // ---------------------------------------------------------------------------
 // Mocks
 // ---------------------------------------------------------------------------
 
-vi.mock("../src/runtime.js", () => ({
-  getBasecampRuntime: vi.fn(),
-}));
 vi.mock("../src/config.js", () => ({
   resolvePersonaAccountId: vi.fn(),
   resolveBasecampAccount: vi.fn(),
@@ -30,18 +27,17 @@ vi.mock("../src/outbound/format.js", () => ({
 // ---------------------------------------------------------------------------
 
 const mockRuntime = {
-  config: {
-    loadConfig: vi.fn(() => ({
-      channels: {
-        basecamp: {
-          accounts: { "test-acct": { personId: "999" } },
-        },
-      },
-    })),
-  },
   channel: {
     routing: { resolveAgentRoute: vi.fn() },
     reply: { dispatchReplyWithBufferedBlockDispatcher: vi.fn() },
+  },
+};
+
+const mockCfg: any = {
+  channels: {
+    basecamp: {
+      accounts: { "test-acct": { personId: "999" } },
+    },
   },
 };
 
@@ -82,7 +78,7 @@ const mockAccount: ResolvedBasecampAccount = {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  vi.mocked(getBasecampRuntime).mockReturnValue(mockRuntime as any);
+  setBasecampRuntime(mockRuntime as any);
   vi.mocked(resolvePersonaAccountId).mockReturnValue(undefined);
   mockRuntime.channel.routing.resolveAgentRoute.mockReturnValue({
     agentId: "agent-1",
@@ -90,6 +86,10 @@ beforeEach(() => {
     sessionKey: "session:abc",
   });
   mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mockResolvedValue(undefined);
+});
+
+afterEach(() => {
+  clearBasecampRuntime();
 });
 
 // ---------------------------------------------------------------------------
@@ -105,7 +105,7 @@ describe("dispatchBasecampEvent enhanced onError logging", () => {
       error: vi.fn(),
     };
 
-    await dispatchBasecampEvent(mockMsg, { account: mockAccount, log });
+    await dispatchBasecampEvent(mockMsg, { account: mockAccount, cfg: mockCfg, log });
 
     // Get the onError callback from the dispatch call
     const call = mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock.calls[0][0];
@@ -132,7 +132,7 @@ describe("dispatchBasecampEvent enhanced onError logging", () => {
       error: vi.fn(),
     };
 
-    await dispatchBasecampEvent(mockMsg, { account: mockAccount, log });
+    await dispatchBasecampEvent(mockMsg, { account: mockAccount, cfg: mockCfg, log });
 
     const call = mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock.calls[0][0];
     const onError = call.dispatcherOptions.onError;
@@ -151,7 +151,7 @@ describe("dispatchBasecampEvent enhanced onError logging", () => {
       error: vi.fn(),
     };
 
-    await dispatchBasecampEvent(mockMsg, { account: mockAccount, log });
+    await dispatchBasecampEvent(mockMsg, { account: mockAccount, cfg: mockCfg, log });
 
     const call = mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock.calls[0][0];
     const onError = call.dispatcherOptions.onError;
@@ -170,7 +170,7 @@ describe("dispatchBasecampEvent enhanced onError logging", () => {
       error: vi.fn(),
     };
 
-    await dispatchBasecampEvent(mockMsg, { account: mockAccount, log });
+    await dispatchBasecampEvent(mockMsg, { account: mockAccount, cfg: mockCfg, log });
 
     const call = mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock.calls[0][0];
     const onError = call.dispatcherOptions.onError;
@@ -183,7 +183,7 @@ describe("dispatchBasecampEvent enhanced onError logging", () => {
 
   it("classifies 403 Forbidden as auth", async () => {
     const log = { info: vi.fn(), warn: vi.fn(), debug: vi.fn(), error: vi.fn() };
-    await dispatchBasecampEvent(mockMsg, { account: mockAccount, log });
+    await dispatchBasecampEvent(mockMsg, { account: mockAccount, cfg: mockCfg, log });
     const call = mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock.calls[0][0];
     call.dispatcherOptions.onError(new Error("403 Forbidden"));
     expect(log.error.mock.calls[0][0]).toContain('"type":"auth"');
@@ -191,7 +191,7 @@ describe("dispatchBasecampEvent enhanced onError logging", () => {
 
   it("classifies ECONNRESET as network", async () => {
     const log = { info: vi.fn(), warn: vi.fn(), debug: vi.fn(), error: vi.fn() };
-    await dispatchBasecampEvent(mockMsg, { account: mockAccount, log });
+    await dispatchBasecampEvent(mockMsg, { account: mockAccount, cfg: mockCfg, log });
     const call = mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock.calls[0][0];
     call.dispatcherOptions.onError(new Error("ECONNRESET"));
     expect(log.error.mock.calls[0][0]).toContain('"type":"network"');
@@ -199,7 +199,7 @@ describe("dispatchBasecampEvent enhanced onError logging", () => {
 
   it("classifies errors with structured status property as auth", async () => {
     const log = { info: vi.fn(), warn: vi.fn(), debug: vi.fn(), error: vi.fn() };
-    await dispatchBasecampEvent(mockMsg, { account: mockAccount, log });
+    await dispatchBasecampEvent(mockMsg, { account: mockAccount, cfg: mockCfg, log });
     const call = mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock.calls[0][0];
     const err = new Error("request failed") as any;
     err.status = 401;
@@ -209,7 +209,7 @@ describe("dispatchBasecampEvent enhanced onError logging", () => {
 
   it("classifies HTTP 404 as unknown (not routing)", async () => {
     const log = { info: vi.fn(), warn: vi.fn(), debug: vi.fn(), error: vi.fn() };
-    await dispatchBasecampEvent(mockMsg, { account: mockAccount, log });
+    await dispatchBasecampEvent(mockMsg, { account: mockAccount, cfg: mockCfg, log });
     const call = mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock.calls[0][0];
     call.dispatcherOptions.onError(new Error("HTTP 404 Not Found"));
     expect(log.error.mock.calls[0][0]).toContain('"type":"unknown"');
@@ -217,7 +217,7 @@ describe("dispatchBasecampEvent enhanced onError logging", () => {
 
   it("classifies BasecampError auth_required as auth", async () => {
     const log = { info: vi.fn(), warn: vi.fn(), debug: vi.fn(), error: vi.fn() };
-    await dispatchBasecampEvent(mockMsg, { account: mockAccount, log });
+    await dispatchBasecampEvent(mockMsg, { account: mockAccount, cfg: mockCfg, log });
     const call = mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock.calls[0][0];
     call.dispatcherOptions.onError(new BasecampError("auth_required", "Token expired"));
     expect(log.error.mock.calls[0][0]).toContain('"type":"auth"');
@@ -225,7 +225,7 @@ describe("dispatchBasecampEvent enhanced onError logging", () => {
 
   it("classifies BasecampError forbidden as auth", async () => {
     const log = { info: vi.fn(), warn: vi.fn(), debug: vi.fn(), error: vi.fn() };
-    await dispatchBasecampEvent(mockMsg, { account: mockAccount, log });
+    await dispatchBasecampEvent(mockMsg, { account: mockAccount, cfg: mockCfg, log });
     const call = mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock.calls[0][0];
     call.dispatcherOptions.onError(new BasecampError("forbidden", "Access denied"));
     expect(log.error.mock.calls[0][0]).toContain('"type":"auth"');
@@ -233,7 +233,7 @@ describe("dispatchBasecampEvent enhanced onError logging", () => {
 
   it("classifies BasecampError rate_limit correctly", async () => {
     const log = { info: vi.fn(), warn: vi.fn(), debug: vi.fn(), error: vi.fn() };
-    await dispatchBasecampEvent(mockMsg, { account: mockAccount, log });
+    await dispatchBasecampEvent(mockMsg, { account: mockAccount, cfg: mockCfg, log });
     const call = mockRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher.mock.calls[0][0];
     call.dispatcherOptions.onError(new BasecampError("rate_limit", "Too many requests"));
     expect(log.error.mock.calls[0][0]).toContain('"type":"rate_limit"');

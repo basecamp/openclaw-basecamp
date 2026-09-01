@@ -79,9 +79,14 @@ describe("PF-001: poller cursor save timeout", () => {
 
   beforeEach(async () => {
     tmpDir = await mkdtemp(join(tmpdir(), "pf-001-"));
+    // getAccountDedup resolves the plugin state dir through the runtime even
+    // when the poller receives an explicit stateDir — install a stub runtime
+    // pointing at the per-test temp dir.
+    setBasecampRuntime(stubRuntime({ state: { resolveStateDir: () => tmpDir } }) as any);
   });
 
   afterEach(async () => {
+    clearBasecampRuntime();
     saveSpy?.mockRestore();
     await rm(tmpDir, { recursive: true, force: true });
   });

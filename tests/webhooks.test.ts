@@ -4,20 +4,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("../src/dispatch.js", () => ({
   dispatchBasecampEvent: vi.fn().mockResolvedValue(true),
 }));
-vi.mock("../src/runtime.js", () => ({
-  getBasecampRuntime: vi.fn(() => ({
-    config: {
-      loadConfig: () => ({
-        channels: {
-          basecamp: {
-            accounts: { default: { personId: "1" } },
-            webhookSecret: "test-secret-123",
-          },
-        },
-      }),
+const webhookTestCfg = {
+  channels: {
+    basecamp: {
+      accounts: { default: { personId: "1" } },
+      webhookSecret: "test-secret-123",
     },
-  })),
-}));
+  },
+};
 vi.mock("../src/config.js", () => ({
   resolveBasecampAccount: vi.fn(() => ({
     accountId: "default",
@@ -77,15 +71,18 @@ import { dispatchBasecampEvent } from "../src/dispatch.js";
 import { closeAllAccountDedup } from "../src/inbound/dedup-registry.js";
 import { handleBasecampWebhook, Semaphore } from "../src/inbound/webhooks.js";
 import { clearMetrics, getAccountMetrics } from "../src/metrics.js";
+import { clearBasecampRuntime, setBasecampRuntime } from "../src/runtime.js";
 
 beforeEach(() => {
   vi.clearAllMocks();
   _whTestStateDir = mkdtempSync(join(tmpdir(), "wh-test-"));
   closeAllAccountDedup();
+  setBasecampRuntime({ config: { current: () => webhookTestCfg } } as any);
   vi.mocked(resolveWebhookSecret).mockReturnValue("test-secret-123");
 });
 
 afterEach(() => {
+  clearBasecampRuntime();
   closeAllAccountDedup();
   rmSync(_whTestStateDir, { recursive: true, force: true });
 });
