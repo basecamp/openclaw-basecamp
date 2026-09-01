@@ -15,8 +15,8 @@
 
 import type { AuthorizationInfo } from "@37signals/basecamp";
 import { discoverIdentity } from "@37signals/basecamp/oauth";
-import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import { normalizeAccountId } from "openclaw/plugin-sdk/account-id";
+import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import { cliMe, cliProfileList } from "../basecamp-cli.js";
 import { listBasecampAccountIds } from "../config.js";
 import {

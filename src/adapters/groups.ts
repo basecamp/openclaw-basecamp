@@ -1,11 +1,12 @@
 /**
  * Basecamp groups adapter — per-bucket behavior configuration.
  *
- * Implements ChannelGroupAdapter for resolving requireMention, tool policies,
- * and group intro hints on a per-project (bucket) basis.
+ * Implements ChannelGroupAdapter for resolving requireMention and tool policies
+ * on a per-project (bucket) basis.
  */
 
-import type { ChannelGroupAdapter, ChannelGroupContext } from "openclaw/plugin-sdk/channel-runtime";
+import type { ChannelGroupContext } from "openclaw/plugin-sdk/channel-contract";
+import type { ChannelGroupAdapter } from "../sdk-types.js";
 import type { BasecampBucketConfig, BasecampChannelConfig } from "../types.js";
 
 function getBasecampSection(cfg: Record<string, unknown>): BasecampChannelConfig | undefined {
@@ -56,9 +57,4 @@ export const basecampGroupAdapter: ChannelGroupAdapter = {
       deny: bucketCfg.tools.deny,
     };
   },
-
-  resolveGroupIntroHint: () =>
-    "This is a Basecamp project. Conversations happen across Campfire chats, " +
-    "card tables, to-do lists, check-ins, message boards, and documents. " +
-    "Use recording:<id>, bucket:<id>, or ping:<id> to reference Basecamp resources.",
 };

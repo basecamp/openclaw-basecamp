@@ -1,6 +1,6 @@
-import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import { DEFAULT_ACCOUNT_ID, normalizeAccountId } from "openclaw/plugin-sdk/account-id";
-import { z } from "openclaw/plugin-sdk/zod";
+import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
+import { z } from "zod";
 import { isValidLaunchpadClientId } from "./oauth-credentials.js";
 import type {
   BasecampAccountConfig,
@@ -61,7 +61,7 @@ export const BasecampConfigSchema = z.object({
   /** Webhook subscription management. */
   webhooks: z
     .object({
-      payloadUrl: z.string().url().optional(),
+      payloadUrl: z.url().optional(),
       projects: z.array(z.string()).optional(),
       types: z.array(z.string()).optional(),
       autoRegister: z.boolean().optional(),

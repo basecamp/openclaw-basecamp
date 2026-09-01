@@ -1,35 +1,15 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { clearBasecampRuntime, setBasecampRuntime } from "../src/runtime.js";
 
-vi.mock("openclaw/plugin-sdk", () => ({
-  DEFAULT_ACCOUNT_ID: "default",
-  normalizeAccountId: (value: string | undefined | null): string => {
-    const trimmed = (value ?? "").trim();
-    return trimmed || "default";
-  },
-  buildChannelConfigSchema: (schema: unknown) => ({ schema: {} }),
-  setAccountEnabledInConfigSection: vi.fn(({ cfg, sectionKey, accountId, enabled }: any) => {
-    const updated = structuredClone(cfg);
-    const section = updated.channels?.basecamp;
-    if (section?.accounts?.[accountId]) {
-      section.accounts[accountId].enabled = enabled;
-    }
-    return updated;
-  }),
-  deleteAccountFromConfigSection: vi.fn(({ cfg, sectionKey, accountId }: any) => {
-    const updated = structuredClone(cfg);
-    const section = updated.channels?.basecamp;
-    if (section?.accounts?.[accountId]) {
-      delete section.accounts[accountId];
-    }
-    return updated;
-  }),
-}));
+beforeEach(() => {
+  setBasecampRuntime({} as any);
+});
+
+afterEach(() => {
+  clearBasecampRuntime();
+});
 
 // Mock runtime for channel.ts gateway imports
-vi.mock("../src/runtime.js", () => ({
-  getBasecampRuntime: vi.fn(() => ({})),
-}));
-
 // Mock outbound send
 vi.mock("../src/outbound/send.js", () => ({
   sendBasecampText: vi.fn(),

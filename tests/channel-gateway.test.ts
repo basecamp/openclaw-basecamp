@@ -1,12 +1,13 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { clearBasecampRuntime, setBasecampRuntime } from "../src/runtime.js";
 
-vi.mock("openclaw/plugin-sdk", () => ({
-  DEFAULT_ACCOUNT_ID: "default",
-  normalizeAccountId: (v: string | undefined | null) => (v ?? "").trim() || "default",
-  buildChannelConfigSchema: (s: any) => s,
-  setAccountEnabledInConfigSection: vi.fn(),
-  deleteAccountFromConfigSection: vi.fn(),
-}));
+beforeEach(() => {
+  setBasecampRuntime({ state: { resolveStateDir: () => "/tmp/test-state" } } as any);
+});
+
+afterEach(() => {
+  clearBasecampRuntime();
+});
 
 vi.mock("../src/bcq.js", () => ({
   bcqAuthStatus: vi.fn(),
@@ -37,12 +38,6 @@ vi.mock("../src/oauth-credentials.js", () => ({
 vi.mock("../src/basecamp-client.js", () => ({
   clearClients: vi.fn(),
   clearClient: vi.fn(),
-}));
-
-vi.mock("../src/runtime.js", () => ({
-  getBasecampRuntime: vi.fn(() => ({
-    state: { resolveStateDir: () => "/tmp/test-state" },
-  })),
 }));
 
 vi.mock("../src/dispatch.js", () => ({

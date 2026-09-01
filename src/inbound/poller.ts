@@ -17,7 +17,7 @@
  * backoff on errors (max 5 minutes).
  */
 
-import type { OpenClawConfig } from "openclaw/plugin-sdk";
+import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import { getClient, rawOrThrow } from "../basecamp-client.js";
 import { CircuitBreaker } from "../circuit-breaker.js";
 import {

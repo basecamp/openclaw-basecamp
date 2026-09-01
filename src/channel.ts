@@ -1,5 +1,5 @@
-import type { ChannelPlugin } from "openclaw/plugin-sdk";
 import { buildChannelConfigSchema } from "openclaw/plugin-sdk/channel-config-schema";
+import { type ChannelPlugin, createChannelPluginBase, createChatChannelPlugin } from "openclaw/plugin-sdk/channel-core";
 import { deleteAccountFromConfigSection, setAccountEnabledInConfigSection } from "openclaw/plugin-sdk/core";
 import { basecampActionsAdapter } from "./adapters/actions.js";
 import { basecampAgentPromptAdapter } from "./adapters/agent-prompt.js";
@@ -35,7 +35,6 @@ import { resolvePluginStateDir } from "./inbound/state-dir.js";
 import { deactivateWebhooks, reconcileWebhooks } from "./inbound/webhook-lifecycle.js";
 import { flushWebhookSecrets, getWebhookSecretRegistry } from "./inbound/webhooks.js";
 import { sendBasecampMedia, sendBasecampText } from "./outbound/send.js";
-import { getBasecampRuntime } from "./runtime.js";
 import type { BasecampChannelConfig, BasecampInboundMessage, ResolvedBasecampAccount } from "./types.js";
 import { withTimeout } from "./util.js";
 
@@ -48,19 +47,105 @@ export function _resetValidationState(): void {
   lastValidatedConfigJson = undefined;
 }
 
-export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampProbe, BasecampAudit> = {
-  id: "basecamp",
-
-  meta: {
+/**
+ * Base plugin surface (SPEC §2.1): everything outside the four
+ * createChatChannelPlugin slots (security, pairing, threading, outbound).
+ * WP0 lays this skeleton; WP2–WP5 fill the remaining slots idiomatically.
+ */
+const basecampChannelBase = {
+  ...createChannelPluginBase<ResolvedBasecampAccount>({
     id: "basecamp",
-    label: "Basecamp",
-    selectionLabel: "Basecamp (Campfire, Cards, Todos, Check-ins, Pings)",
-    docsPath: "/channels/basecamp",
-    docsLabel: "basecamp",
-    blurb:
-      "Campfire chats, card tables, to-do lists, check-ins, pings — every Basecamp surface as a live agent interaction point.",
-    systemImage: "building.2",
-  },
+
+    meta: {
+      label: "Basecamp",
+      selectionLabel: "Basecamp (Campfire, Cards, Todos, Check-ins, Pings)",
+      docsPath: "/channels/basecamp",
+      docsLabel: "basecamp",
+      blurb:
+        "Campfire chats, card tables, to-do lists, check-ins, pings — every Basecamp surface as a live agent interaction point.",
+      systemImage: "building.2",
+    },
+
+    setupWizard: basecampSetupWizard,
+
+    commands: {
+      enforceOwnerForCommands: true,
+      skipWhenConfigEmpty: true,
+    },
+
+    agentPrompt: basecampAgentPromptAdapter,
+
+    reload: { configPrefixes: ["channels.basecamp"] },
+
+    configSchema: {
+      ...buildChannelConfigSchema(BasecampConfigSchema),
+      uiHints: {
+        "accounts.*.tokenFile": {
+          label: "Token file path",
+          help: "Path to file containing OAuth token",
+          sensitive: true,
+        },
+        "accounts.*.token": {
+          label: "Token",
+          help: "Inline OAuth token (prefer tokenFile)",
+          sensitive: true,
+          advanced: true,
+        },
+        "accounts.*.cliProfile": {
+          label: "Basecamp CLI profile",
+          help: "CLI profile for identity discovery during setup (not used at runtime)",
+        },
+        "accounts.*.personId": { label: "Person ID", help: "Your Basecamp person ID (numeric)" },
+        "accounts.*.basecampAccountId": {
+          label: "Basecamp Account ID",
+          help: "Numeric Basecamp account ID (auto-set during onboarding)",
+        },
+        "accounts.*.oauthTokenFile": {
+          label: "OAuth token file",
+          help: "Path to OAuth token JSON (auto-managed)",
+          sensitive: true,
+        },
+        "accounts.*.oauthClientId": {
+          label: "OAuth Client ID (override)",
+          help: "Override channel-level OAuth client ID for this account",
+        },
+        "accounts.*.oauthClientSecret": {
+          label: "OAuth Client Secret (override)",
+          help: "Override channel-level OAuth secret",
+          sensitive: true,
+        },
+        "oauth.clientId": { label: "OAuth Client ID", help: "Basecamp OAuth app client ID for browser-based login" },
+        "oauth.clientSecret": { label: "OAuth Client Secret", help: "Basecamp OAuth app secret", sensitive: true },
+        personas: {
+          label: "Agent personas",
+          help: "Maps agent IDs to Basecamp account IDs for multi-identity outbound",
+          advanced: true,
+        },
+        virtualAccounts: {
+          label: "Project scopes",
+          help: "Maps synthetic account IDs to specific projects",
+          advanced: true,
+        },
+        dmPolicy: { label: "DM policy", help: "Controls who can DM agents: pairing, allowlist, open, disabled" },
+        allowFrom: { label: "Allowed senders", help: "Basecamp person IDs allowed to message agents" },
+        engage: {
+          label: "Engagement policy",
+          help: "Event types that trigger agent response: dm, mention, assignment, checkin, conversation, activity",
+        },
+        buckets: {
+          label: "Per-project settings",
+          help: "Override engage, requireMention, and tool policies per bucket",
+          advanced: true,
+        },
+      },
+    },
+
+    security: basecampSecurityAdapter,
+
+    setup: basecampSetupAdapter,
+
+    groups: basecampGroupAdapter,
+  }),
 
   capabilities: {
     chatTypes: ["direct", "group"],
@@ -69,130 +154,6 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
     media: false,
     nativeCommands: false,
     blockStreaming: false,
-  },
-
-  setupWizard: basecampSetupWizard,
-
-  pairing: basecampPairingAdapter,
-
-  setup: basecampSetupAdapter,
-
-  status: basecampStatusAdapter,
-
-  directory: basecampDirectoryAdapter,
-
-  messaging: basecampMessagingAdapter,
-
-  resolver: basecampResolverAdapter,
-
-  heartbeat: basecampHeartbeatAdapter,
-
-  groups: basecampGroupAdapter,
-
-  agentPrompt: basecampAgentPromptAdapter,
-
-  elevated: {
-    allowFromFallback: () => undefined,
-  },
-
-  commands: {
-    enforceOwnerForCommands: true,
-    skipWhenConfigEmpty: true,
-  },
-
-  auth: {
-    login: async ({ cfg, accountId }) => {
-      const account = resolveBasecampAccount(cfg, accountId);
-      switch (account.tokenSource) {
-        case "oauth": {
-          const { interactiveLogin } = await import("./oauth-credentials.js");
-          await interactiveLogin(account);
-          break;
-        }
-        case "config":
-          throw new Error("Account uses an inline token — no login needed. Update the token in config directly.");
-        case "tokenFile":
-          throw new Error(
-            `Account uses a token file (${account.config.tokenFile}). Update the file contents directly.`,
-          );
-        case "none":
-          throw new Error(
-            "No authentication configured for this account. " +
-              "Run `openclaw channels add` and select Basecamp to set up credentials.",
-          );
-      }
-    },
-  },
-
-  mentions: basecampMentionAdapter,
-
-  actions: basecampActionsAdapter,
-
-  agentTools: basecampAgentTools,
-
-  reload: { configPrefixes: ["channels.basecamp"] },
-
-  configSchema: {
-    ...buildChannelConfigSchema(BasecampConfigSchema),
-    uiHints: {
-      "accounts.*.tokenFile": {
-        label: "Token file path",
-        help: "Path to file containing OAuth token",
-        sensitive: true,
-      },
-      "accounts.*.token": {
-        label: "Token",
-        help: "Inline OAuth token (prefer tokenFile)",
-        sensitive: true,
-        advanced: true,
-      },
-      "accounts.*.cliProfile": {
-        label: "Basecamp CLI profile",
-        help: "CLI profile for identity discovery during setup (not used at runtime)",
-      },
-      "accounts.*.personId": { label: "Person ID", help: "Your Basecamp person ID (numeric)" },
-      "accounts.*.basecampAccountId": {
-        label: "Basecamp Account ID",
-        help: "Numeric Basecamp account ID (auto-set during onboarding)",
-      },
-      "accounts.*.oauthTokenFile": {
-        label: "OAuth token file",
-        help: "Path to OAuth token JSON (auto-managed)",
-        sensitive: true,
-      },
-      "accounts.*.oauthClientId": {
-        label: "OAuth Client ID (override)",
-        help: "Override channel-level OAuth client ID for this account",
-      },
-      "accounts.*.oauthClientSecret": {
-        label: "OAuth Client Secret (override)",
-        help: "Override channel-level OAuth secret",
-        sensitive: true,
-      },
-      "oauth.clientId": { label: "OAuth Client ID", help: "Basecamp OAuth app client ID for browser-based login" },
-      "oauth.clientSecret": { label: "OAuth Client Secret", help: "Basecamp OAuth app secret", sensitive: true },
-      personas: {
-        label: "Agent personas",
-        help: "Maps agent IDs to Basecamp account IDs for multi-identity outbound",
-        advanced: true,
-      },
-      virtualAccounts: {
-        label: "Project scopes",
-        help: "Maps synthetic account IDs to specific projects",
-        advanced: true,
-      },
-      dmPolicy: { label: "DM policy", help: "Controls who can DM agents: pairing, allowlist, open, disabled" },
-      allowFrom: { label: "Allowed senders", help: "Basecamp person IDs allowed to message agents" },
-      engage: {
-        label: "Engagement policy",
-        help: "Event types that trigger agent response: dm, mention, assignment, checkin, conversation, activity",
-      },
-      buckets: {
-        label: "Per-project settings",
-        help: "Override engage, requireMention, and tool policies per bucket",
-        advanced: true,
-      },
-    },
   },
 
   config: {
@@ -235,25 +196,50 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
     formatAllowFrom: ({ allowFrom }) => allowFrom.map((entry) => `Person ${entry}`),
   },
 
-  security: basecampSecurityAdapter,
+  // Bucket/recording bindings are project-level, not conversation-level (SPEC §2.21).
+  conversationBindings: { supportsCurrentConversationBinding: false },
 
-  outbound: {
-    deliveryMode: "direct",
-    textChunkLimit: BASECAMP_TEXT_CHUNK_LIMIT,
-    chunkerMode: "markdown",
-    chunker: (text, limit) => chunkMarkdownText(text, limit),
-    resolveTarget: ({ to }) => {
-      const result = resolveOutboundTarget(to ?? "");
-      if (result.ok) return { ok: true, to: result.to };
-      return { ok: false, error: new Error(result.error) };
-    },
-    sendText: async ({ to, text, accountId }) => {
-      const result = await sendBasecampText({ to, text, accountId });
-      return { channel: "basecamp", messageId: result.messageId };
-    },
-    sendMedia: async ({ to, text, mediaUrl, accountId }) => {
-      const result = await sendBasecampMedia({ to, text, mediaUrl, accountId });
-      return { channel: "basecamp", messageId: result.messageId };
+  status: basecampStatusAdapter,
+
+  directory: basecampDirectoryAdapter,
+
+  messaging: basecampMessagingAdapter,
+
+  resolver: basecampResolverAdapter,
+
+  heartbeat: basecampHeartbeatAdapter,
+
+  mentions: basecampMentionAdapter,
+
+  actions: basecampActionsAdapter,
+
+  agentTools: basecampAgentTools,
+
+  elevated: {
+    allowFromFallback: () => undefined,
+  },
+
+  auth: {
+    login: async ({ cfg, accountId }) => {
+      const account = resolveBasecampAccount(cfg, accountId);
+      switch (account.tokenSource) {
+        case "oauth": {
+          const { interactiveLogin } = await import("./oauth-credentials.js");
+          await interactiveLogin(account);
+          break;
+        }
+        case "config":
+          throw new Error("Account uses an inline token — no login needed. Update the token in config directly.");
+        case "tokenFile":
+          throw new Error(
+            `Account uses a token file (${account.config.tokenFile}). Update the file contents directly.`,
+          );
+        case "none":
+          throw new Error(
+            "No authentication configured for this account. " +
+              "Run `openclaw channels add` and select Basecamp to set up credentials.",
+          );
+      }
     },
   },
 
@@ -420,6 +406,7 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
 
         return dispatchBasecampEvent(msg, {
           account,
+          cfg: ctx.cfg,
           log: ctx.log as any,
         });
       };
@@ -531,4 +518,31 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
       return { cleared, loggedOut: cleared };
     },
   },
-};
+} satisfies Partial<ChannelPlugin<ResolvedBasecampAccount, BasecampProbe, BasecampAudit>>;
+
+export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampProbe, BasecampAudit> =
+  createChatChannelPlugin<ResolvedBasecampAccount, BasecampProbe, BasecampAudit>({
+    base: basecampChannelBase,
+
+    pairing: basecampPairingAdapter,
+
+    outbound: {
+      deliveryMode: "direct",
+      textChunkLimit: BASECAMP_TEXT_CHUNK_LIMIT,
+      chunkerMode: "markdown",
+      chunker: (text, limit) => chunkMarkdownText(text, limit),
+      resolveTarget: ({ to }) => {
+        const result = resolveOutboundTarget(to ?? "");
+        if (result.ok) return { ok: true, to: result.to };
+        return { ok: false, error: new Error(result.error) };
+      },
+      sendText: async ({ to, text, accountId }) => {
+        const result = await sendBasecampText({ to, text, accountId });
+        return { channel: "basecamp", messageId: result.messageId, target: { kind: "conversation", id: to } };
+      },
+      sendMedia: async ({ to, text, mediaUrl, accountId }) => {
+        const result = await sendBasecampMedia({ to, text, mediaUrl, accountId });
+        return { channel: "basecamp", messageId: result.messageId, target: { kind: "conversation", id: to } };
+      },
+    },
+  });

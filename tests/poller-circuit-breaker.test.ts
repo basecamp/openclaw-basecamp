@@ -11,6 +11,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { clearMetrics, getAccountMetrics } from "../src/metrics.js";
+import { clearBasecampRuntime, setBasecampRuntime } from "../src/runtime.js";
+import { stubRuntime } from "./helpers.js";
 
 // ---------------------------------------------------------------------------
 // Module mocks -- intercept poll functions and config at the module boundary

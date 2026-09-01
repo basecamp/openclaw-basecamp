@@ -1,31 +1,17 @@
-import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { getBasecampRuntime } from "../runtime.js";
 
-const FALLBACK_STATE_DIR = "/tmp/basecamp-state";
-let fallbackWarned = false;
-
 /**
  * Resolve the plugin-specific state directory from the OpenClaw runtime.
- * Falls back to /tmp/basecamp-state if runtime is unavailable
- * (e.g. webhooks arriving before channel start on first boot).
+ *
+ * Fails closed (throws) when the runtime is unavailable: the webhook route
+ * is only registered in full-runtime mode, after setRuntime has run, so this
+ * only fires on genuine programming errors — never write secrets or dedup
+ * state to a fallback path.
  */
 export function resolvePluginStateDir(): string {
-  try {
-    const runtime = getBasecampRuntime();
-    const baseDir = runtime.state.resolveStateDir(process.env, homedir);
-    return join(baseDir, "plugins", "basecamp");
-  } catch {
-    if (!fallbackWarned) {
-      fallbackWarned = true;
-      console.warn(
-        `[basecamp:state-dir] runtime unavailable, using fallback ${FALLBACK_STATE_DIR} — ` +
-          "secrets and dedup state will persist here until runtime is available",
-      );
-    }
-    // Create with restrictive permissions — may contain webhook secrets and dedup DBs
-    mkdirSync(FALLBACK_STATE_DIR, { recursive: true, mode: 0o700 });
-    return FALLBACK_STATE_DIR;
-  }
+  const runtime = getBasecampRuntime();
+  const baseDir = runtime.state.resolveStateDir(process.env, homedir);
+  return join(baseDir, "plugins", "basecamp");
 }

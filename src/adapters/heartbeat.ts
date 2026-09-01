@@ -7,9 +7,9 @@
  * is valid (auto-refreshing for OAuth accounts).
  */
 
-import type { ChannelHeartbeatAdapter } from "openclaw/plugin-sdk/channel-runtime";
 import { getClient } from "../basecamp-client.js";
 import { resolveBasecampAccount } from "../config.js";
+import type { ChannelHeartbeatAdapter } from "../sdk-types.js";
 
 export const basecampHeartbeatAdapter: ChannelHeartbeatAdapter = {
   checkReady: async ({ cfg, accountId }) => {

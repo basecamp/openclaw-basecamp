@@ -5,8 +5,9 @@
  * and config application for Basecamp accounts.
  */
 
-import type { ChannelSetupAdapter, ChannelSetupInput, OpenClawConfig } from "openclaw/plugin-sdk";
 import { normalizeAccountId } from "openclaw/plugin-sdk/account-id";
+import type { ChannelSetupAdapter, ChannelSetupInput } from "openclaw/plugin-sdk/channel-setup";
+import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import { applyAccountNameToChannelSection } from "openclaw/plugin-sdk/setup";
 import type { BasecampChannelConfig } from "../types.js";
 

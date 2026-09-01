@@ -6,11 +6,11 @@
  * Pairing approval sends a Ping message to the user via the Basecamp API.
  */
 
-import type { OpenClawConfig } from "openclaw/plugin-sdk";
-import type { ChannelPairingAdapter } from "openclaw/plugin-sdk/channel-runtime";
 import { PAIRING_APPROVED_MESSAGE } from "openclaw/plugin-sdk/channel-status";
+import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import { getClient, rawOrThrow } from "../basecamp-client.js";
 import { resolveBasecampAccount } from "../config.js";
+import type { ChannelPairingAdapter } from "../sdk-types.js";
 
 export const basecampPairingAdapter: ChannelPairingAdapter = {
   idLabel: "basecampPersonId",

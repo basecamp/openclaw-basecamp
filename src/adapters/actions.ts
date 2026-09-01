@@ -12,7 +12,7 @@ import type {
   ChannelMessageActionAdapter,
   ChannelMessageActionContext,
   ChannelMessageActionName,
-} from "openclaw/plugin-sdk";
+} from "openclaw/plugin-sdk/channel-contract";
 import { readStringParam } from "openclaw/plugin-sdk/param-readers";
 import type { ChannelToolSend } from "openclaw/plugin-sdk/tool-send";
 import { getClient, numId } from "../basecamp-client.js";

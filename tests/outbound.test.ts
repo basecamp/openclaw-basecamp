@@ -1,16 +1,18 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { clearBasecampRuntime, setBasecampRuntime } from "../src/runtime.js";
+
+beforeEach(() => {
+  setBasecampRuntime({} as any);
+});
+
+afterEach(() => {
+  clearBasecampRuntime();
+});
+
 import { chunkMarkdownText, resolveOutboundTarget } from "../src/adapters/outbound.js";
 import { sendBasecampMedia, sendBasecampText } from "../src/outbound/send.js";
 
 // --- Mocks required to import channel.ts without pulling in heavy deps ---
-vi.mock("openclaw/plugin-sdk", () => ({
-  DEFAULT_ACCOUNT_ID: "default",
-  normalizeAccountId: (v: string | undefined | null) => (v ?? "").trim() || "default",
-  buildChannelConfigSchema: (schema: unknown) => ({ schema: {} }),
-  setAccountEnabledInConfigSection: vi.fn(),
-  deleteAccountFromConfigSection: vi.fn(),
-}));
-vi.mock("../src/runtime.js", () => ({ getBasecampRuntime: vi.fn(() => ({})) }));
 vi.mock("../src/dispatch.js", () => ({ dispatchBasecampEvent: vi.fn() }));
 vi.mock("../src/basecamp-cli.js", () => ({ cliAuthStatus: vi.fn() }));
 vi.mock("../src/basecamp-client.js", () => ({

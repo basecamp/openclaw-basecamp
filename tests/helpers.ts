@@ -5,6 +5,8 @@
  * This file does NOT contain any test code (no describe/it/expect).
  * Import these helpers into test files that need them.
  */
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { BasecampInboundMessage, BasecampInboundMeta, ResolvedBasecampAccount } from "../src/types.js";
 
 /**
@@ -74,26 +76,15 @@ export function stubMsg(
 }
 
 /**
- * Standard mock factory for openclaw/plugin-sdk.
- * Use in vi.mock("openclaw/plugin-sdk", () => sdkMock())
- */
-export function sdkMock() {
-  return {
-    DEFAULT_ACCOUNT_ID: "default",
-    normalizeAccountId: (value: string | undefined | null): string => {
-      const trimmed = (value ?? "").trim();
-      return trimmed || "default";
-    },
-  };
-}
-
-/**
  * Standard mock runtime factory for tests that need getBasecampRuntime.
+ * Shape mirrors the 2.0 PluginRuntime surface the plugin actually touches.
+ * Install with `setBasecampRuntime(stubRuntime() as any)` in beforeEach and
+ * `clearBasecampRuntime()` in afterEach (see sdk-testing docs pattern).
  */
 export function stubRuntime(overrides?: Record<string, unknown>) {
   return {
     config: {
-      loadConfig: () => ({
+      current: () => ({
         channels: {
           basecamp: {
             accounts: { "test-acct": { personId: "999" } },
@@ -104,6 +95,13 @@ export function stubRuntime(overrides?: Record<string, unknown>) {
     channel: {
       routing: { resolveAgentRoute: () => null },
       reply: { dispatchReplyWithBufferedBlockDispatcher: async () => {} },
+    },
+    state: {
+      resolveStateDir: () => join(tmpdir(), `basecamp-test-state-${process.pid}`),
+    },
+    logging: {
+      getChildLogger: () => ({ info() {}, warn() {}, error() {}, debug() {} }),
+      shouldLogVerbose: () => false,
     },
     ...overrides,
   };

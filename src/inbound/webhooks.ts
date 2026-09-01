@@ -13,6 +13,7 @@
 import crypto from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { join } from "node:path";
+import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import {
   listBasecampAccountIds,
   resolveAccountForBucket,
@@ -225,10 +226,11 @@ export async function handleBasecampWebhook(req: IncomingMessage, res: ServerRes
   }
 
   // ----- Load config -----
-  let cfg;
+  // config.current() returns a DeepReadonly snapshot; widen at this boundary.
+  let cfg: OpenClawConfig;
   try {
     const runtime = getBasecampRuntime();
-    cfg = runtime.config.loadConfig();
+    cfg = runtime.config.current() as OpenClawConfig;
   } catch (err) {
     console.error("[basecamp:webhook] failed to load config:", err);
     res.writeHead(500, { "Content-Type": "application/json" });
@@ -437,7 +439,7 @@ export async function handleBasecampWebhook(req: IncomingMessage, res: ServerRes
   // Dispatch with concurrency limit
   await dispatchSemaphore.acquire();
   try {
-    const delivered = await dispatchBasecampEvent(msg, { account });
+    const delivered = await dispatchBasecampEvent(msg, { account, cfg });
     if (delivered) {
       recordWebhookDispatched(account.accountId);
     } else {

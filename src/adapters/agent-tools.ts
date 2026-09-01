@@ -21,9 +21,9 @@
  *   basecamp_api_write    — POST/PUT/DELETE any Basecamp 3 resource
  */
 
-import type { Static } from "@sinclair/typebox";
-import { Type } from "@sinclair/typebox";
-import type { ChannelAgentTool } from "openclaw/plugin-sdk";
+import type { ChannelAgentTool } from "openclaw/plugin-sdk/channel-contract";
+import type { Static } from "typebox";
+import { Type } from "typebox";
 import type { BasecampClient } from "../basecamp-client.js";
 import { getClient, numId, rawOrThrow } from "../basecamp-client.js";
 import { resolveBasecampAccount } from "../config.js";

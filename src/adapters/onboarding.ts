@@ -8,9 +8,9 @@
  * Both paths converge on discoverIdentity() for account/person resolution.
  */
 
-import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import { normalizeAccountId } from "openclaw/plugin-sdk/account-id";
 import type { ChannelSetupWizard } from "openclaw/plugin-sdk/channel-setup";
+import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import type { ChannelSetupDmPolicy, DmPolicy } from "openclaw/plugin-sdk/setup";
 import {
   type CliProfile,

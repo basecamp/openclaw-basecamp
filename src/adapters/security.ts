@@ -5,7 +5,7 @@
  * to flag configuration issues at startup.
  */
 
-import type { OpenClawConfig } from "openclaw/plugin-sdk";
+import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import { resolveBasecampDmPolicy } from "../config.js";
 import type { BasecampChannelConfig, ResolvedBasecampAccount } from "../types.js";
 

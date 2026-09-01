@@ -4,34 +4,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // Mock openclaw/plugin-sdk
 // ---------------------------------------------------------------------------
 
-vi.mock("openclaw/plugin-sdk", () => ({
-  buildChannelConfigSchema: (schema: any) => schema,
-  PAIRING_APPROVED_MESSAGE: "You have been approved to message this agent.",
-  createDefaultChannelRuntimeState: (accountId: string) => ({
-    accountId,
-    running: false,
-    lastStartAt: null,
-    lastStopAt: null,
-    lastError: null,
-  }),
-  buildBaseChannelStatusSummary: (snapshot: Record<string, unknown>) => ({
-    configured: snapshot.configured ?? false,
-    running: snapshot.running ?? false,
-    lastStartAt: snapshot.lastStartAt ?? null,
-    lastStopAt: snapshot.lastStopAt ?? null,
-    lastError: snapshot.lastError ?? null,
-  }),
-}));
-
-vi.mock("openclaw/plugin-sdk/account-id", () => ({
-  DEFAULT_ACCOUNT_ID: "default",
-  normalizeAccountId: (value: string | undefined | null): string => {
-    const trimmed = (value ?? "").trim();
-    if (!trimmed) return "default";
-    return trimmed.toLowerCase().replace(/\s+/g, "-");
-  },
-}));
-
 vi.mock("openclaw/plugin-sdk/setup", () => ({
   applyAccountNameToChannelSection: (params: { cfg: any; channelKey: string; accountId: string; name?: string }) => {
     if (!params.name?.trim()) return params.cfg;
@@ -55,37 +27,8 @@ vi.mock("openclaw/plugin-sdk/setup", () => ({
     };
   },
 }));
-vi.mock("openclaw/plugin-sdk/channel-setup", () => ({}));
-
-vi.mock("openclaw/plugin-sdk/channel-runtime", () => ({}));
-
 vi.mock("openclaw/plugin-sdk/channel-status", () => ({
   PAIRING_APPROVED_MESSAGE: "You have been approved to message this agent.",
-}));
-
-vi.mock("openclaw/plugin-sdk/core", () => ({
-  applyAccountNameToChannelSection: (params: { cfg: any; channelKey: string; accountId: string; name?: string }) => {
-    if (!params.name?.trim()) return params.cfg;
-    const section = params.cfg.channels?.[params.channelKey] ?? {};
-    const accounts = section.accounts ?? {};
-    return {
-      ...params.cfg,
-      channels: {
-        ...params.cfg.channels,
-        [params.channelKey]: {
-          ...section,
-          accounts: {
-            ...accounts,
-            [params.accountId]: {
-              ...accounts[params.accountId],
-              name: params.name.trim(),
-            },
-          },
-        },
-      },
-    };
-  },
-  buildChannelConfigSchema: (schema: any) => schema,
 }));
 
 // ---------------------------------------------------------------------------

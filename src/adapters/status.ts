@@ -10,9 +10,9 @@
  * and status issue collection.
  */
 
-import type { ChannelAccountSnapshot, OpenClawConfig } from "openclaw/plugin-sdk";
 import { DEFAULT_ACCOUNT_ID } from "openclaw/plugin-sdk/account-id";
-import type { ChannelStatusAdapter } from "openclaw/plugin-sdk/channel-runtime";
+import type { ChannelAccountSnapshot, ChannelStatusAdapter } from "openclaw/plugin-sdk/channel-contract";
+import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import { getClient, numId } from "../basecamp-client.js";
 import { resolveBasecampAccount } from "../config.js";
 import type { AccountMetrics, PollerSourceMetrics } from "../metrics.js";

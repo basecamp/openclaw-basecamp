@@ -2,14 +2,9 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { clearBasecampRuntime, setBasecampRuntime } from "../src/runtime.js";
 
 let tmpDir: string;
-
-vi.mock("../src/runtime.js", () => ({
-  getBasecampRuntime: vi.fn(() => ({
-    state: { resolveStateDir: () => tmpDir },
-  })),
-}));
 
 import {
   closeAccountDedup,
@@ -21,9 +16,11 @@ import * as sqliteStore from "../src/inbound/dedup-store-sqlite.js";
 
 beforeEach(() => {
   tmpDir = mkdtempSync(join(tmpdir(), "dedup-reg-"));
+  setBasecampRuntime({ state: { resolveStateDir: () => tmpDir } } as any);
 });
 
 afterEach(() => {
+  clearBasecampRuntime();
   closeAllAccountDedup();
   rmSync(tmpDir, { recursive: true, force: true });
 });

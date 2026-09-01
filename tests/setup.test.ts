@@ -6,32 +6,6 @@
  */
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("openclaw/plugin-sdk", () => ({
-  DEFAULT_ACCOUNT_ID: "default",
-  normalizeAccountId: (value: string | undefined | null): string => {
-    const trimmed = (value ?? "").trim();
-    return trimmed || "default";
-  },
-  applyAccountNameToChannelSection: ({ cfg, channelKey, accountId, name }: any) => {
-    const section = cfg.channels?.[channelKey] ?? {};
-    const accounts = section.accounts ?? {};
-    const acct = accounts[accountId] ?? {};
-    return {
-      ...cfg,
-      channels: {
-        ...cfg.channels,
-        [channelKey]: {
-          ...section,
-          accounts: {
-            ...accounts,
-            [accountId]: { ...acct, displayName: name },
-          },
-        },
-      },
-    };
-  },
-}));
-
 import { basecampSetupAdapter } from "../src/adapters/setup.js";
 
 // ---------------------------------------------------------------------------

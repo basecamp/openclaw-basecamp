@@ -7,7 +7,8 @@
  * produce additional guidance when present.
  */
 
-import type { ChannelPlugin, OpenClawConfig } from "openclaw/plugin-sdk";
+import type { ChannelPlugin } from "openclaw/plugin-sdk/channel-core";
+import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import type { BasecampChannelConfig, ResolvedBasecampAccount } from "../types.js";
 
 // ChannelAgentPromptAdapter is not exported from the SDK, so extract it from ChannelPlugin.

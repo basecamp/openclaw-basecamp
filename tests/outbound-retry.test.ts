@@ -1,4 +1,13 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { clearBasecampRuntime, setBasecampRuntime } from "../src/runtime.js";
+
+beforeEach(() => {
+  setBasecampRuntime({} as any);
+});
+
+afterEach(() => {
+  clearBasecampRuntime();
+});
 
 const mockClient = {
   projects: { list: vi.fn() },
@@ -30,9 +39,6 @@ vi.mock("../src/basecamp-client.js", () => ({
 }));
 vi.mock("../src/outbound/format.js", () => ({
   markdownToBasecampHtml: vi.fn((t: string) => t),
-}));
-vi.mock("../src/runtime.js", () => ({
-  getBasecampRuntime: vi.fn(),
 }));
 vi.mock("../src/config.js", () => ({
   resolveBasecampAccount: vi.fn(),

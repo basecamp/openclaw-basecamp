@@ -7,9 +7,10 @@
  */
 
 import type { Person } from "@37signals/basecamp";
-import type { ChannelResolveResult, ChannelResolverAdapter } from "openclaw/plugin-sdk/channel-runtime";
+import type { ChannelResolveResult } from "openclaw/plugin-sdk/channel-contract";
 import { getClient } from "../basecamp-client.js";
 import { resolveBasecampAccount } from "../config.js";
+import type { ChannelResolverAdapter } from "../sdk-types.js";
 import type { BasecampProject } from "../types.js";
 
 function matchPerson(input: string, people: Person[]): Person | undefined {

@@ -6,8 +6,8 @@
  */
 
 import type { Person, Project } from "@37signals/basecamp";
-import type { OpenClawConfig } from "openclaw/plugin-sdk";
-import type { ChannelDirectoryAdapter, ChannelDirectoryEntry } from "openclaw/plugin-sdk/channel-runtime";
+import type { ChannelDirectoryAdapter, ChannelDirectoryEntry } from "openclaw/plugin-sdk/channel-contract";
+import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import { getClient, numId } from "../basecamp-client.js";
 import { resolveBasecampAccount } from "../config.js";
 import type { BasecampChannelConfig } from "../types.js";

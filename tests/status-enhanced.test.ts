@@ -1,27 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("openclaw/plugin-sdk", () => ({
-  DEFAULT_ACCOUNT_ID: "default",
-  normalizeAccountId: (value: string | undefined | null): string => {
-    const trimmed = (value ?? "").trim();
-    return trimmed || "default";
-  },
-  createDefaultChannelRuntimeState: (accountId: string) => ({
-    accountId,
-    running: false,
-    lastStartAt: null,
-    lastStopAt: null,
-    lastError: null,
-  }),
-  buildBaseChannelStatusSummary: (snapshot: Record<string, unknown>) => ({
-    configured: snapshot.configured ?? false,
-    running: snapshot.running ?? false,
-    lastStartAt: snapshot.lastStartAt ?? null,
-    lastStopAt: snapshot.lastStopAt ?? null,
-    lastError: snapshot.lastError ?? null,
-  }),
-}));
-
 // cliAuthStatus no longer used by status adapter (uses SDK client for all sources)
 
 const mockClient = {
