@@ -465,6 +465,10 @@ export type BasecampChannelConfig = {
    *   disabled — DMs completely blocked
    */
   dmPolicy?: "pairing" | "allowlist" | "open" | "disabled";
+  /** Group sender policy for Campfires/comments; open by default (project membership gates access). */
+  groupPolicy?: "allowlist" | "open" | "disabled";
+  /** Person IDs admitted to group surfaces under groupPolicy: allowlist. */
+  groupAllowFrom?: Array<string | number>;
   /** Allowed sender person IDs for DM allowlist. */
   allowFrom?: Array<string | number>;
   /**

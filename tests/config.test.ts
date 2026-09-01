@@ -732,10 +732,13 @@ describe("BasecampConfigSchema", () => {
     expect(BasecampConfigSchema.safeParse({ nonsense: true }).success).toBe(false);
   });
 
-  it("defaults dmPolicy to 'pairing' and groupPolicy to 'allowlist' in parsed output", () => {
+  it("defaults dmPolicy to 'pairing' and leaves groupPolicy unset (open) in parsed output", () => {
     const result = BasecampConfigSchema.parse({});
     expect(result.dmPolicy).toBe("pairing");
-    expect(result.groupPolicy).toBe("allowlist");
+    // Project membership gates Campfires; the SDK's allowlist default would
+    // silently drop every group event until groupAllowFrom is populated.
+    expect(result.groupPolicy).toBeUndefined();
+    expect(BasecampConfigSchema.safeParse({ groupPolicy: "allowlist", groupAllowFrom: ["1", 2] }).success).toBe(true);
   });
 
   it("requires '*' in allowFrom for dmPolicy 'open' at the root", () => {

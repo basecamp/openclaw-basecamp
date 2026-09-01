@@ -100,13 +100,25 @@
             ]
           },
           "groupPolicy": {
-            "default": "allowlist",
             "type": "string",
             "enum": [
               "open",
               "disabled",
               "allowlist"
             ]
+          },
+          "groupAllowFrom": {
+            "type": "array",
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "number"
+                }
+              ]
+            }
           },
           "name": {
             "type": "string"
@@ -1040,8 +1052,7 @@
           }
         },
         "required": [
-          "dmPolicy",
-          "groupPolicy"
+          "dmPolicy"
         ],
         "additionalProperties": false
       },

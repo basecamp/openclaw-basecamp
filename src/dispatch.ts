@@ -51,6 +51,8 @@ import {
   resolveBasecampAllowFrom,
   resolveBasecampBucketAllowFrom,
   resolveBasecampDmPolicy,
+  resolveBasecampGroupAllowFrom,
+  resolveBasecampGroupPolicy,
   resolveBasecampHistoryLimit,
   resolveCircuitBreakerConfig,
   resolvePersonaAccountId,
@@ -581,8 +583,6 @@ async function resolveBasecampIngress(params: {
   route: { agentId: string; sessionKey: string };
 }): Promise<ResolvedChannelMessageIngress> {
   const { cfg, msg, chatKind, effectiveAccountId, messageId, inboundEventKind, route } = params;
-  const section = cfg.channels?.basecamp as BasecampChannelConfig | undefined;
-
   const resolver = createChannelIngressResolver({
     channelId: "basecamp",
     accountId: effectiveAccountId,
@@ -604,16 +604,24 @@ async function resolveBasecampIngress(params: {
   // when a bucket configures its own allowlist, it replaces the effective
   // channel-level sender allowlist for events in that bucket.
   const bucketAllowFrom = resolveBasecampBucketAllowFrom(cfg, msg.meta.bucketId);
-  const bucketRoute: ChannelIngressRouteDescriptor | undefined = bucketAllowFrom
+  const configuredGroupPolicy = resolveBasecampGroupPolicy(cfg, effectiveAccountId);
+  // Without a bucket allowlist, a channel/account-level groupPolicy: allowlist
+  // draws its senders from groupAllowFrom through the same route descriptor.
+  const groupAllowFrom =
+    !bucketAllowFrom && chatKind === "group" && configuredGroupPolicy === "allowlist"
+      ? resolveBasecampGroupAllowFrom(cfg, effectiveAccountId)
+      : undefined;
+  const routeAllowFrom = bucketAllowFrom ?? groupAllowFrom;
+  const bucketRoute: ChannelIngressRouteDescriptor | undefined = routeAllowFrom
     ? {
-        id: "bucket",
+        id: bucketAllowFrom ? "bucket" : "group",
         kind: "routeSender",
         configured: true,
         matched: true,
         allowed: true,
         senderPolicy: "replace",
-        senderAllowFrom: bucketAllowFrom,
-        blockReason: "bucket_sender_not_allowlisted",
+        senderAllowFrom: routeAllowFrom,
+        blockReason: bucketAllowFrom ? "bucket_sender_not_allowlisted" : "group_sender_not_allowlisted",
       }
     : undefined;
 
@@ -626,9 +634,7 @@ async function resolveBasecampIngress(params: {
 
   // A bucket-level allowlist turns group sender policy into an allowlist
   // whose entries come from the route descriptor (senderPolicy: "replace").
-  const configuredGroupPolicy = (section as { groupPolicy?: "allowlist" | "open" | "disabled" } | undefined)
-    ?.groupPolicy;
-  const groupPolicy = bucketAllowFrom ? "allowlist" : (configuredGroupPolicy ?? "open");
+  const groupPolicy = bucketAllowFrom ? "allowlist" : configuredGroupPolicy;
 
   return resolver.message({
     subject: { stableId: msg.sender.id },
@@ -684,7 +690,6 @@ async function issueBasecampPairingChallenge(params: {
       const account = resolveBasecampAccount(cfg, effectiveAccountId);
       const client = getClient(account);
       await rawOrThrow(
-        // biome-ignore lint/suspicious/noExplicitAny: circles endpoint is not in the OpenAPI spec
         await client.raw.POST(`/circles/people/${msg.sender.id}/lines.json` as any, {
           body: { content: `<p>${text}</p>` } as any,
         }),

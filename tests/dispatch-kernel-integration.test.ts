@@ -21,6 +21,8 @@ vi.mock("../src/config.js", () => ({
   resolveCircuitBreakerConfig: vi.fn(() => ({ threshold: 5, cooldownMs: 300000 })),
   resolveBasecampBucketAllowFrom: vi.fn(() => undefined),
   resolveBasecampHistoryLimit: vi.fn(() => 50),
+  resolveBasecampGroupPolicy: vi.fn(() => "open"),
+  resolveBasecampGroupAllowFrom: vi.fn(() => []),
 }));
 vi.mock("../src/outbound/send.js", () => ({
   postReplyToEvent: vi.fn(async () => ({ ok: true, messageId: "posted-1" })),

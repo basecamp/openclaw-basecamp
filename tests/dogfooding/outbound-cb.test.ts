@@ -36,6 +36,8 @@ vi.mock("../../src/config.js", () => ({
   resolveCircuitBreakerConfig: vi.fn(() => ({ threshold: 2, cooldownMs: 50 })),
   resolveBasecampBucketAllowFrom: vi.fn(() => undefined),
   resolveBasecampHistoryLimit: vi.fn(() => 50),
+  resolveBasecampGroupPolicy: vi.fn(() => "open"),
+  resolveBasecampGroupAllowFrom: vi.fn(() => []),
 }));
 
 const mockPostReply = vi.fn();

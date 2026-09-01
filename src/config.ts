@@ -1,5 +1,9 @@
 import { DEFAULT_ACCOUNT_ID, normalizeAccountId } from "openclaw/plugin-sdk/account-id";
-import { buildChannelAccountSchemaParts, requireOpenAllowFrom } from "openclaw/plugin-sdk/channel-config-schema";
+import {
+  buildChannelAccountSchemaParts,
+  GroupPolicySchema,
+  requireOpenAllowFrom,
+} from "openclaw/plugin-sdk/channel-config-schema";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import { DEFAULT_GROUP_HISTORY_LIMIT } from "openclaw/plugin-sdk/reply-history";
 import { buildSecretInputSchema, registerSensitiveConfigSchema } from "openclaw/plugin-sdk/secret-input";
@@ -86,6 +90,14 @@ export const BasecampConfigSchema = z
   .object({
     enabled: z.boolean().optional(),
     ...rootPolicyShape,
+    /**
+     * Group (Campfire/comment) sender policy. Basecamp project membership is
+     * the access control, so the default is open — the SDK's allowlist default
+     * with an empty groupAllowFrom would silently drop every group event.
+     */
+    groupPolicy: GroupPolicySchema.optional(),
+    /** Person IDs admitted to group surfaces under groupPolicy: allowlist. */
+    groupAllowFrom: z.array(z.union([z.string(), z.number()])).optional(),
     /** Display name for the default account; the SDK setup flow writes it at the channel root (single-account convention). */
     name: z.string().optional(),
     allowFrom: z.array(z.union([z.string(), z.number()])).optional(),
@@ -490,6 +502,31 @@ export function resolveBasecampAllowFrom(cfg: OpenClawConfig, accountId?: string
         ?.allowFrom
     : undefined;
   return (accountAllowFrom ?? section?.allowFrom ?? []).map((entry) => String(entry));
+}
+
+/**
+ * Group sender allowlist (Campfires, comments). Per-account `groupAllowFrom`
+ * (SDK account schema part) takes precedence over the channel-level list.
+ */
+export function resolveBasecampGroupAllowFrom(cfg: OpenClawConfig, accountId?: string | null): string[] {
+  const section = getBasecampSection(cfg);
+  const accountList = accountId
+    ? (section?.accounts?.[normalizeAccountId(accountId)] as { groupAllowFrom?: Array<string | number> } | undefined)
+        ?.groupAllowFrom
+    : undefined;
+  return (accountList ?? section?.groupAllowFrom ?? []).map((entry) => String(entry));
+}
+
+/** Group sender policy: per-account → channel-level → open (project membership is the gate). */
+export function resolveBasecampGroupPolicy(
+  cfg: OpenClawConfig,
+  accountId?: string | null,
+): "allowlist" | "open" | "disabled" {
+  const section = getBasecampSection(cfg);
+  const accountPolicy = accountId
+    ? (section?.accounts?.[normalizeAccountId(accountId)] as { groupPolicy?: string } | undefined)?.groupPolicy
+    : undefined;
+  return (accountPolicy ?? section?.groupPolicy ?? "open") as "allowlist" | "open" | "disabled";
 }
 
 /**

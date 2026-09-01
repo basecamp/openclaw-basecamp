@@ -187,3 +187,28 @@ describe("basecampChannel.config adapter", () => {
     expect(described).toMatchObject({ accountId: "work", enabled: true, configured: true });
   });
 });
+
+describe("group policy resolvers", () => {
+  it("defaults groupPolicy to open and groupAllowFrom to empty", async () => {
+    const { resolveBasecampGroupAllowFrom, resolveBasecampGroupPolicy } = await import("../src/config.js");
+    expect(resolveBasecampGroupPolicy({} as any)).toBe("open");
+    expect(resolveBasecampGroupAllowFrom({} as any)).toEqual([]);
+  });
+
+  it("prefers per-account group settings over channel-level ones", async () => {
+    const { resolveBasecampGroupAllowFrom, resolveBasecampGroupPolicy } = await import("../src/config.js");
+    const cfg = {
+      channels: {
+        basecamp: {
+          groupPolicy: "allowlist",
+          groupAllowFrom: [1, "2"],
+          accounts: { ops: { personId: "9", groupPolicy: "open", groupAllowFrom: ["7"] } },
+        },
+      },
+    } as any;
+    expect(resolveBasecampGroupPolicy(cfg)).toBe("allowlist");
+    expect(resolveBasecampGroupAllowFrom(cfg)).toEqual(["1", "2"]);
+    expect(resolveBasecampGroupPolicy(cfg, "ops")).toBe("open");
+    expect(resolveBasecampGroupAllowFrom(cfg, "ops")).toEqual(["7"]);
+  });
+});
