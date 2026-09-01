@@ -77,7 +77,8 @@ describe("postCampfireLine", () => {
 
     expect(result).toEqual({ ok: true, recordingId: "42" });
     expect(mockClient.campfires.createLine).toHaveBeenCalledTimes(1);
-    expect(mockClient.campfires.createLine).toHaveBeenCalledWith(2, { content: "Hello" });
+    // contentType text/html — the API escapes rich-text tags without it
+    expect(mockClient.campfires.createLine).toHaveBeenCalledWith(2, { content: "Hello", contentType: "text/html" });
   });
 
   it("retries on retryable TypeError and succeeds", async () => {

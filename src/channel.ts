@@ -10,7 +10,7 @@ import { basecampHeartbeatAdapter } from "./adapters/heartbeat.js";
 import { basecampMentionAdapter } from "./adapters/mentions.js";
 import { basecampMessagingAdapter } from "./adapters/messaging.js";
 import { basecampSetupWizard } from "./adapters/onboarding.js";
-import { BASECAMP_TEXT_CHUNK_LIMIT, chunkMarkdownText, resolveOutboundTarget } from "./adapters/outbound.js";
+import { BASECAMP_TEXT_CHUNK_LIMIT, resolveOutboundTarget } from "./adapters/outbound.js";
 import { basecampPairingAdapter } from "./adapters/pairing.js";
 import { basecampResolverAdapter } from "./adapters/resolver.js";
 import { basecampSecurityAdapter } from "./adapters/security.js";
@@ -35,6 +35,7 @@ import { closeAccountDedup } from "./inbound/dedup-registry.js";
 import { resolvePluginStateDir } from "./inbound/state-dir.js";
 import { deactivateWebhooks, reconcileWebhooks } from "./inbound/webhook-lifecycle.js";
 import { flushWebhookSecrets, getWebhookSecretRegistry } from "./inbound/webhooks.js";
+import { BASECAMP_PRESENTATION_CAPABILITIES, renderBasecampPresentationMarkdown } from "./outbound/presentation.js";
 import { sendBasecampMedia, sendBasecampText } from "./outbound/send.js";
 import type { BasecampChannelConfig, BasecampInboundMessage, ResolvedBasecampAccount } from "./types.js";
 import { withTimeout } from "./util.js";
@@ -513,22 +514,31 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
     pairing: basecampPairingAdapter,
 
     outbound: {
-      deliveryMode: "direct",
-      textChunkLimit: BASECAMP_TEXT_CHUNK_LIMIT,
-      chunkerMode: "markdown",
-      chunker: (text, limit) => chunkMarkdownText(text, limit),
-      resolveTarget: ({ to }) => {
-        const result = resolveOutboundTarget(to ?? "");
-        if (result.ok) return { ok: true, to: result.to };
-        return { ok: false, error: new Error(result.error) };
+      base: {
+        deliveryMode: "direct",
+        textChunkLimit: BASECAMP_TEXT_CHUNK_LIMIT,
+        // SDK core chunker (fence/table-aware); no custom chunker (SPEC §2.8).
+        chunkerMode: "markdown",
+        presentationCapabilities: BASECAMP_PRESENTATION_CAPABILITIES,
+        // Text posts are single, atomic API writes with a returned recording
+        // id. Media is not durable-final: chat targets only get a link, so
+        // only `text` is declared (SPEC §2.5).
+        deliveryCapabilities: { durableFinal: { text: true } },
+        renderPresentation: ({ payload, presentation }) => {
+          const text = renderBasecampPresentationMarkdown(presentation);
+          return text === null ? null : { ...payload, text };
+        },
+        resolveTarget: ({ to }) => {
+          const result = resolveOutboundTarget(to ?? "");
+          if (result.ok) return { ok: true, to: result.to };
+          return { ok: false, error: new Error(result.error) };
+        },
       },
-      sendText: async ({ to, text, accountId }) => {
-        const result = await sendBasecampText({ to, text, accountId });
-        return { channel: "basecamp", messageId: result.messageId, target: { kind: "conversation", id: to } };
-      },
-      sendMedia: async ({ to, text, mediaUrl, accountId }) => {
-        const result = await sendBasecampMedia({ to, text, mediaUrl, accountId });
-        return { channel: "basecamp", messageId: result.messageId, target: { kind: "conversation", id: to } };
+      attachedResults: {
+        channel: "basecamp",
+        sendText: ({ cfg, to, text, accountId }) => sendBasecampText({ cfg, to, text, accountId }),
+        sendMedia: ({ cfg, to, text, mediaUrl, accountId, mediaReadFile }) =>
+          sendBasecampMedia({ cfg, to, text, mediaUrl, accountId, mediaReadFile }),
       },
     },
   });
