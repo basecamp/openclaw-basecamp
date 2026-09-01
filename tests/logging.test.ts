@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SdkLog } from "../src/logging.js";
-import { createConsoleStructuredLog, createStructuredLog } from "../src/logging.js";
+import { createConsoleStructuredLog, createStructuredLog, getRuntimeLogger } from "../src/logging.js";
+import { clearBasecampRuntime, setBasecampRuntime } from "../src/runtime.js";
 
 describe("createStructuredLog", () => {
   let sdkLog: SdkLog;
@@ -105,5 +106,53 @@ describe("createConsoleStructuredLog", () => {
     const slog = createConsoleStructuredLog({ accountId: "400", source: "webhook" });
     slog.debug("dedup_hit");
     expect(console.debug).toHaveBeenCalledWith("[basecamp:webhook:400] dedup_hit");
+  });
+});
+
+describe("runtime logger routing", () => {
+  const childLogger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
+  const getChildLogger = vi.fn(() => childLogger);
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setBasecampRuntime({ logging: { getChildLogger } } as any);
+  });
+
+  afterEach(() => {
+    clearBasecampRuntime();
+  });
+
+  it("getRuntimeLogger returns a child logger bound to the plugin", () => {
+    const logger = getRuntimeLogger({ subsystem: "hatch" });
+
+    expect(logger).toBe(childLogger);
+    expect(getChildLogger).toHaveBeenCalledWith({ plugin: "basecamp", subsystem: "hatch" });
+  });
+
+  it("getRuntimeLogger returns undefined when no runtime is set", () => {
+    clearBasecampRuntime();
+    expect(getRuntimeLogger()).toBeUndefined();
+  });
+
+  it("createConsoleStructuredLog routes through the runtime child logger when available", () => {
+    const spy = vi.spyOn(console, "info").mockImplementation(() => {});
+
+    const slog = createConsoleStructuredLog({ accountId: "9", source: "webhook" });
+    slog.info("received", { kind: "todo_created" });
+
+    expect(childLogger.info).toHaveBeenCalledWith('[basecamp:webhook:9] received {"kind":"todo_created"}');
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
+  it("createConsoleStructuredLog tolerates a runtime without logging surface", () => {
+    setBasecampRuntime({ state: {} } as any);
+    const spy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const slog = createConsoleStructuredLog({ accountId: "9", source: "webhook" });
+    slog.warn("backpressure");
+
+    expect(spy).toHaveBeenCalledWith("[basecamp:webhook:9] backpressure");
+    spy.mockRestore();
   });
 });

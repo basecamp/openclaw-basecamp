@@ -172,6 +172,46 @@ describe("directory.listPeers", () => {
 
     expect(result).toEqual([]);
   });
+
+  it("applies query and limit to configured ids", async () => {
+    const config = cfg({
+      allowFrom: ["100", "200", "1001"],
+      accounts: { primary: { personId: "300", displayName: "Bot" } },
+    });
+
+    const queried = await basecampDirectoryAdapter.listPeers!({ cfg: config, query: "100", runtime: {} as any });
+    expect(queried.map((e) => e.id)).toEqual(["100", "1001"]);
+
+    const limited = await basecampDirectoryAdapter.listPeers!({ cfg: config, limit: 2, runtime: {} as any });
+    expect(limited).toHaveLength(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// listGroups
+// ---------------------------------------------------------------------------
+
+describe("directory.listGroups", () => {
+  it("returns virtualAccount buckets with query/limit applied", async () => {
+    const config = cfg({
+      virtualAccounts: {
+        ops: { accountId: "primary", bucketId: "11" },
+        support: { accountId: "primary", bucketId: "22" },
+      },
+    });
+
+    const all = await basecampDirectoryAdapter.listGroups!({ cfg: config, runtime: {} as any });
+    expect(all).toEqual([
+      { kind: "group", id: "bucket:11", name: "ops" },
+      { kind: "group", id: "bucket:22", name: "support" },
+    ]);
+
+    const queried = await basecampDirectoryAdapter.listGroups!({ cfg: config, query: "22", runtime: {} as any });
+    expect(queried).toEqual([{ kind: "group", id: "bucket:22", name: "support" }]);
+
+    const limited = await basecampDirectoryAdapter.listGroups!({ cfg: config, limit: 1, runtime: {} as any });
+    expect(limited).toHaveLength(1);
+  });
 });
 
 // ---------------------------------------------------------------------------

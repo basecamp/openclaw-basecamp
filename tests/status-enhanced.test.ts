@@ -29,11 +29,12 @@ import { basecampStatusAdapter } from "../src/adapters/status.js";
 import { resolveBasecampAccount } from "../src/config.js";
 import {
   clearMetrics,
+  getAccountMetrics,
   recordCircuitBreakerState,
-  recordDedupSize,
+  recordIngressAvailable,
+  recordIngressUnavailable,
   recordPollAttempt,
   recordPollSuccess,
-  recordWebhookDedupSize,
   recordWebhookDispatched,
   recordWebhookDropped,
   recordWebhookError,
@@ -529,22 +530,6 @@ describe("auditAccount operational metrics", () => {
     });
   });
 
-  it("includes dedup sizes in audit", async () => {
-    mockClient.projects.list.mockResolvedValue([]);
-
-    recordDedupSize("test", 100);
-    recordWebhookDedupSize("test", 25);
-
-    const audit = await basecampStatusAdapter.auditAccount!({
-      account: mockAccount,
-      timeoutMs: 5000,
-      cfg: cfg({ accounts: { test: { personId: "42" } } }),
-    });
-
-    expect(audit.dedupSize).toBe(100);
-    expect(audit.webhookDedupSize).toBe(25);
-  });
-
   it("includes circuit breaker state in audit", async () => {
     mockClient.projects.list.mockResolvedValue([]);
 
@@ -941,5 +926,224 @@ describe("collectStatusIssues (audit.errors)", () => {
 
     const unknownIssues = issues.filter((i) => i.message.includes("unknown kind"));
     expect(unknownIssues.length).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Computed snapshot: lifecycle overrides + transport activity + ingress
+// ---------------------------------------------------------------------------
+
+describe("buildAccountSnapshot (computed lifecycle)", () => {
+  it("carries the gateway-published lifecycle through the snapshot", () => {
+    const snapshot = basecampStatusAdapter.buildAccountSnapshot!({
+      account: mockAccount,
+      cfg: cfg({}),
+      runtime: { accountId: "test", running: true, lifecycle: "ready" },
+      probe: { ok: true, authenticated: true },
+    }) as Record<string, unknown>;
+
+    expect(snapshot.lifecycle).toBe("ready");
+    expect(snapshot.running).toBe(true);
+    expect(snapshot.tokenSource).toBe("config");
+  });
+
+  it("overrides lifecycle to 'blocked' when the probe shows an auth failure", () => {
+    const snapshot = basecampStatusAdapter.buildAccountSnapshot!({
+      account: mockAccount,
+      cfg: cfg({}),
+      runtime: { accountId: "test", running: true, lifecycle: "ready" },
+      probe: { ok: false, authenticated: false, error: "401" },
+    }) as Record<string, unknown>;
+
+    expect(snapshot.lifecycle).toBe("blocked");
+  });
+
+  it("overrides lifecycle to 'recovering' while a circuit breaker is open", () => {
+    recordCircuitBreakerState("test", "activity", { state: "open", failures: 5, trippedAt: Date.now() });
+
+    const snapshot = basecampStatusAdapter.buildAccountSnapshot!({
+      account: mockAccount,
+      cfg: cfg({}),
+      runtime: { accountId: "test", running: true, lifecycle: "ready" },
+      probe: { ok: true, authenticated: true },
+    }) as Record<string, unknown>;
+
+    expect(snapshot.lifecycle).toBe("recovering");
+  });
+
+  it("does not report 'recovering' when the account is not running", () => {
+    recordCircuitBreakerState("test", "activity", { state: "open", failures: 5, trippedAt: Date.now() });
+
+    const snapshot = basecampStatusAdapter.buildAccountSnapshot!({
+      account: mockAccount,
+      cfg: cfg({}),
+      runtime: { accountId: "test", running: false, lifecycle: "stopped" },
+      probe: { ok: true, authenticated: true },
+    }) as Record<string, unknown>;
+
+    expect(snapshot.lifecycle).toBe("stopped");
+  });
+
+  it("derives lastTransportActivityAt from poller ticks", () => {
+    const before = Date.now();
+    recordPollSuccess("test", "activity", 1);
+
+    const snapshot = basecampStatusAdapter.buildAccountSnapshot!({
+      account: mockAccount,
+      cfg: cfg({}),
+      runtime: { accountId: "test", running: true },
+      probe: { ok: true, authenticated: true },
+    }) as Record<string, unknown>;
+
+    expect(snapshot.lastTransportActivityAt).toBeGreaterThanOrEqual(before);
+  });
+
+  it("sets ingressUnavailable when webhook ingress is recorded broken", () => {
+    recordIngressUnavailable("test", "webhook reconciliation failed");
+
+    const snapshot = basecampStatusAdapter.buildAccountSnapshot!({
+      account: mockAccount,
+      cfg: cfg({}),
+      runtime: { accountId: "test", running: true },
+      probe: { ok: true, authenticated: true },
+    }) as Record<string, unknown>;
+
+    expect(snapshot.ingressUnavailable).toBe(true);
+  });
+
+  it("clears ingressUnavailable after recovery", () => {
+    recordIngressUnavailable("test", "boom");
+    recordIngressAvailable("test");
+
+    const snapshot = basecampStatusAdapter.buildAccountSnapshot!({
+      account: mockAccount,
+      cfg: cfg({}),
+      runtime: { accountId: "test", running: true },
+      probe: { ok: true, authenticated: true },
+    }) as Record<string, unknown>;
+
+    expect(snapshot.ingressUnavailable).toBeUndefined();
+  });
+});
+
+describe("collectStatusIssues (ingress + CLI strings)", () => {
+  it("surfaces ingressUnavailable as a runtime issue", () => {
+    const issues = basecampStatusAdapter.collectStatusIssues!([
+      {
+        accountId: "test",
+        configured: true,
+        enabled: true,
+        running: true,
+        ingressUnavailable: true,
+        lastStartAt: Date.now(),
+        lastStopAt: null,
+        lastError: null,
+        probe: { ok: true, authenticated: true },
+      },
+    ]);
+
+    const ingress = issues.filter((i) => i.message.includes("Webhook ingress unavailable"));
+    expect(ingress).toHaveLength(1);
+    expect(ingress[0]!.kind).toBe("runtime");
+  });
+
+  it("points never-started accounts at `openclaw gateway` (not `openclaw start`)", () => {
+    const issues = basecampStatusAdapter.collectStatusIssues!([
+      {
+        accountId: "test",
+        configured: true,
+        enabled: true,
+        running: false,
+        lastStartAt: null,
+        lastStopAt: null,
+        lastError: null,
+        probe: { ok: true, authenticated: true },
+      },
+    ]);
+
+    const neverStarted = issues.find((i) => i.message.includes("never started"));
+    expect(neverStarted?.fix).toContain("openclaw gateway");
+    expect(neverStarted?.fix).not.toContain("`openclaw start`");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildChannelSummary + formatCapabilitiesProbe + logSelfId
+// ---------------------------------------------------------------------------
+
+describe("buildChannelSummary", () => {
+  it("builds a token summary with stable null defaults", async () => {
+    const summary = await basecampStatusAdapter.buildChannelSummary!({
+      account: mockAccount,
+      cfg: cfg({}),
+      defaultAccountId: "test",
+      snapshot: {
+        accountId: "test",
+        configured: true,
+        tokenSource: "config",
+        running: true,
+        lastStartAt: 123,
+        lastStopAt: null,
+        lastError: null,
+        probe: { ok: true, authenticated: true },
+      },
+    });
+
+    expect(summary).toEqual(
+      expect.objectContaining({
+        configured: true,
+        tokenSource: "config",
+        running: true,
+        lastStartAt: 123,
+        lastStopAt: null,
+        lastError: null,
+        lastProbeAt: null,
+      }),
+    );
+  });
+});
+
+describe("formatCapabilitiesProbe", () => {
+  it("shows identity and account count", () => {
+    const lines = basecampStatusAdapter.formatCapabilitiesProbe!({
+      probe: { ok: true, authenticated: true, personName: "Jeremy", accountCount: 2 },
+    });
+
+    expect(lines[0]).toEqual({ text: "Authenticated as Jeremy", tone: "success" });
+    expect(lines[1]).toEqual({ text: "2 Basecamp account(s) visible", tone: "muted" });
+  });
+
+  it("shows poller lag, breaker, and ingress warnings from the metrics snapshot", () => {
+    recordPollSuccess("test", "activity", 1);
+    recordCircuitBreakerState("test", "activity", { state: "open", failures: 7, trippedAt: Date.now() });
+    recordIngressUnavailable("test", "route down");
+
+    const lines = basecampStatusAdapter.formatCapabilitiesProbe!({
+      probe: { ok: true, authenticated: true, personName: "J", metrics: getAccountMetrics("test") },
+    });
+
+    const texts = lines.map((l) => l.text);
+    expect(texts.some((t) => t.includes("Poller lag —"))).toBe(true);
+    expect(texts.some((t) => t.includes("Circuit breaker activity: open (7 failures)"))).toBe(true);
+    expect(texts.some((t) => t.includes("Webhook ingress unavailable: route down"))).toBe(true);
+  });
+
+  it("shows the auth failure when unauthenticated", () => {
+    const lines = basecampStatusAdapter.formatCapabilitiesProbe!({
+      probe: { ok: false, authenticated: false, error: "401 Unauthorized" },
+    });
+
+    expect(lines[0]).toEqual({ text: "Not authenticated: 401 Unauthorized", tone: "error" });
+  });
+});
+
+describe("logSelfId", () => {
+  it("logs identity through the runtime env", () => {
+    const runtime = { log: vi.fn(), error: vi.fn(), exit: vi.fn() };
+
+    basecampStatusAdapter.logSelfId!({ account: mockAccount, cfg: cfg({}), runtime: runtime as any });
+
+    expect(runtime.log).toHaveBeenCalledWith(expect.stringContaining("identity:"));
+    expect(runtime.log).toHaveBeenCalledWith(expect.stringContaining("personId=42"));
   });
 });

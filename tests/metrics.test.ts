@@ -3,13 +3,13 @@ import {
   clearMetrics,
   getAccountMetrics,
   recordCircuitBreakerState,
-  recordDedupSize,
   recordDispatchFailure,
+  recordIngressAvailable,
+  recordIngressUnavailable,
   recordPollAttempt,
   recordPollError,
   recordPollSuccess,
   recordQueueFullDrop,
-  recordWebhookDedupSize,
   recordWebhookDispatched,
   recordWebhookDropped,
   recordWebhookError,
@@ -122,22 +122,6 @@ describe("webhook metrics", () => {
   });
 });
 
-describe("dedup metrics", () => {
-  it("records poller dedup size", () => {
-    recordDedupSize("acct-1", 42);
-
-    const m = getAccountMetrics("acct-1")!;
-    expect(m.dedupSize).toBe(42);
-  });
-
-  it("records webhook dedup size", () => {
-    recordWebhookDedupSize("acct-1", 17);
-
-    const m = getAccountMetrics("acct-1")!;
-    expect(m.webhookDedupSize).toBe(17);
-  });
-});
-
 describe("circuit breaker metrics", () => {
   it("records circuit breaker state", () => {
     recordCircuitBreakerState("acct-1", "outbound", {
@@ -209,6 +193,36 @@ describe("queue full drop metrics", () => {
     const m = getAccountMetrics("acct-1")!;
     expect(m.dispatchFailureCount).toBe(1);
     expect(m.queueFullDropCount).toBe(2);
+  });
+});
+
+describe("ingress metrics", () => {
+  it("records ingress unavailable with reason and since timestamp", () => {
+    const before = Date.now();
+    recordIngressUnavailable("acct-1", "webhook route down");
+
+    const m = getAccountMetrics("acct-1")!;
+    expect(m.ingress.unavailable).toBe(true);
+    expect(m.ingress.reason).toBe("webhook route down");
+    expect(m.ingress.since).toBeGreaterThanOrEqual(before);
+  });
+
+  it("keeps the original since timestamp on repeated failures", () => {
+    recordIngressUnavailable("acct-1", "first");
+    const since = getAccountMetrics("acct-1")!.ingress.since;
+    recordIngressUnavailable("acct-1", "second");
+
+    const m = getAccountMetrics("acct-1")!;
+    expect(m.ingress.since).toBe(since);
+    expect(m.ingress.reason).toBe("second");
+  });
+
+  it("clears the flag on recovery", () => {
+    recordIngressUnavailable("acct-1", "down");
+    recordIngressAvailable("acct-1");
+
+    const m = getAccountMetrics("acct-1")!;
+    expect(m.ingress).toEqual({ unavailable: false, reason: null, since: null });
   });
 });
 

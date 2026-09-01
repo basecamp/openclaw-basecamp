@@ -56,20 +56,14 @@ vi.mock("../src/inbound/webhooks.js", () => ({
   getWebhookSecretRegistry: vi.fn().mockReturnValue({}),
 }));
 
-vi.mock("../src/inbound/dedup-registry.js", () => ({
-  getAccountDedup: vi.fn(() => ({ size: 0, isDuplicate: () => false, flush: vi.fn() })),
-  closeAccountDedup: vi.fn(),
-  closeAllAccountDedup: vi.fn(),
-  flushAccountDedup: vi.fn(),
-}));
-
 vi.mock("../src/inbound/webhook-lifecycle.js", () => ({
   reconcileWebhooks: vi.fn(),
   deactivateWebhooks: vi.fn(),
 }));
 
-// Make poller import throw — startAccount returns early after logging error
-// This prevents real poller startup while letting all validation code execute.
+// Make poller import throw — startAccount now throws (blocked lifecycle) after
+// logging. This prevents real poller startup while letting all validation code
+// execute; callers below swallow the rejection via startForValidation().
 vi.mock("../src/inbound/poller.js", () => {
   throw new Error("test: skip poller startup");
 });
@@ -78,11 +72,16 @@ import { _resetValidationState, basecampChannel } from "../src/channel.js";
 import { resolveBasecampAccountAsync } from "../src/config.js";
 
 function makeCtx(cfg: any, accountId = "test") {
+  let status: Record<string, unknown> = { accountId };
   return {
     cfg,
+    accountId,
     account: { accountId },
     abortSignal: new AbortController().signal,
-    setStatus: vi.fn(),
+    getStatus: vi.fn(() => status),
+    setStatus: vi.fn((next: Record<string, unknown>) => {
+      status = next;
+    }),
     log: {
       info: vi.fn(),
       warn: vi.fn(),
@@ -90,6 +89,12 @@ function makeCtx(cfg: any, accountId = "test") {
       error: vi.fn(),
     },
   };
+}
+
+/** Run startAccount for its validation side effects; the mocked poller import
+ *  makes it end in a (deliberate, asserted-elsewhere) startup failure. */
+async function startForValidation(ctx: unknown): Promise<void> {
+  await expect(basecampChannel.gateway!.startAccount!(ctx as any)).rejects.toThrow("failed to load poller module");
 }
 
 function makeAccount(overrides: Record<string, unknown> = {}) {
@@ -129,14 +134,14 @@ describe("PF-002: config-hash re-validation", () => {
       },
     };
     const ctx1 = makeCtx(cfg1);
-    await basecampChannel.gateway!.startAccount!(ctx1 as any);
+    await startForValidation(ctx1);
 
     // Should warn about the bad persona
     expect(ctx1.log.warn).toHaveBeenCalledWith(expect.stringContaining('persona "agent-1"'));
 
     // Second call: same config → should NOT re-validate
     const ctx2 = makeCtx(cfg1);
-    await basecampChannel.gateway!.startAccount!(ctx2 as any);
+    await startForValidation(ctx2);
 
     const personaWarns2 = vi.mocked(ctx2.log.warn).mock.calls.filter((c) => String(c[0]).includes("persona"));
     expect(personaWarns2).toHaveLength(0);
@@ -151,7 +156,7 @@ describe("PF-002: config-hash re-validation", () => {
       },
     };
     const ctx3 = makeCtx(cfg3);
-    await basecampChannel.gateway!.startAccount!(ctx3 as any);
+    await startForValidation(ctx3);
 
     expect(ctx3.log.warn).toHaveBeenCalledWith(expect.stringContaining('persona "agent-2"'));
   });
@@ -169,7 +174,7 @@ describe("PF-002: config-hash re-validation", () => {
       },
     };
     const ctx1 = makeCtx(cfg1);
-    await basecampChannel.gateway!.startAccount!(ctx1 as any);
+    await startForValidation(ctx1);
 
     // Now remove the "other" account — persona should fail validation
     const cfg2 = {
@@ -181,7 +186,7 @@ describe("PF-002: config-hash re-validation", () => {
       },
     };
     const ctx2 = makeCtx(cfg2);
-    await basecampChannel.gateway!.startAccount!(ctx2 as any);
+    await startForValidation(ctx2);
 
     expect(ctx2.log.warn).toHaveBeenCalledWith(expect.stringContaining('persona "agent-1"'));
   });
@@ -201,7 +206,7 @@ describe("PF-003: basecampAccountId startup warning", () => {
       }) as any,
     );
     const ctx = makeCtx({}, "my-org");
-    await basecampChannel.gateway!.startAccount!(ctx as any);
+    await startForValidation(ctx);
 
     expect(ctx.log.warn).toHaveBeenCalledWith(expect.stringContaining("Basecamp account ID could not be resolved"));
     expect(ctx.log.warn).toHaveBeenCalledWith(expect.stringContaining("my-org"));
@@ -215,7 +220,7 @@ describe("PF-003: basecampAccountId startup warning", () => {
       }) as any,
     );
     const ctx = makeCtx({}, "12345");
-    await basecampChannel.gateway!.startAccount!(ctx as any);
+    await startForValidation(ctx);
 
     const accountIdWarns = vi
       .mocked(ctx.log.warn)
@@ -231,7 +236,7 @@ describe("PF-003: basecampAccountId startup warning", () => {
       }) as any,
     );
     const ctx = makeCtx({}, "my-org");
-    await basecampChannel.gateway!.startAccount!(ctx as any);
+    await startForValidation(ctx);
 
     const accountIdWarns = vi
       .mocked(ctx.log.warn)
