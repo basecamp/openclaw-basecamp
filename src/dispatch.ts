@@ -337,6 +337,22 @@ export function createBasecampTurnAdapter(msg: BasecampInboundMessage, options: 
         return { kind: "drop" as const, reason: "outbound_account_id_missing" };
       }
 
+      // Second echo check under the persona account's identity scope: the
+      // send path records outbound identities under the account that posted,
+      // which may be a persona rather than the inbound account.
+      if (
+        outboundAccount.accountId !== msg.accountId &&
+        isRecentOutboundMessageIdentity({
+          channel: "basecamp",
+          accountId: outboundAccount.accountId,
+          conversationId: msg.peer.id,
+          messageId,
+        })
+      ) {
+        slog.debug("outbound_echo_skipped", { correlationId, messageId, scope: outboundAccount.accountId });
+        return { kind: "drop" as const, reason: "outbound_echo" };
+      }
+
       state = {
         effectiveAccountId,
         route: {
