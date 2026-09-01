@@ -1,3 +1,4 @@
+import { buildDmGroupAccountAllowlistAdapter } from "openclaw/plugin-sdk/allowlist-config-edit";
 import { buildChannelConfigSchema } from "openclaw/plugin-sdk/channel-config-schema";
 import { type ChannelPlugin, createChannelPluginBase, createChatChannelPlugin } from "openclaw/plugin-sdk/channel-core";
 import { deleteAccountFromConfigSection, setAccountEnabledInConfigSection } from "openclaw/plugin-sdk/core";
@@ -184,6 +185,26 @@ const basecampChannelBase = {
 
   // Bucket/recording bindings are project-level, not conversation-level (SPEC §2.21).
   conversationBindings: { supportsCurrentConversationBinding: false },
+
+  // Allowlist adapter (SPEC §2.22): lets `openclaw allowlist` / `openclaw
+  // pairing` CLI read and edit the channel's config-backed sender lists.
+  // Per-bucket allowFrom overrides remain runtime route descriptors
+  // (dispatch.ts); they are channel-level config, not account-scoped, so
+  // they are not surfaced as group overrides here.
+  allowlist: buildDmGroupAccountAllowlistAdapter<ResolvedBasecampAccount>({
+    channelId: "basecamp",
+    resolveAccount: ({ cfg, accountId }) => resolveBasecampAccount(cfg, accountId ?? undefined),
+    normalize: ({ values }) =>
+      values
+        .map((value) =>
+          String(value)
+            .replace(/^(basecamp|bc):/i, "")
+            .trim(),
+        )
+        .filter(Boolean),
+    resolveDmAllowFrom: (_account, { cfg }) => resolveBasecampAllowFrom(cfg),
+    resolveGroupAllowFrom: () => undefined,
+  }),
 
   status: basecampStatusAdapter,
 
