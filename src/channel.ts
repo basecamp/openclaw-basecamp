@@ -18,6 +18,7 @@ import { basecampSetupAdapter } from "./adapters/setup.js";
 import type { BasecampAudit, BasecampProbe } from "./adapters/status.js";
 import { basecampStatusAdapter } from "./adapters/status.js";
 import { clearClient } from "./basecamp-client.js";
+import { basecampChannelCapabilities, basecampChannelMeta } from "./channel-setup.js";
 import {
   BasecampConfigSchema,
   listBasecampAccountIds,
@@ -56,15 +57,7 @@ const basecampChannelBase = {
   ...createChannelPluginBase<ResolvedBasecampAccount>({
     id: "basecamp",
 
-    meta: {
-      label: "Basecamp",
-      selectionLabel: "Basecamp (Campfire, Cards, Todos, Check-ins, Pings)",
-      docsPath: "/channels/basecamp",
-      docsLabel: "basecamp",
-      blurb:
-        "Campfire chats, card tables, to-do lists, check-ins, pings — every Basecamp surface as a live agent interaction point.",
-      systemImage: "building.2",
-    },
+    meta: basecampChannelMeta,
 
     setupWizard: basecampSetupWizard,
 
@@ -147,14 +140,7 @@ const basecampChannelBase = {
     groups: basecampGroupAdapter,
   }),
 
-  capabilities: {
-    chatTypes: ["direct", "group"],
-    threads: false,
-    reactions: true,
-    media: false,
-    nativeCommands: false,
-    blockStreaming: false,
-  },
+  capabilities: basecampChannelCapabilities,
 
   config: {
     listAccountIds: (cfg) => listBasecampAccountIds(cfg),
