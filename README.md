@@ -168,6 +168,12 @@ Agents connected through this channel have access to the following tools:
 
 Tools are registered through `api.registerTool` and listed in the manifest's `contracts.tools`, so they appear on the capability-consent screen and can be allowlisted per agent with `tools.allow: ["basecamp"]` (every tool from the plugin) or by name. A tool call runs under the account mapped for the calling agent in `channels.basecamp.personas`, falling back to the default account. Without any configured account the tools still register and return `{ ok: false, error }` naming the missing config instead of silently disappearing.
 
+## Known host limitations (openclaw 2026.8.1)
+
+- `openclaw message send --channel basecamp …` is rejected at CLI argument validation with `Unknown channel "basecamp"`. The CLI checks the requested channel against the process-root plugin registry, which a CLI process never activates for non-bundled plugins (the plugin is loaded into a request-scoped registry instead). Sends through the gateway — the agent's `message` tool, cron/heartbeat announcements, and the channel's `outbound` adapter — are unaffected.
+- Durable ingress queues and keyed/blob stores are trust-gated to bundled and official-catalog plugins; see `docs/upgrades/official-catalog-nomination.md`.
+- Basecamp's account-wide progress feed omits the authenticated user's own activity, so a single-person sandbox cannot drive the poller with its own posts; use webhooks (or a second person) when testing inbound delivery.
+
 ## State and backups
 
 OpenClaw's keyed stores and durable ingress queues are reserved for bundled and official-catalog plugins, so this plugin keeps its own state as JSON under `<stateDir>/plugins/basecamp/`:

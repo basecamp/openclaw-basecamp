@@ -338,7 +338,18 @@ export async function startCompositePoller(opts: CompositePollerOptions): Promis
         });
 
         if (!activityBootstrapped) {
-          // First run / cleared cursor: record cursor without emitting events
+          // First run / cleared cursor: record cursor without emitting events.
+          // Mark the fetched events as seen so reconciliation doesn't report
+          // the bootstrap window as a permanent gap.
+          for (const event of result.events) {
+            await guard.record({
+              accountId: account.accountId,
+              primaryKey: event.dedupKey,
+              secondaryKey: event.meta.recordingId
+                ? replaySecondaryKey(event.meta.recordingId, event.meta.eventKind, event.createdAt)
+                : undefined,
+            });
+          }
           if (result.newestAt) {
             cursors.setActivitySince(result.newestAt);
             await saveCursorsWithRetry(cursors, slog);
