@@ -1,70 +1,113 @@
-# Example OpenClaw config with Basecamp channel plugin.
+# Example OpenClaw config with the Basecamp channel plugin (plugin id: basecamp).
 #
-# Install the plugin:
-#   openclaw plugins install @37signals/openclaw-basecamp
+# Install the plugin (npm source needs --force to confirm provenance;
+# --accept-capabilities records consent for the declared channel + tools):
+#   openclaw plugins install npm:@37signals/openclaw-basecamp --force --accept-capabilities
 #
-# Or from a local checkout (requires building first):
-#   cd ~/Work/basecamp/basecamp-openclaw-plugin && npm run build
-#   openclaw plugins install ~/Work/basecamp/basecamp-openclaw-plugin
+# Or from a local checkout (build first — the Gateway loads dist/):
+#   cd ~/Work/basecamp/openclaw-basecamp && npm run build
+#   openclaw plugins install --link ~/Work/basecamp/openclaw-basecamp --force --accept-capabilities
 #
 # Then add this to your openclaw.yaml (or merge the relevant sections).
 
+plugins:
+  # Only needed when you run a plugin allowlist. Use the plugin id, not the
+  # npm package name.
+  allow: ["basecamp"]
+
 channels:
+  defaults:
+    # Shared bot-to-bot loop baseline. The channel attaches loop-protection
+    # facts to any turn whose sender is another configured persona.
+    botLoopProtection:
+      maxEventsPerWindow: 20
+      windowSeconds: 60
+      cooldownSeconds: 60
+
   basecamp:
     enabled: true
 
+    # Webhook URL-verification token. A literal string works too; a SecretRef
+    # ({ source: env|file|exec|store, provider, id }) keeps it out of the file.
+    webhookSecret: { source: "env", provider: "default", id: "BASECAMP_WEBHOOK_SECRET" }
+
     # Service accounts — each represents a Basecamp identity.
-    # The tokenFile should contain an OAuth bearer token for bc3 API access.
     accounts:
       main:
-        tokenFile: "~/.config/basecamp/token"
         personId: "12345678"
+        basecampAccountId: "9999999"
         displayName: "Coworker Bot"
-        # attachableSgid is auto-resolved at startup from personId
+        # attachableSgid is auto-resolved at startup from personId.
+        # Token: a SecretRef (shown), an inline string, or tokenFile as
+        # shorthand for a file-backed ref.
+        token: { source: "env", provider: "default", id: "BASECAMP_TOKEN" }
+        # tokenFile: "~/.config/basecamp/token"
+        # Per-account DM policy/allowlist override the channel-level values.
+        dmPolicy: allowlist
+        allowFrom: ["11111111", "22222222"]
 
-    # Agent → account mapping for multi-persona outbound.
-    # When an agent replies, it posts as the mapped account's identity.
+    # Agent → account mapping for multi-persona outbound and tool calls.
+    # When an agent replies or calls a basecamp_* tool, it acts as the mapped
+    # account's identity.
     # personas:
     #   security-agent: security-bot-account
     #   support-agent: support-bot-account
 
-    # DM policy for Ping conversations.
-    # "open" = all authenticated Basecamp users can DM (recommended for internal tools)
-    # "pairing" = require pairing approval for unknown senders
-    # "closed" = no DMs accepted
-    dmPolicy: open
+    # Channel-level DM policy for Ping conversations (accounts can override).
+    # "open"      = any authenticated Basecamp user can DM (needs allowFrom: ["*"])
+    # "allowlist" = only person IDs in allowFrom (default)
+    # "pairing"   = unknown senders get a pairing code by Ping; approve with
+    #               `openclaw pairing approve basecamp <code>`
+    # "disabled"  = no DMs accepted
+    dmPolicy: pairing
+
+    # Which events reach an agent. "conversation" and "activity" arrive as
+    # ambient room events (see messages.groupChat below); the rest are full
+    # user turns.
+    engage: [dm, mention, assignment, checkin, conversation]
+
+    # Per-project overrides, keyed by bucket ID (or "*").
+    # buckets:
+    #   "67890":
+    #     requireMention: true
+    #     tools: { deny: ["basecamp_api_write"] }
 
     # Polling cadence (milliseconds). Defaults shown.
     # polling:
     #   activityIntervalMs: 120000   # Activity feed: every 2 minutes
     #   readingsIntervalMs: 60000    # Hey! Readings: every 1 minute
 
+messages:
+  groupChat:
+    # <!-- WP4b --> Unmentioned project chatter (engage: conversation/activity)
+    # becomes quiet context; the agent speaks only by calling the message tool.
+    unmentionedInbound: room_event
+    visibleReplies: message_tool
+
 # Agent definitions
 agents:
-  list:
-    - id: my-agent
+  entries:
+    my-agent:
       model: anthropic/claude-sonnet-4-5
-      systemPrompt: |
-        You are a helpful assistant connected to Basecamp.
-        You can see messages from Campfire chats, card comments,
-        todo updates, and other Basecamp activity.
+      workspace: ~/.openclaw/workspace-basecamp
 
-      # Bind to a specific Basecamp project via parentPeer (bucket ID).
-      # The agent receives ALL events from this project.
-      bindings:
-        - channel: basecamp
-          peer: { kind: group, id: "bucket:67890" }
+# Routing. A binding on bucket:<id> matches every recording inside that
+# project (the recording→bucket index supplies the parent conversation).
+# Peer kinds in bindings are direct|group|channel.
+bindings:
+  - agentId: my-agent
+    match:
+      channel: basecamp
+      peer: { kind: group, id: "bucket:67890" }
 
-    # Example: bind to a specific Campfire transcript
-    # - id: campfire-agent
-    #   model: anthropic/claude-sonnet-4-5
-    #   bindings:
-    #     - channel: basecamp
-    #       peer: { kind: group, id: "recording:11111" }
+  # A specific Campfire transcript (peer matches win over bucket matches):
+  # - agentId: campfire-agent
+  #   match:
+  #     channel: basecamp
+  #     peer: { kind: group, id: "recording:11111" }
 
-    # Example: bind to a Ping (DM) circle
-    # - id: dm-agent
-    #   model: anthropic/claude-sonnet-4-5
-    #   bindings:
-    #     - channel: basecamp
-    #       peer: { kind: dm, id: "ping:22222" }
+  # A Ping (DM) circle:
+  # - agentId: dm-agent
+  #   match:
+  #     channel: basecamp
+  #     peer: { kind: direct, id: "ping:22222" }
