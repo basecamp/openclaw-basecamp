@@ -1,7 +1,7 @@
 {
   "name": "@37signals/openclaw-basecamp",
   "version": "0.1.0",
-  "description": "OpenClaw Basecamp channel plugin — Campfire, cards, todos, check-ins, pings",
+  "description": "OpenClaw Basecamp channel plugin \u2014 Campfire, cards, todos, check-ins, pings",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -57,7 +57,7 @@
       "selectionLabel": "Basecamp (Campfire, Cards, Todos, Check-ins, Pings)",
       "docsPath": "/channels/basecamp",
       "docsLabel": "basecamp",
-      "blurb": "Campfire chats, card tables, to-do lists, check-ins, pings — every Basecamp surface as a live agent interaction point.",
+      "blurb": "Campfire chats, card tables, to-do lists, check-ins, pings \u2014 every Basecamp surface as a live agent interaction point.",
       "detailLabel": "Basecamp (Campfire, Cards, Todos, Check-ins, Pings)",
       "systemImage": "building.2",
       "markdownCapable": true,
@@ -89,7 +89,8 @@
             "cli": {
               "flags": "--token-file <path>",
               "description": "Path to file containing OAuth token"
-            }
+            },
+            "sensitive": true
           },
           {
             "key": "personId",

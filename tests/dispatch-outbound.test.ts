@@ -3,6 +3,7 @@
  * chunking, retries, circuit breaker threading, and failure propagation.
  */
 
+import { isRecentOutboundMessageIdentity } from "openclaw/plugin-sdk/channel-outbound";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resolvePersonaAccountId } from "../src/config.js";
 import { dispatchBasecampEvent } from "../src/dispatch.js";
@@ -204,6 +205,21 @@ describe("dispatch outbound reliability", () => {
     const delivery = await dispatchAndGetDelivery();
 
     await expect(delivery.deliver({ text: "Reply" }, {})).rejects.toThrow("403 Forbidden");
+  });
+
+  it("records each delivered reply in the outbound identity registry (echo suppression)", async () => {
+    vi.mocked(postReplyToEvent).mockResolvedValue({ ok: true, messageId: "m-echo-9001" });
+    const delivery = await dispatchAndGetDelivery();
+    await delivery.deliver({ text: "hello" }, {});
+
+    expect(
+      isRecentOutboundMessageIdentity({
+        channel: "basecamp",
+        accountId: "test-acct",
+        conversationId: "recording:123",
+        messageId: "m-echo-9001",
+      }),
+    ).toBe(true);
   });
 
   it("returns collected messageIds from delivered chunks", async () => {

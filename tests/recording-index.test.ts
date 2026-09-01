@@ -14,6 +14,7 @@ import {
   closeRecordingIndex,
   findRecordingEntrySync,
   getRecordingIndex,
+  recordInboundMessageMappings,
 } from "../src/inbound/recording-index.js";
 
 describe("recording index", () => {
@@ -97,6 +98,33 @@ describe("recording index", () => {
     await closeRecordingIndex("acct");
     const reopened = await getRecordingIndex("acct", stateDir);
     expect(reopened.get("123")).toMatchObject({ bucketId: "456" });
+  });
+
+  it("recordInboundMessageMappings indexes the event, its routed parent, and ping kind", async () => {
+    const index = await getRecordingIndex("acct", stateDir);
+
+    recordInboundMessageMappings(index, {
+      peer: { kind: "group", id: "recording:900" },
+      meta: { bucketId: "456", recordingId: "901", recordableType: "Chat::Line" },
+    });
+    expect(index.get("901")).toMatchObject({ recordableType: "Chat::Line" });
+    expect(index.get("900")).toMatchObject({ recordableType: "Chat::Transcript", bucketId: "456" });
+
+    recordInboundMessageMappings(
+      index,
+      {
+        peer: { kind: "group", id: "recording:910" },
+        meta: { bucketId: "456", recordingId: "911", recordableType: "Comment" },
+      },
+      { id: 910, type: "Todo" },
+    );
+    expect(index.get("910")).toMatchObject({ recordableType: "Todo" });
+
+    recordInboundMessageMappings(index, {
+      peer: { kind: "group", id: "ping:456" },
+      meta: { bucketId: "456", recordingId: "920", recordableType: "Chat::Line" },
+    });
+    expect(index.get("ping:456")).toMatchObject({ chatKind: "group" });
   });
 
   it("findRecordingEntrySync searches loaded indexes across accounts", async () => {

@@ -48,7 +48,7 @@ import {
 import { getBasecampRuntime } from "../runtime.js";
 import type { BasecampWebhookPayload, ResolvedBasecampAccount } from "../types.js";
 import { isSelfMessage, normalizeWebhookPayload } from "./normalize.js";
-import { getRecordingIndex } from "./recording-index.js";
+import { getRecordingIndex, recordInboundMessageMappings } from "./recording-index.js";
 import { getReplayGuard, replaySecondaryKey } from "./replay-guard.js";
 import { resolvePluginStateDir } from "./state-dir.js";
 import { JsonFileWebhookSecretStore, WebhookSecretRegistry } from "./webhook-secrets.js";
@@ -371,7 +371,11 @@ async function processWebhookPayload(
   // recordings seen only via webhooks (SPEC §2.15).
   try {
     const index = await getRecordingIndex(account.accountId);
-    index.record(msg.meta.recordingId, { bucketId: msg.meta.bucketId, recordableType: msg.meta.recordableType });
+    recordInboundMessageMappings(
+      index,
+      msg,
+      (payload.recording as { parent?: { id: string | number; type?: string } }).parent,
+    );
   } catch {
     // Index population is best-effort; outbound resolution reports misses.
   }

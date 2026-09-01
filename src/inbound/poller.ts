@@ -47,7 +47,7 @@ import { pollReadings } from "./readings.js";
 import type { PromotionState } from "./reconciliation.js";
 import { deserializePromotionState, runReconciliation, serializePromotionState } from "./reconciliation.js";
 import type { RecordingIndex } from "./recording-index.js";
-import { getRecordingIndex } from "./recording-index.js";
+import { getRecordingIndex, recordInboundMessageMappings } from "./recording-index.js";
 import { getReplayGuard, replaySecondaryKey } from "./replay-guard.js";
 import type { DisappearedPending, SafetyNetSnapshot } from "./safety-net.js";
 import {
@@ -173,10 +173,7 @@ export async function startCompositePoller(opts: CompositePollerOptions): Promis
       opts2.crossSource && event.meta.recordingId
         ? replaySecondaryKey(event.meta.recordingId, event.meta.eventKind, event.createdAt)
         : undefined;
-    recordingIndex?.record(event.meta.recordingId, {
-      bucketId: event.meta.bucketId,
-      recordableType: event.meta.recordableType,
-    });
+    if (recordingIndex) recordInboundMessageMappings(recordingIndex, event);
     try {
       const result = await guard.processGuarded(
         { accountId: account.accountId, primaryKey: event.dedupKey, secondaryKey },

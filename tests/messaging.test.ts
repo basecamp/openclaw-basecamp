@@ -1,5 +1,9 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { basecampMessagingAdapter } from "../src/adapters/messaging.js";
+import { closeRecordingIndex, getRecordingIndex } from "../src/inbound/recording-index.js";
 
 // ---------------------------------------------------------------------------
 // normalizeTarget
@@ -173,6 +177,23 @@ describe("messaging.resolveSessionConversation", () => {
   it("buckets have no parent", () => {
     const resolved = basecampMessagingAdapter.resolveSessionConversation!({ kind: "group", rawId: "bucket:456" });
     expect(resolved).toEqual({ id: "bucket:456" });
+  });
+});
+
+describe("ping chat kind from the recording index", () => {
+  it("routes a ping observed as multi-person (group) as a group conversation", async () => {
+    const stateDir = mkdtempSync(join(tmpdir(), "bc-msg-ping-"));
+    try {
+      const index = await getRecordingIndex("ping-kind-acct", stateDir);
+      index.record("ping:777001", { bucketId: "777001", recordableType: "Chat::Transcript", chatKind: "group" });
+
+      expect(basecampMessagingAdapter.inferTargetChatType!({ to: "ping:777001" } as any)).toBe("group");
+      // A ping never seen inbound stays direct (the overwhelmingly common 1:1 case).
+      expect(basecampMessagingAdapter.inferTargetChatType!({ to: "ping:777002" } as any)).toBe("direct");
+    } finally {
+      await closeRecordingIndex("ping-kind-acct");
+      rmSync(stateDir, { recursive: true, force: true });
+    }
   });
 });
 

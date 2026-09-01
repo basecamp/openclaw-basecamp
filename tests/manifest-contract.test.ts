@@ -146,6 +146,11 @@ describe("package.json openclaw contract", () => {
     const sensitive = oc.channel.setup.fields
       .filter((f: { sensitive?: boolean }) => f.sensitive)
       .map((f: { key: string }) => f.key);
-    expect(sensitive).toEqual(["token", "oauthClientSecret"]);
+    const contractSensitive = (
+      basecampSetupContract.metadata as { fields: Array<{ key: string; sensitive?: boolean }> }
+    ).fields
+      .filter((f) => f.sensitive)
+      .map((f) => f.key);
+    expect(sensitive).toEqual(contractSensitive);
   });
 });

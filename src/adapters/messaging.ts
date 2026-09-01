@@ -23,6 +23,16 @@ function normalizeBasecampTarget(raw: string): string | undefined {
   return undefined;
 }
 
+/**
+ * Observed chat kind for a Ping conversation: Circle membership decides
+ * direct vs group, which outbound cannot query synchronously. Inbound
+ * normalization records the observed kind in the recording index; fall back
+ * to direct for pings never seen inbound (1:1 is the overwhelming case).
+ */
+function pingChatKind(pingId: string): "direct" | "group" {
+  return findRecordingEntrySync(pingId)?.chatKind ?? "direct";
+}
+
 export const basecampMessagingAdapter: ChannelMessagingAdapter = {
   /** Provider prefixes accepted in explicit targets (SPEC §2.20). */
   targetPrefixes: ["basecamp", "bc"],
@@ -40,7 +50,7 @@ export const basecampMessagingAdapter: ChannelMessagingAdapter = {
   inferTargetChatType: ({ to }) => {
     const normalized = normalizeBasecampTarget(to);
     if (!normalized) return undefined;
-    return normalized.startsWith("ping:") ? "direct" : "group";
+    return normalized.startsWith("ping:") ? pingChatKind(normalized) : "group";
   },
 
   /**
@@ -96,7 +106,7 @@ export const basecampMessagingAdapter: ChannelMessagingAdapter = {
     const normalized = normalizeBasecampTarget(target);
     if (!normalized) return null;
 
-    const chatType = normalized.startsWith("ping:") ? ("direct" as const) : ("group" as const);
+    const chatType = normalized.startsWith("ping:") ? pingChatKind(normalized) : ("group" as const);
     return buildChannelOutboundSessionRoute({
       cfg,
       agentId,

@@ -544,6 +544,8 @@ export type BasecampChannelConfig = {
  */
 export type ResolvedBasecampAccount = {
   accountId: string;
+  /** Concrete account behind a virtualAccounts alias; equals accountId otherwise. */
+  backingAccountId?: string;
   enabled: boolean;
   displayName?: string;
   personId: string;

@@ -40,7 +40,7 @@ import {
   createChannelIngressResolver,
   defineStableChannelIngressIdentity,
 } from "openclaw/plugin-sdk/channel-ingress-runtime";
-import { isRecentOutboundMessageIdentity } from "openclaw/plugin-sdk/channel-outbound";
+import { isRecentOutboundMessageIdentity, recordOutboundMessageIdentity } from "openclaw/plugin-sdk/channel-outbound";
 import { createChannelPairingChallengeIssuer } from "openclaw/plugin-sdk/channel-pairing";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import { BASECAMP_TEXT_CHUNK_LIMIT, chunkMarkdownText } from "./adapters/outbound.js";
@@ -523,7 +523,19 @@ export function createBasecampTurnAdapter(msg: BasecampInboundMessage, options: 
                 if (result.error instanceof Error) throw result.error;
                 throw new Error(result.message ?? "Outbound delivery failed");
               }
-              if (result.messageId) messageIds.push(result.messageId);
+              if (result.messageId) {
+                messageIds.push(result.messageId);
+                // Producer side of echo suppression for the reply path: the
+                // receiving account's poller will see this post; without the
+                // identity record a persona reply fails the self-person check
+                // and can start another turn (persona ping-pong).
+                recordOutboundMessageIdentity({
+                  channel: "basecamp",
+                  accountId: outboundAccount.accountId,
+                  conversationId: msg.peer.id,
+                  messageId: result.messageId,
+                });
+              }
             }
 
             syncOutboundCircuitBreakerMetrics(outboundCb, outboundCbKey, outboundBasecampAccountId, cfg);

@@ -212,3 +212,22 @@ describe("group policy resolvers", () => {
     expect(resolveBasecampGroupAllowFrom(cfg, "ops")).toEqual(["7"]);
   });
 });
+
+describe("virtual account backing namespace", () => {
+  it("resolves backingAccountId to the concrete account behind an alias", async () => {
+    const { resolveBasecampAccount } = await import("../src/config.js");
+    const cfg = {
+      channels: {
+        basecamp: {
+          accounts: { ops: { personId: "9" } },
+          virtualAccounts: { "proj-a": { accountId: "ops", bucketId: "111" } },
+        },
+      },
+    } as any;
+    const alias = resolveBasecampAccount(cfg, "proj-a");
+    expect(alias.accountId).toBe("proj-a");
+    expect(alias.backingAccountId).toBe("ops");
+    expect(alias.scopedBucketId).toBe("111");
+    expect(resolveBasecampAccount(cfg, "ops").backingAccountId).toBeUndefined();
+  });
+});

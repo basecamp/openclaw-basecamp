@@ -353,6 +353,9 @@ export function resolveBasecampAccount(
     return {
       ...resolved,
       accountId: effectiveId,
+      // Plugin state (recording index, cursors) is written by the concrete
+      // account's pollers — alias reads must target that namespace.
+      backingAccountId: resolved.backingAccountId ?? resolved.accountId,
       scopedBucketId: scope.bucketId,
     };
   }

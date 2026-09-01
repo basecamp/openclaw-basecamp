@@ -425,8 +425,10 @@ async function resolveSendTarget(to: string, account: ResolvedBasecampAccount): 
     };
   }
 
-  // recording:<id> — consult the recording→bucket index (populated by inbound)
-  const index = await getRecordingIndex(account.accountId);
+  // recording:<id> — consult the recording→bucket index (populated by inbound).
+  // Virtual-account aliases read the concrete backing account's index: only
+  // concrete accounts run pollers/webhooks and populate index files.
+  const index = await getRecordingIndex(account.backingAccountId ?? account.accountId);
   const entry = index.get(parsed.recordingId);
   if (entry) {
     if (account.scopedBucketId && entry.bucketId !== String(account.scopedBucketId)) {

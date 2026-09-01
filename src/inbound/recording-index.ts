@@ -22,6 +22,8 @@ import { resolvePluginStateDir } from "./state-dir.js";
 export type RecordingIndexEntry = {
   bucketId: string;
   recordableType: string;
+  /** Observed conversation kind for ping peers (Circle membership decides group vs direct). */
+  chatKind?: "direct" | "group";
   /** Epoch ms of the last event that touched this recording. */
   updatedAt: number;
 };
@@ -30,7 +32,7 @@ export type RecordingIndex = {
   /** Look up a recording's bucket + type. Undefined when never seen. */
   get(recordingId: string): RecordingIndexEntry | undefined;
   /** Record (or refresh) a recording→bucket mapping. Cheap; call per inbound event. */
-  record(recordingId: string, entry: { bucketId: string; recordableType: string }): void;
+  record(recordingId: string, entry: { bucketId: string; recordableType: string; chatKind?: "direct" | "group" }): void;
   /** Persist pending writes. Called on shutdown and periodically by callers. */
   flush(): Promise<void>;
   /** Number of indexed recordings (for pruning/metrics). */
@@ -69,7 +71,10 @@ async function loadIndex(accountId: string, stateDir?: string): Promise<Recordin
       const now = Date.now();
       const existing = entries.get(recordingId);
       const unchanged =
-        existing && existing.bucketId === entry.bucketId && existing.recordableType === entry.recordableType;
+        existing &&
+        existing.bucketId === entry.bucketId &&
+        existing.recordableType === entry.recordableType &&
+        existing.chatKind === entry.chatKind;
       // An active recording must not age out: refresh updatedAt once per
       // interval even when the mapping itself is unchanged.
       if (unchanged && now - existing.updatedAt < REFRESH_INTERVAL_MS) return;
@@ -135,4 +140,46 @@ export async function closeRecordingIndex(accountId: string): Promise<void> {
 export async function closeAllRecordingIndexes(): Promise<void> {
   const ids = [...instances.keys()];
   await Promise.all(ids.map((id) => closeRecordingIndex(id)));
+}
+
+/**
+ * Index everything an inbound message teaches us (SPEC §2.5, §2.20):
+ * - the event's own recording,
+ * - the routed parent recording when the peer is a different recording
+ *   (Chat::Line → transcript, Comment → commentable) so ambient room-event
+ *   turns can address their current conversation immediately,
+ * - the ping conversation's observed chat kind (group for multi-person
+ *   Circles) so outbound session routing matches the inbound session.
+ */
+export function recordInboundMessageMappings(
+  index: RecordingIndex,
+  msg: {
+    peer: { kind: "dm" | "group"; id: string };
+    meta: { bucketId: string; recordingId: string; recordableType: string };
+  },
+  parent?: { id: string | number; type?: string },
+): void {
+  index.record(msg.meta.recordingId, {
+    bucketId: msg.meta.bucketId,
+    recordableType: msg.meta.recordableType,
+  });
+
+  const peerRecording = msg.peer.id.match(/^recording:(\d+)$/)?.[1];
+  if (peerRecording && peerRecording !== msg.meta.recordingId) {
+    const parentType =
+      parent && String(parent.id) === peerRecording && parent.type
+        ? parent.type
+        : msg.meta.recordableType === "Chat::Line"
+          ? "Chat::Transcript"
+          : "Message";
+    index.record(peerRecording, { bucketId: msg.meta.bucketId, recordableType: parentType });
+  }
+
+  if (msg.peer.id.startsWith("ping:")) {
+    index.record(msg.peer.id, {
+      bucketId: msg.meta.bucketId,
+      recordableType: "Chat::Transcript",
+      chatKind: msg.peer.kind === "dm" ? "direct" : "group",
+    });
+  }
 }
