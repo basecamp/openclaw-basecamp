@@ -8,13 +8,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { dispatchBasecampEvent } from "../../src/dispatch.js";
 import { clearBasecampRuntime, setBasecampRuntime } from "../../src/runtime.js";
 import type { BasecampInboundMessage, ResolvedBasecampAccount } from "../../src/types.js";
+import { createFakeKernel, type FakeKernel } from "../dispatch-helpers.js";
 
 // ---------------------------------------------------------------------------
 // Mocks
 // ---------------------------------------------------------------------------
-
-const mockResolveRoute = vi.fn();
-const mockDispatchReply = vi.fn();
 
 const mockResolvePersona = vi.fn(() => undefined);
 const mockResolveAccount = vi.fn();
@@ -36,6 +34,17 @@ vi.mock("../../src/outbound/send.js", () => ({
 vi.mock("../../src/outbound/format.js", () => ({
   markdownToBasecampHtml: vi.fn((t: string) => `<p>${t}</p>`),
 }));
+const mockPingPost = vi.fn(async () => ({ data: {}, response: { ok: true } }));
+vi.mock("../../src/basecamp-client.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/basecamp-client.js")>();
+  return {
+    ...actual,
+    getClient: vi.fn(() => ({ raw: { POST: mockPingPost } })),
+    rawOrThrow: vi.fn(async (result: unknown) => result),
+  };
+});
+
+let kernel: FakeKernel;
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -107,20 +116,15 @@ describe("dogfooding — DM policy & engagement gate", () => {
   beforeEach(() => {
     vi.clearAllMocks();
 
-    setBasecampRuntime({
-      channel: {
-        routing: { resolveAgentRoute: (...args: unknown[]) => mockResolveRoute(...args) },
-        reply: { dispatchReplyWithBufferedBlockDispatcher: (...args: unknown[]) => mockDispatchReply(...args) },
-      },
-    } as any);
+    kernel = createFakeKernel();
+    setBasecampRuntime(kernel.runtime as any);
 
     // Default: route exists, config is open, account resolves
-    mockResolveRoute.mockReturnValue({
+    kernel.runtime.channel.routing.resolveAgentRoute.mockReturnValue({
       agentId: "agent-1",
-      matchedBy: "peer",
+      matchedBy: "binding.peer",
       sessionKey: "sess-1",
     });
-    mockDispatchReply.mockResolvedValue(undefined);
     mockResolveAccount.mockReturnValue(account);
     mockResolveDmPolicy.mockReturnValue("open");
     mockResolveAllowFrom.mockReturnValue([]);
@@ -137,7 +141,7 @@ describe("dogfooding — DM policy & engagement gate", () => {
     const result = await dispatchBasecampEvent(dmMsg(), { account, cfg: baseCfg() });
 
     expect(result).toBe(false);
-    expect(mockDispatchReply).not.toHaveBeenCalled();
+    expect(kernel.plans.length).toBe(0);
   });
 
   // DF-013: pairing policy allows sender in allowFrom
@@ -148,29 +152,33 @@ describe("dogfooding — DM policy & engagement gate", () => {
     const result = await dispatchBasecampEvent(dmMsg("777"), { account, cfg: baseCfg() });
 
     expect(result).toBe(true);
-    expect(mockDispatchReply).toHaveBeenCalled();
+    expect(kernel.plans.length).toBe(1);
   });
 
-  // DF-014: pairing policy blocks sender not in allowFrom
-  it("DF-014: drops DM when sender is not in allowFrom list (pairing)", async () => {
+  // DF-014: pairing policy challenges sender not in allowFrom
+  it("DF-014: challenges (not dispatches) DM when sender is not in allowFrom list (pairing)", async () => {
     mockResolveDmPolicy.mockReturnValue("pairing");
     mockResolveAllowFrom.mockReturnValue(["777"]);
 
     const result = await dispatchBasecampEvent(dmMsg("888"), { account, cfg: baseCfg() });
 
     expect(result).toBe(false);
-    expect(mockDispatchReply).not.toHaveBeenCalled();
+    expect(kernel.plans.length).toBe(0);
+    expect(kernel.runtime.channel.pairing.upsertPairingRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "888" }),
+    );
   });
 
-  // DF-015: default config (pairing with empty allowFrom) drops all DMs
-  it("DF-015: default pairing policy with empty allowFrom drops all DMs", async () => {
+  // DF-015: default config (pairing with empty allowFrom) challenges all DMs
+  it("DF-015: default pairing policy with empty allowFrom challenges instead of dispatching", async () => {
     mockResolveDmPolicy.mockReturnValue("pairing");
     mockResolveAllowFrom.mockReturnValue([]);
 
     const result = await dispatchBasecampEvent(dmMsg("777"), { account, cfg: baseCfg() });
 
     expect(result).toBe(false);
-    expect(mockDispatchReply).not.toHaveBeenCalled();
+    expect(kernel.plans.length).toBe(0);
+    expect(kernel.runtime.channel.pairing.upsertPairingRequest).toHaveBeenCalled();
   });
 
   // DF-016: engagement gate blocks DMs when "dm" not in engage policy
@@ -181,7 +189,7 @@ describe("dogfooding — DM policy & engagement gate", () => {
 
     expect(result).toBe(false);
     // DM policy should NOT have been consulted — gate drops first
-    expect(mockDispatchReply).not.toHaveBeenCalled();
+    expect(kernel.plans.length).toBe(0);
   });
 
   // DF-017: per-bucket engage override takes precedence
@@ -204,6 +212,6 @@ describe("dogfooding — DM policy & engagement gate", () => {
     const result = await dispatchBasecampEvent(conversationMsg, { account, cfg });
 
     expect(result).toBe(false);
-    expect(mockDispatchReply).not.toHaveBeenCalled();
+    expect(kernel.plans.length).toBe(0);
   });
 });

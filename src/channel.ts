@@ -394,6 +394,9 @@ const basecampChannelBase = {
           account,
           cfg: ctx.cfg,
           log: ctx.log as any,
+          // Host-injected channel runtime surface (preferred inbound kernel
+          // entry when populated — verified structurally in dispatch).
+          channelRuntime: (ctx as { channelRuntime?: unknown }).channelRuntime,
         });
       };
 

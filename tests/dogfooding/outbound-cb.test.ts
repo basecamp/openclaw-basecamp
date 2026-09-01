@@ -20,13 +20,11 @@ import {
 } from "../../src/metrics.js";
 import { clearBasecampRuntime, setBasecampRuntime } from "../../src/runtime.js";
 import type { BasecampInboundMessage, ResolvedBasecampAccount } from "../../src/types.js";
+import { createFakeKernel, type FakeKernel } from "../dispatch-helpers.js";
 
 // ---------------------------------------------------------------------------
 // Mocks — only needed for DF-021 (full dispatch pipeline)
 // ---------------------------------------------------------------------------
-
-const mockResolveRoute = vi.fn();
-const mockDispatchReply = vi.fn();
 
 const mockResolvePersona = vi.fn(() => undefined);
 const mockResolveAccount = vi.fn();
@@ -213,32 +211,24 @@ describe("dogfooding — outbound circuit breaker state machine", () => {
 // ---------------------------------------------------------------------------
 
 describe("dogfooding — outbound failure attribution", () => {
+  let kernel: FakeKernel;
+
   beforeEach(() => {
     vi.clearAllMocks();
     clearMetrics();
 
-    setBasecampRuntime({
-      channel: {
-        routing: { resolveAgentRoute: (...args: unknown[]) => mockResolveRoute(...args) },
-        reply: { dispatchReplyWithBufferedBlockDispatcher: (...args: unknown[]) => mockDispatchReply(...args) },
-      },
-    } as any);
+    kernel = createFakeKernel();
+    setBasecampRuntime(kernel.runtime as any);
+    // Drive each dispatched plan's delivery with an agent reply so failures
+    // route through the plan's onError, as the real kernel does.
+    kernel.setAgentReply("agent reply");
 
-    mockResolveRoute.mockReturnValue({
+    kernel.runtime.channel.routing.resolveAgentRoute.mockReturnValue({
       agentId: "agent-1",
-      matchedBy: "peer",
+      matchedBy: "binding.peer",
       sessionKey: "sess-1",
     });
     mockResolveAccount.mockReturnValue(inboundAccount);
-
-    // Wire dispatch to call deliver → onError
-    mockDispatchReply.mockImplementation(async (opts: any) => {
-      try {
-        await opts.dispatcherOptions.deliver({ text: "agent reply" }, {});
-      } catch (err) {
-        opts.dispatcherOptions.onError(err);
-      }
-    });
   });
 
   afterEach(() => {
