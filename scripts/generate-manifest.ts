@@ -1,7 +1,7 @@
 /**
  * Manifest generator (SPEC §1.3): emits `openclaw.plugin.json` from the code
  * sources of truth — the Zod config schema + uiHints in `src/channel-setup.ts`
- * and the tool names in `src/adapters/agent-tools.ts`.
+ * and the agent tool catalog in `src/tools/catalog.ts`.
  *
  * Run via `npm run manifest:gen` (builds, then executes the compiled script).
  * `tests/manifest-contract.test.ts` runs `buildBasecampManifest` in-process
@@ -12,36 +12,15 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { basecampChannelMeta, basecampConfigSchema } from "../src/channel-setup.js";
-
-/** Tools whose execution is safe to repeat after an incomplete model turn. */
-const REPLAY_SAFE_TOOLS = new Set(["basecamp_read_history", "basecamp_api_read"]);
-
-/**
- * Extract the `basecamp_*` agent tool names from the agent-tools source, in
- * declaration order. Parsed from source because the tool factory requires a
- * configured account/client to run; WP6's `api.registerTool` migration can
- * replace this with a real export.
- */
-export function extractBasecampToolNames(source: string): string[] {
-  const names = [...source.matchAll(/name: "(basecamp_[a-z_]+)"/g)].map((m) => m[1]);
-  const unique = [...new Set(names)];
-  if (unique.length !== names.length) throw new Error("duplicate basecamp_* tool names in agent-tools.ts");
-  if (unique.length === 0) throw new Error("no basecamp_* tool names found in agent-tools.ts");
-  return unique;
-}
-
-/** Read the repo's agent tool names (rootDir must be the repo root). */
-export function readBasecampToolNames(rootDir: string): string[] {
-  return extractBasecampToolNames(readFileSync(resolve(rootDir, "src/adapters/agent-tools.ts"), "utf8"));
-}
+import { BASECAMP_TOOL_METADATA, BASECAMP_TOOL_NAMES } from "../src/tools/catalog.js";
 
 /** Build the full `openclaw.plugin.json` document as a plain JSON value. */
 export function buildBasecampManifest(rootDir: string): Record<string, unknown> {
   const pkg = JSON.parse(readFileSync(resolve(rootDir, "package.json"), "utf8"));
-  const tools = readBasecampToolNames(rootDir);
-  const toolMetadata = Object.fromEntries(
-    tools.map((name) => [name, REPLAY_SAFE_TOOLS.has(name) ? { replaySafe: true } : { sideEffecting: true }]),
-  );
+  // `contracts.tools` gates api.registerTool at load time; `toolMetadata`
+  // carries the replay/side-effect facts. Both come from the catalog.
+  const tools = [...BASECAMP_TOOL_NAMES];
+  const toolMetadata = Object.fromEntries(tools.map((name) => [name, BASECAMP_TOOL_METADATA[name]]));
 
   const manifest = {
     id: "basecamp",

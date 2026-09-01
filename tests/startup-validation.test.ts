@@ -49,8 +49,6 @@ vi.mock("../src/adapters/agent-prompt.js", () => ({ basecampAgentPromptAdapter: 
 vi.mock("../src/adapters/security.js", () => ({ basecampSecurityAdapter: {} }));
 vi.mock("../src/adapters/mentions.js", () => ({ basecampMentionAdapter: {} }));
 vi.mock("../src/adapters/actions.js", () => ({ basecampActionsAdapter: {} }));
-vi.mock("../src/adapters/agent-tools.js", () => ({ basecampAgentTools: [] }));
-
 vi.mock("../src/inbound/webhooks.js", () => ({
   flushWebhookSecrets: vi.fn(),
   getWebhookSecretRegistry: vi.fn().mockReturnValue({}),

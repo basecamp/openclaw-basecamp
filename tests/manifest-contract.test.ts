@@ -1,12 +1,9 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { describe, expect, it } from "vitest";
-import {
-  buildBasecampManifest,
-  extractBasecampToolNames,
-  readBasecampToolNames,
-  renderBasecampManifest,
-} from "../scripts/generate-manifest.js";
+import { describe, expect, it, vi } from "vitest";
+import { buildBasecampManifest, renderBasecampManifest } from "../scripts/generate-manifest.js";
+import { registerBasecampTools } from "../src/adapters/agent-tools.js";
+import { BASECAMP_TOOL_METADATA, BASECAMP_TOOL_NAMES } from "../src/tools/catalog.js";
 
 const rootDir = process.cwd();
 
@@ -40,14 +37,21 @@ describe("openclaw.plugin.json contract", () => {
     expect(manifest.configSchema).toEqual({ type: "object", additionalProperties: false, properties: {} });
   });
 
-  it("lists exactly the agent tool names defined in src/adapters/agent-tools.ts", () => {
-    const declared = readBasecampToolNames(rootDir);
-    expect(declared).toHaveLength(10);
-    expect(manifest.contracts.tools).toEqual(declared);
+  it("declares contracts.tools equal to the names the plugin registers via api.registerTool", () => {
+    // The loader rejects api.registerTool for any name missing from
+    // contracts.tools, so the registered names and the manifest must agree.
+    const api = { registerTool: vi.fn() };
+    registerBasecampTools(api);
+    const registered = api.registerTool.mock.calls.flatMap(([, opts]) => opts?.names ?? []);
+
+    expect(registered).toHaveLength(10);
+    expect(manifest.contracts.tools).toEqual(registered);
+    expect(manifest.contracts.tools).toEqual([...BASECAMP_TOOL_NAMES]);
   });
 
   it("declares toolMetadata for every tool: replaySafe reads, sideEffecting mutations", () => {
-    expect(Object.keys(manifest.toolMetadata).sort()).toEqual([...manifest.contracts.tools].sort());
+    expect(Object.keys(manifest.toolMetadata)).toEqual(manifest.contracts.tools);
+    expect(manifest.toolMetadata).toEqual(BASECAMP_TOOL_METADATA);
     const replaySafe = ["basecamp_read_history", "basecamp_api_read"];
     for (const [name, meta] of Object.entries(manifest.toolMetadata)) {
       expect(meta, name).toEqual(replaySafe.includes(name) ? { replaySafe: true } : { sideEffecting: true });
@@ -83,10 +87,16 @@ describe("openclaw.plugin.json contract", () => {
   });
 });
 
-describe("tool name extraction", () => {
-  it("rejects duplicate and missing tool names", () => {
-    expect(() => extractBasecampToolNames('name: "basecamp_a"\nname: "basecamp_a"')).toThrow(/duplicate/);
-    expect(() => extractBasecampToolNames("nothing here")).toThrow(/no basecamp_/);
+describe("tool catalog module", () => {
+  it("stays import-free so the generator and setup-time readers never load the Basecamp SDK", () => {
+    const source = readFileSync(resolve(rootDir, "src/tools/catalog.ts"), "utf8");
+    const code = source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+    expect(code).not.toMatch(/^\s*import\b/m);
+    expect(code).not.toMatch(/\brequire\(/);
+  });
+
+  it("has no duplicate names", () => {
+    expect(new Set(BASECAMP_TOOL_NAMES).size).toBe(BASECAMP_TOOL_NAMES.length);
   });
 });
 

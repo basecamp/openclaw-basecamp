@@ -1,4 +1,5 @@
 import { defineChannelPluginEntry } from "openclaw/plugin-sdk/channel-core";
+import { registerBasecampTools } from "./src/adapters/agent-tools.js";
 import { basecampChannel } from "./src/channel.js";
 import { closeAllRecordingIndexes } from "./src/inbound/recording-index.js";
 import { flushWebhookSecrets, handleBasecampWebhook } from "./src/inbound/webhooks.js";
@@ -23,6 +24,9 @@ const basecampPluginEntry: ReturnType<typeof defineChannelPluginEntry<typeof bas
         flushWebhookSecrets();
         await closeAllRecordingIndexes();
       });
+      // Agent tools (SPEC §2.9). Also runs in "tool-discovery" mode, where no
+      // runtime exists — the factory defers all config/client access to execute.
+      registerBasecampTools(api);
     },
   });
 
