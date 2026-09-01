@@ -31,7 +31,6 @@ import {
 import { createStructuredLog } from "../logging.js";
 import {
   recordCircuitBreakerState,
-  recordDedupSize,
   recordPollAttempt,
   recordPollError,
   recordPollSuccess,
@@ -43,12 +42,13 @@ import { withTimeout } from "../util.js";
 import { pollActivityFeed } from "./activity.js";
 import { pollAssignments } from "./assignments.js";
 import { CursorStore } from "./cursors.js";
-import { EventDedup } from "./dedup.js";
-import { getAccountDedup } from "./dedup-registry.js";
 import { isSelfMessage } from "./normalize.js";
 import { pollReadings } from "./readings.js";
 import type { PromotionState } from "./reconciliation.js";
 import { deserializePromotionState, runReconciliation, serializePromotionState } from "./reconciliation.js";
+import type { RecordingIndex } from "./recording-index.js";
+import { getRecordingIndex } from "./recording-index.js";
+import { getReplayGuard, replaySecondaryKey } from "./replay-guard.js";
 import type { DisappearedPending, SafetyNetSnapshot } from "./safety-net.js";
 import {
   deserializePending,
@@ -145,9 +145,52 @@ export async function startCompositePoller(opts: CompositePollerOptions): Promis
     throw err;
   }
 
-  // Shared per-account dedup — survives gateway restarts (SQLite-backed)
-  const dedup = getAccountDedup(account.accountId);
-  slog.info("dedup_loaded", { entries: dedup.size });
+  // Shared replay guard — claim/commit dedup persisted in the OpenClaw
+  // plugin-state store (per-account namespace, survives gateway restarts).
+  const guard = getReplayGuard();
+
+  // Recording→bucket index so outbound cold sends can resolve recordings
+  // seen by any poller source (SPEC §2.15). Best-effort: a failed open
+  // degrades outbound target resolution, never inbound delivery.
+  let recordingIndex: RecordingIndex | undefined;
+  try {
+    recordingIndex = await getRecordingIndex(account.accountId, stateDir);
+  } catch (err) {
+    slog.warn("recording_index_unavailable", { error: String(err) });
+  }
+
+  /**
+   * Guarded event processing: claim (primary + optional cross-source
+   * secondary key) → self-filter + dispatch → commit. Failures release the
+   * claim so a later source or poll can retry the event.
+   */
+  async function processGuardedEvent(
+    feed: string,
+    event: BasecampInboundMessage,
+    opts2: { crossSource: boolean },
+  ): Promise<"dispatched" | "dropped" | "deduped" | "self" | "error"> {
+    const secondaryKey =
+      opts2.crossSource && event.meta.recordingId
+        ? replaySecondaryKey(event.meta.recordingId, event.meta.eventKind, event.createdAt)
+        : undefined;
+    recordingIndex?.record(event.meta.recordingId, {
+      bucketId: event.meta.bucketId,
+      recordableType: event.meta.recordableType,
+    });
+    try {
+      const result = await guard.processGuarded(
+        { accountId: account.accountId, primaryKey: event.dedupKey, secondaryKey },
+        async () => {
+          if (isSelfMessage(event.sender.id, account)) return "self" as const;
+          return (await onEvent(event)) ? ("dispatched" as const) : ("dropped" as const);
+        },
+      );
+      return result.kind === "processed" ? result.value : "deduped";
+    } catch (err) {
+      slog.error("dispatch_error", { feed, key: event.dedupKey, error: String(err) });
+      return "error";
+    }
+  }
 
   const cursors = new CursorStore(stateDir, account.accountId);
 
@@ -310,26 +353,10 @@ export async function startCompositePoller(opts: CompositePollerOptions): Promis
           let dropped = 0;
           let deduped = 0;
           for (const event of result.events) {
-            const secondaryKey = event.meta.recordingId
-              ? EventDedup.secondaryKey(event.meta.recordingId, event.meta.eventKind, event.createdAt)
-              : undefined;
-
-            if (dedup.isDuplicate(event.dedupKey, secondaryKey)) {
-              deduped++;
-              continue;
-            }
-            if (isSelfMessage(event.sender.id, account)) continue;
-
-            try {
-              const delivered = await onEvent(event);
-              if (delivered) {
-                dispatched++;
-              } else {
-                dropped++;
-              }
-            } catch (err) {
-              slog.error("dispatch_error", { feed: "activity", key: event.dedupKey, error: String(err) });
-            }
+            const outcome = await processGuardedEvent("activity", event, { crossSource: true });
+            if (outcome === "dispatched") dispatched++;
+            else if (outcome === "dropped") dropped++;
+            else if (outcome === "deduped") deduped++;
           }
 
           if (result.newestAt) {
@@ -344,7 +371,6 @@ export async function startCompositePoller(opts: CompositePollerOptions): Promis
           recordPollSuccess(account.accountId, "activity", dispatched, dropped);
         }
 
-        recordDedupSize(account.accountId, dedup.size);
         syncCircuitBreakerMetrics("activity");
         activityBackoff = 0;
       } catch (err) {
@@ -392,26 +418,10 @@ export async function startCompositePoller(opts: CompositePollerOptions): Promis
           let dropped = 0;
           let deduped = 0;
           for (const event of result.events) {
-            const secondaryKey = event.meta.recordingId
-              ? EventDedup.secondaryKey(event.meta.recordingId, event.meta.eventKind, event.createdAt)
-              : undefined;
-
-            if (dedup.isDuplicate(event.dedupKey, secondaryKey)) {
-              deduped++;
-              continue;
-            }
-            if (isSelfMessage(event.sender.id, account)) continue;
-
-            try {
-              const delivered = await onEvent(event);
-              if (delivered) {
-                dispatched++;
-              } else {
-                dropped++;
-              }
-            } catch (err) {
-              slog.error("dispatch_error", { feed: "readings", key: event.dedupKey, error: String(err) });
-            }
+            const outcome = await processGuardedEvent("readings", event, { crossSource: true });
+            if (outcome === "dispatched") dispatched++;
+            else if (outcome === "dropped") dropped++;
+            else if (outcome === "deduped") deduped++;
           }
 
           // Mark processed readings as read so they don't reappear
@@ -435,8 +445,6 @@ export async function startCompositePoller(opts: CompositePollerOptions): Promis
 
           recordPollSuccess(account.accountId, "readings", dispatched, dropped);
         }
-
-        recordDedupSize(account.accountId, dedup.size);
         syncCircuitBreakerMetrics("readings");
         readingsBackoff = 0;
       } catch (err) {
@@ -469,22 +477,10 @@ export async function startCompositePoller(opts: CompositePollerOptions): Promis
         let dropped = 0;
         let deduped = 0;
         for (const event of result.events) {
-          if (dedup.isDuplicate(event.dedupKey)) {
-            deduped++;
-            continue;
-          }
-          if (isSelfMessage(event.sender.id, account)) continue;
-
-          try {
-            const delivered = await onEvent(event);
-            if (delivered) {
-              dispatched++;
-            } else {
-              dropped++;
-            }
-          } catch (err) {
-            slog.error("dispatch_error", { feed: "assignments", key: event.dedupKey, error: String(err) });
-          }
+          const outcome = await processGuardedEvent("assignments", event, { crossSource: false });
+          if (outcome === "dispatched") dispatched++;
+          else if (outcome === "dropped") dropped++;
+          else if (outcome === "deduped") deduped++;
         }
 
         // Persist updated known-ID set
@@ -498,7 +494,6 @@ export async function startCompositePoller(opts: CompositePollerOptions): Promis
         }
 
         recordPollSuccess(account.accountId, "assignments", dispatched, dropped);
-        recordDedupSize(account.accountId, dedup.size);
         syncCircuitBreakerMetrics("assignments");
         assignmentsBackoff = 0;
       } catch (err) {
@@ -539,15 +534,9 @@ export async function startCompositePoller(opts: CompositePollerOptions): Promis
           let dispatched = 0;
           let dropped = 0;
           for (const event of result.events) {
-            if (dedup.isDuplicate(event.dedupKey)) continue;
-
-            try {
-              const delivered = await onEvent(event);
-              if (delivered) dispatched++;
-              else dropped++;
-            } catch (err) {
-              slog.error("dispatch_error", { feed: "safetyNet", key: event.dedupKey, error: String(err) });
-            }
+            const outcome = await processGuardedEvent("safetyNet", event, { crossSource: false });
+            if (outcome === "dispatched") dispatched++;
+            else if (outcome === "dropped") dropped++;
           }
 
           safetyNetSnapshot = result.snapshot;
@@ -567,7 +556,6 @@ export async function startCompositePoller(opts: CompositePollerOptions): Promis
           }
 
           recordPollSuccess(account.accountId, "safetyNet", dispatched, dropped);
-          recordDedupSize(account.accountId, dedup.size);
           syncCircuitBreakerMetrics("safetyNet");
           safetyNetBackoff = 0;
         } catch (err) {
@@ -592,7 +580,7 @@ export async function startCompositePoller(opts: CompositePollerOptions): Promis
           const result = await runReconciliation({
             account,
             client,
-            dedup,
+            guard,
             maxItems: 250,
             gapThreshold: rcConfig.gapThreshold,
             promotionState,
@@ -635,12 +623,15 @@ export async function startCompositePoller(opts: CompositePollerOptions): Promis
     }
     const sleepMs = Math.max(1000, Math.min(...sleepCandidates));
 
+    // Persist recording-index updates accumulated this cycle (no-op when clean)
+    await recordingIndex?.flush().catch((err) => {
+      slog.warn("recording_index_flush_failed", { error: String(err) });
+    });
+
     await abortableSleep(sleepMs, abortSignal);
   }
 
   try {
-    // dedup.flush() is sync (writeFileSync) — best-effort, cannot be timeout-protected.
-    dedup.flush();
     // Cursor save is async (fs/promises.writeFile) — timeout-protect it.
     const saveResult = await withTimeout(
       saveCursorsWithRetry(cursors, slog).then(() => "saved" as const),
@@ -659,4 +650,8 @@ export async function startCompositePoller(opts: CompositePollerOptions): Promis
   } catch (err) {
     slog.warn("final_state_save_failed", { error: String(err) });
   }
+
+  await recordingIndex?.flush().catch((err) => {
+    slog.warn("recording_index_flush_failed", { error: String(err) });
+  });
 }

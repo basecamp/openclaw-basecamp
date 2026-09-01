@@ -75,11 +75,10 @@ vi.mock("../src/inbound/webhooks.js", () => ({
   getWebhookSecretRegistry: vi.fn().mockReturnValue({}),
 }));
 
-vi.mock("../src/inbound/dedup-registry.js", () => ({
-  getAccountDedup: vi.fn(() => ({ size: 0, isDuplicate: () => false, flush: vi.fn() })),
-  closeAccountDedup: vi.fn(),
-  closeAllAccountDedup: vi.fn(),
-  flushAccountDedup: vi.fn(),
+vi.mock("../src/inbound/recording-index.js", () => ({
+  getRecordingIndex: vi.fn(),
+  closeRecordingIndex: vi.fn(),
+  closeAllRecordingIndexes: vi.fn(),
 }));
 
 vi.mock("../src/inbound/webhook-lifecycle.js", () => ({
@@ -115,8 +114,8 @@ import {
   scopeWebhookProjects,
 } from "../src/config.js";
 import { dispatchBasecampEvent } from "../src/dispatch.js";
-import { closeAccountDedup } from "../src/inbound/dedup-registry.js";
 import { startCompositePoller } from "../src/inbound/poller.js";
+import { closeRecordingIndex } from "../src/inbound/recording-index.js";
 import { deactivateWebhooks, reconcileWebhooks } from "../src/inbound/webhook-lifecycle.js";
 import { flushWebhookSecrets } from "../src/inbound/webhooks.js";
 import { clearTokenManager, clearTokenManagers, createTokenManager } from "../src/oauth-credentials.js";
@@ -390,11 +389,11 @@ describe("phase 15: finally block", () => {
     expect(deactivateWebhooks).not.toHaveBeenCalled();
   });
 
-  it("calls closeAccountDedup", async () => {
+  it("closes the recording index", async () => {
     const ctx = makeCtx({});
     await basecampChannel.gateway!.startAccount!(ctx as any);
 
-    expect(closeAccountDedup).toHaveBeenCalledWith("test");
+    expect(closeRecordingIndex).toHaveBeenCalledWith("test");
   });
 
   it("calls flushWebhookSecrets", async () => {
@@ -421,7 +420,7 @@ describe("phase 15: finally block", () => {
     const ctx = makeCtx({});
     await basecampChannel.gateway!.startAccount!(ctx as any).catch(() => {});
 
-    expect(closeAccountDedup).toHaveBeenCalledWith("test");
+    expect(closeRecordingIndex).toHaveBeenCalledWith("test");
     expect(flushWebhookSecrets).toHaveBeenCalled();
   });
 });
@@ -431,7 +430,7 @@ describe("phase 15: finally block", () => {
 // ---------------------------------------------------------------------------
 
 describe("logoutAccount", () => {
-  it("deletes token file, evicts caches, and closes dedup", async () => {
+  it("deletes token file, evicts caches, and closes the recording index", async () => {
     mockUnlink.mockResolvedValue(undefined);
     vi.mocked(resolveBasecampAccount).mockReturnValue(
       makeAccount({ config: { personId: "42", oauthTokenFile: "/tmp/token.json" } }) as any,
@@ -446,7 +445,7 @@ describe("logoutAccount", () => {
     expect(mockUnlink).toHaveBeenCalledWith("/tmp/token.json");
     expect(clearTokenManager).toHaveBeenCalledWith("test");
     expect(clearClient).toHaveBeenCalledWith("test");
-    expect(closeAccountDedup).toHaveBeenCalledWith("test");
+    expect(closeRecordingIndex).toHaveBeenCalledWith("test");
   });
 
   it("returns cleared=true when token file already gone (ENOENT)", async () => {
@@ -474,7 +473,7 @@ describe("logoutAccount", () => {
     expect(result).toEqual({ cleared: false, loggedOut: false });
     expect(clearTokenManager).toHaveBeenCalledWith("test");
     expect(clearClient).toHaveBeenCalledWith("test");
-    expect(closeAccountDedup).toHaveBeenCalledWith("test");
+    expect(closeRecordingIndex).toHaveBeenCalledWith("test");
   });
 
   it("non-ENOENT unlink error propagates", async () => {

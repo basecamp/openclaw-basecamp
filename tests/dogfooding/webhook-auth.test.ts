@@ -66,34 +66,11 @@ vi.mock("../../src/inbound/state-dir.js", () => ({
   resolvePluginStateDir: vi.fn(() => _testStateDir),
 }));
 
-vi.mock("../../src/inbound/dedup-registry.js", () => {
-  // Lightweight in-memory dedup mock — no SQLite dependency
-  const seen = new Set<string>();
-  return {
-    getAccountDedup: vi.fn(() => ({
-      isDuplicate: (key: string) => {
-        if (seen.has(key)) return true;
-        seen.add(key);
-        return false;
-      },
-      flush: vi.fn(),
-      size: seen.size,
-    })),
-    closeAccountDedup: vi.fn(() => {
-      seen.clear();
-    }),
-    closeAllAccountDedup: vi.fn(() => {
-      seen.clear();
-    }),
-    flushAccountDedup: vi.fn(),
-  };
-});
-
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { dispatchBasecampEvent } from "../../src/dispatch.js";
-import { closeAllAccountDedup } from "../../src/inbound/dedup-registry.js";
+import { resetReplayGuard } from "../../src/inbound/replay-guard.js";
 import { getWebhookSecretRegistry, handleBasecampWebhook } from "../../src/inbound/webhooks.js";
 import { clearMetrics } from "../../src/metrics.js";
 import { clearBasecampRuntime, setBasecampRuntime } from "../../src/runtime.js";
@@ -164,6 +141,7 @@ function makeReq(
   req.method = "POST";
   req.url = url;
   req.headers = headers;
+  (req as any).socket = { destroyed: false, writableEnded: false };
   return req;
 }
 
@@ -193,7 +171,8 @@ describe("dogfooding — webhook auth", () => {
     clearMetrics();
     dedupSeq = 0;
     _testStateDir = mkdtempSync(join(tmpdir(), "dogfood-auth-"));
-    closeAllAccountDedup();
+    process.env.OPENCLAW_STATE_DIR = _testStateDir;
+    resetReplayGuard();
 
     setBasecampRuntime({
       config: { current: (...args: unknown[]) => mockCurrentConfig(...args) },
@@ -209,7 +188,8 @@ describe("dogfooding — webhook auth", () => {
 
   afterEach(() => {
     clearBasecampRuntime();
-    closeAllAccountDedup();
+    resetReplayGuard();
+    delete process.env.OPENCLAW_STATE_DIR;
     rmSync(_testStateDir, { recursive: true, force: true });
   });
 

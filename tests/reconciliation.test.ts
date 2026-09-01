@@ -1,7 +1,7 @@
 /**
  * Tests: reconciliation.ts
  *
- * Validates runReconciliation with mocked client + real EventDedup,
+ * Validates runReconciliation with mocked client + real replay guard,
  * and promotion hysteresis logic (promote after 2 gap cycles, demote
  * after 3 clean cycles, TTL expiry, MAX_PROMOTIONS cap).
  */
@@ -11,19 +11,19 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// State dir mock — EventDedup needs it for SQLite backend
+// State dir mock — plugin state paths need it
 const testStateDir = mkdtempSync(join(tmpdir(), "rc-state-"));
 vi.mock("../src/inbound/state-dir.js", () => ({
   resolvePluginStateDir: () => testStateDir,
 }));
 
-import { EventDedup } from "../src/inbound/dedup.js";
 import type { PromotionEntry, PromotionState } from "../src/inbound/reconciliation.js";
 import {
   deserializePromotionState,
   runReconciliation,
   serializePromotionState,
 } from "../src/inbound/reconciliation.js";
+import { createBasecampReplayGuard, type ReplayGuard, replaySecondaryKey } from "../src/inbound/replay-guard.js";
 import type { ResolvedBasecampAccount } from "../src/types.js";
 
 // ---------------------------------------------------------------------------
@@ -72,15 +72,22 @@ const log = {
 // ---------------------------------------------------------------------------
 
 describe("reconciliation", () => {
-  let dedup: EventDedup;
+  let guard: ReplayGuard;
+
+  let guardStateDir: string;
 
   beforeEach(() => {
     vi.clearAllMocks();
-    dedup = new EventDedup({ ttlMs: 60_000 });
+    // Fresh persistent store per test — replay-guard state is durable.
+    guardStateDir = mkdtempSync(join(tmpdir(), "rc-guard-"));
+    process.env.OPENCLAW_STATE_DIR = guardStateDir;
+    guard = createBasecampReplayGuard({ ttlMs: 60_000 });
   });
 
   afterEach(() => {
-    // EventDedup has no close() — just let it be GC'd
+    guard.clearMemory();
+    delete process.env.OPENCLAW_STATE_DIR;
+    rmSync(guardStateDir, { recursive: true, force: true });
   });
 
   afterAll(() => {
@@ -94,7 +101,7 @@ describe("reconciliation", () => {
     const result = await runReconciliation({
       account,
       client,
-      dedup,
+      guard,
       log,
     });
     expect(result.replayed).toBe(0);
@@ -102,10 +109,10 @@ describe("reconciliation", () => {
     expect(result.gapsByType).toEqual({});
   });
 
-  it("all events seen in dedup → zero gaps", async () => {
-    // Pre-populate dedup with these events
-    dedup.isDuplicate("activity:1");
-    dedup.isDuplicate("activity:2");
+  it("all events seen in guard → zero gaps", async () => {
+    // Pre-populate guard with these events
+    await guard.record({ accountId: account.accountId, primaryKey: "activity:1" });
+    await guard.record({ accountId: account.accountId, primaryKey: "activity:2" });
 
     const client = makeClient([
       activityEvent({ id: 1, kind: "todo_created" }),
@@ -114,7 +121,7 @@ describe("reconciliation", () => {
     const result = await runReconciliation({
       account,
       client,
-      dedup,
+      guard,
       log,
     });
     expect(result.replayed).toBe(2);
@@ -130,7 +137,7 @@ describe("reconciliation", () => {
     const result = await runReconciliation({
       account,
       client,
-      dedup,
+      guard,
       log,
     });
     expect(result.replayed).toBe(3);
@@ -145,7 +152,7 @@ describe("reconciliation", () => {
     const result = await runReconciliation({
       account,
       client,
-      dedup,
+      guard,
       log,
     });
     expect(result.replayed).toBe(0);
@@ -157,7 +164,7 @@ describe("reconciliation", () => {
     const result = await runReconciliation({
       account,
       client,
-      dedup,
+      guard,
       log,
     });
     expect(result.replayed).toBe(0);
@@ -169,7 +176,7 @@ describe("reconciliation", () => {
     const result = await runReconciliation({
       account,
       client,
-      dedup,
+      guard,
       log,
     });
     expect(result.replayed).toBe(0);
@@ -187,7 +194,7 @@ describe("reconciliation", () => {
     const result = await runReconciliation({
       account,
       client,
-      dedup,
+      guard,
       log,
     });
     expect(result.replayed).toBe(0);
@@ -224,7 +231,7 @@ describe("reconciliation", () => {
     const result = await runReconciliation({
       account,
       client,
-      dedup,
+      guard,
       gapThreshold: 3,
       log,
     });
@@ -240,7 +247,7 @@ describe("reconciliation", () => {
     const result = await runReconciliation({
       account,
       client,
-      dedup,
+      guard,
       gapThreshold: 3,
       log,
     });
@@ -261,7 +268,7 @@ describe("reconciliation", () => {
     const r1 = await runReconciliation({
       account,
       client,
-      dedup,
+      guard,
       gapThreshold: 3,
       log,
     });
@@ -279,7 +286,7 @@ describe("reconciliation", () => {
     const r2 = await runReconciliation({
       account,
       client: client2,
-      dedup,
+      guard,
       gapThreshold: 3,
       promotionState: state1,
       log,
@@ -308,7 +315,7 @@ describe("reconciliation", () => {
       const result = await runReconciliation({
         account,
         client,
-        dedup,
+        guard,
         gapThreshold: 3,
         promotionState: state,
         log,
@@ -334,7 +341,7 @@ describe("reconciliation", () => {
     const result = await runReconciliation({
       account,
       client,
-      dedup,
+      guard,
       gapThreshold: 3,
       promotionState: { promotions: [entry], previousGaps: {} },
       log,
@@ -356,7 +363,7 @@ describe("reconciliation", () => {
     const result = await runReconciliation({
       account,
       client,
-      dedup,
+      guard,
       gapThreshold: 3,
       promotionState: { promotions: [entry], previousGaps: {} },
       log,
@@ -383,7 +390,7 @@ describe("reconciliation", () => {
     const result = await runReconciliation({
       account,
       client,
-      dedup,
+      guard,
       gapThreshold: 1,
       promotionState: { promotions: existing, previousGaps: { "Kanban::Card": 5, Todo: 5, "Question::Answer": 5 } },
       log,
@@ -402,7 +409,7 @@ describe("reconciliation", () => {
     const r1 = await runReconciliation({
       account,
       client,
-      dedup,
+      guard,
       gapThreshold: 3,
       log,
     });
@@ -415,7 +422,7 @@ describe("reconciliation", () => {
     const r2 = await runReconciliation({
       account,
       client: client2,
-      dedup,
+      guard,
       gapThreshold: 3,
       promotionState: { promotions: [], previousGaps: r1.gapsByType },
       log,
@@ -436,7 +443,7 @@ describe("reconciliation", () => {
     const result = await runReconciliation({
       account,
       client,
-      dedup,
+      guard,
       promotionState: { promotions: [entry], previousGaps: {} },
       log,
     });
@@ -454,7 +461,7 @@ describe("reconciliation", () => {
     const result = await runReconciliation({
       account,
       client,
-      dedup,
+      guard,
       maxItems: 10,
       log,
     });
@@ -467,7 +474,7 @@ describe("reconciliation", () => {
     const result = await runReconciliation({
       account,
       client,
-      dedup,
+      guard,
       maxItems: 5,
       log,
     });
@@ -480,7 +487,7 @@ describe("reconciliation", () => {
     const result = await runReconciliation({
       account,
       client,
-      dedup,
+      guard,
       log,
     });
     expect(result.sampled).toBe(false);
@@ -491,8 +498,8 @@ describe("reconciliation", () => {
     const recordingId = "12345";
     const eventKind = "created";
     const createdAt = new Date().toISOString();
-    const secondaryKey = EventDedup.secondaryKey(recordingId, eventKind, createdAt);
-    dedup.isDuplicate("webhook:original", secondaryKey);
+    const secondaryKey = replaySecondaryKey(recordingId, eventKind, createdAt);
+    await guard.record({ accountId: account.accountId, primaryKey: "webhook:original", secondaryKey });
 
     // Reconciliation sees same event via activity feed
     const client = makeClient([
@@ -506,7 +513,7 @@ describe("reconciliation", () => {
     const result = await runReconciliation({
       account,
       client,
-      dedup,
+      guard,
       log,
     });
     // Should be seen via secondary key match

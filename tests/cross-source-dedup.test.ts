@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { EventDedup } from "../src/inbound/dedup.js";
+import { replaySecondaryKey } from "../src/inbound/replay-guard.js";
 
 // Mock external deps used by normalize.ts
 vi.mock("../src/metrics.js", () => ({
@@ -73,12 +73,12 @@ describe("cross-source dedup key parity", () => {
     expect(activityMsg!.createdAt).toBe(createdAt);
 
     // Therefore, the secondary keys are identical:
-    const activitySecondary = EventDedup.secondaryKey(
+    const activitySecondary = replaySecondaryKey(
       activityMsg!.meta.recordingId!,
       activityMsg!.meta.eventKind,
       activityMsg!.createdAt,
     );
-    const webhookSecondary = EventDedup.secondaryKey(
+    const webhookSecondary = replaySecondaryKey(
       webhookMsg!.meta.recordingId!,
       webhookMsg!.meta.eventKind,
       webhookMsg!.createdAt,
@@ -100,8 +100,8 @@ describe("cross-source dedup key parity", () => {
     const readingsCreatedAt = "2025-06-15T15:00:00Z"; // unread_at, shifted
     const webhookCreatedAt = "2025-06-15T14:30:00Z"; // created_at, original
 
-    const readingsSecondary = EventDedup.secondaryKey(recordingId, eventKind, readingsCreatedAt);
-    const webhookSecondary = EventDedup.secondaryKey(recordingId, eventKind, webhookCreatedAt);
+    const readingsSecondary = replaySecondaryKey(recordingId, eventKind, readingsCreatedAt);
+    const webhookSecondary = replaySecondaryKey(recordingId, eventKind, webhookCreatedAt);
 
     expect(readingsSecondary).not.toBe(webhookSecondary);
   });

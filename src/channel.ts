@@ -31,7 +31,7 @@ import {
   scopeWebhookProjects,
 } from "./config.js";
 import { dispatchBasecampEvent } from "./dispatch.js";
-import { closeAccountDedup } from "./inbound/dedup-registry.js";
+import { closeRecordingIndex } from "./inbound/recording-index.js";
 import { resolvePluginStateDir } from "./inbound/state-dir.js";
 import { deactivateWebhooks, reconcileWebhooks } from "./inbound/webhook-lifecycle.js";
 import { flushWebhookSecrets, getWebhookSecretRegistry } from "./inbound/webhooks.js";
@@ -454,10 +454,12 @@ const basecampChannelBase = {
           );
         }
 
-        // Close account dedup (flush + close SQLite) + flush secret stores (with timeout)
+        // Flush recording index + secret stores (with timeout). Replay-guard
+        // state is committed per event in the shared plugin-state store —
+        // nothing to flush.
         await withTimeout(
-          Promise.resolve().then(() => {
-            closeAccountDedup(account.accountId);
+          Promise.resolve().then(async () => {
+            await closeRecordingIndex(account.accountId);
             flushWebhookSecrets();
           }),
           5000,
@@ -498,8 +500,8 @@ const basecampChannelBase = {
       clearTokenManager(accountId);
       clearClient(accountId);
 
-      // Close account dedup DB
-      closeAccountDedup(accountId);
+      // Flush + drop the account's recording index
+      await closeRecordingIndex(accountId);
 
       return { cleared, loggedOut: cleared };
     },
