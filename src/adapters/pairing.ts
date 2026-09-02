@@ -1,42 +1,44 @@
 /**
- * Basecamp pairing adapter — handles DM allowlist entry normalization
- * and approval notifications.
- *
- * Basecamp uses person IDs (numeric strings) for allowlist entries.
- * Pairing approval sends a Ping message to the user via the Basecamp API.
+ * Basecamp pairing adapter (SPEC §3.6) — built on the SDK text pairing
+ * adapter. Allowlist entries are numeric Basecamp person IDs (with
+ * `basecamp:`/`bc:` prefixes stripped); pairing/approval notifications are
+ * delivered as Basecamp Pings via the circles endpoint (not in the OpenAPI
+ * spec — raw client). Challenge issuance itself lives in the inbound
+ * ingress path (dispatch.ts) via createChannelPairingChallengeIssuer.
  */
 
-import type { OpenClawConfig } from "openclaw/plugin-sdk";
-import type { ChannelPairingAdapter } from "openclaw/plugin-sdk/channel-runtime";
+import { createPairingPrefixStripper, createTextPairingAdapter } from "openclaw/plugin-sdk/channel-pairing";
 import { PAIRING_APPROVED_MESSAGE } from "openclaw/plugin-sdk/channel-status";
 import { getClient, rawOrThrow } from "../basecamp-client.js";
 import { resolveBasecampAccount } from "../config.js";
+import type { ChannelPairingAdapter } from "../sdk-types.js";
+import type { ResolvedBasecampAccount } from "../types.js";
 
-export const basecampPairingAdapter: ChannelPairingAdapter = {
+/** Post a Ping line to a person. Best-effort delivery for pairing notices. */
+export async function sendPairingPing(account: ResolvedBasecampAccount, personId: string, text: string): Promise<void> {
+  const client = getClient(account);
+  // Circles endpoint is not in the OpenAPI spec — raw client with loose types.
+  await rawOrThrow(
+    await client.raw.POST(
+      `/circles/people/${personId}/lines.json` as never,
+      {
+        body: { content: `<p>${text}</p>` },
+      } as never,
+    ),
+  );
+}
+
+export const basecampPairingAdapter: ChannelPairingAdapter = createTextPairingAdapter({
   idLabel: "basecampPersonId",
-
-  normalizeAllowEntry: (entry) => {
-    // Strip common prefixes like "basecamp:" or "bc:"
-    const stripped = entry.replace(/^(basecamp|bc):/i, "").trim();
-    // Person IDs are numeric — return as-is
-    return stripped;
-  },
-
-  notifyApproval: async ({ cfg, id }) => {
+  message: PAIRING_APPROVED_MESSAGE,
+  normalizeAllowEntry: createPairingPrefixStripper(/^(basecamp|bc):/i),
+  notify: async ({ cfg, id, message }) => {
     const account = resolveBasecampAccount(cfg);
-
-    // Send a Ping message to the person via the circles endpoint.
-    // This is NOT in the OpenAPI spec — use raw client.
     try {
-      const client = getClient(account);
-      await rawOrThrow(
-        await client.raw.POST(`/circles/people/${id}/lines.json` as any, {
-          body: { content: `<p>${PAIRING_APPROVED_MESSAGE}</p>` } as any,
-        }),
-      );
+      await sendPairingPing(account, String(id), message);
     } catch {
       // Ping delivery is best-effort; the person can check their status
-      // via `openclaw pairing status` if they don't receive the message.
+      // via `openclaw pairing list` if they don't receive the message.
     }
   },
-};
+});

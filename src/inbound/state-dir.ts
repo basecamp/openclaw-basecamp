@@ -1,31 +1,19 @@
-import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { getBasecampRuntime } from "../runtime.js";
-
-const FALLBACK_STATE_DIR = "/tmp/basecamp-state";
-let fallbackWarned = false;
+import { resolveStateDir } from "openclaw/plugin-sdk/state-paths";
+import { tryGetBasecampRuntime } from "../runtime.js";
 
 /**
- * Resolve the plugin-specific state directory from the OpenClaw runtime.
- * Falls back to /tmp/basecamp-state if runtime is unavailable
- * (e.g. webhooks arriving before channel start on first boot).
+ * Resolve the plugin-specific state directory.
+ *
+ * Prefers the installed runtime's resolver (tests stub it; the host may scope
+ * it), falling back to the SDK's standalone resolver — the same env/homedir
+ * logic — so setup-only contexts (onboarding through the import-light setup
+ * entry, before setRuntime runs) still land on the canonical state dir
+ * covered by `backupResources`, never a legacy home path.
  */
 export function resolvePluginStateDir(): string {
-  try {
-    const runtime = getBasecampRuntime();
-    const baseDir = runtime.state.resolveStateDir(process.env, homedir);
-    return join(baseDir, "plugins", "basecamp");
-  } catch {
-    if (!fallbackWarned) {
-      fallbackWarned = true;
-      console.warn(
-        `[basecamp:state-dir] runtime unavailable, using fallback ${FALLBACK_STATE_DIR} — ` +
-          "secrets and dedup state will persist here until runtime is available",
-      );
-    }
-    // Create with restrictive permissions — may contain webhook secrets and dedup DBs
-    mkdirSync(FALLBACK_STATE_DIR, { recursive: true, mode: 0o700 });
-    return FALLBACK_STATE_DIR;
-  }
+  const runtime = tryGetBasecampRuntime();
+  const baseDir = runtime ? runtime.state.resolveStateDir(process.env, homedir) : resolveStateDir(process.env, homedir);
+  return join(baseDir, "plugins", "basecamp");
 }

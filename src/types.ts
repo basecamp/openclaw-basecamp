@@ -390,6 +390,8 @@ export type BasecampProject = {
 export type BasecampBucketConfig = {
   requireMention?: boolean;
   tools?: { allow?: string[]; deny?: string[] };
+  /** Per-sender tool overlays keyed like `id:<personId>` (SDK GroupToolPolicyBySenderConfig). */
+  toolsBySender?: Record<string, { allow?: string[]; deny?: string[] }>;
   enabled?: boolean;
   /** Override engagement types for this bucket. */
   engage?: BasecampEngagementType[];
@@ -412,8 +414,10 @@ export type BasecampAccountConfig = {
   token?: string;
   /** Basecamp person ID for this service account. */
   personId: string;
-  /** Human-readable display name. */
+  /** Human-readable display name (legacy field). */
   displayName?: string;
+  /** Standard per-account display name written by the setup contract. */
+  name?: string;
   /** Pre-resolved attachable SGID (auto-resolved at startup if absent). */
   attachableSgid?: string;
   /** Whether this account is enabled. */
@@ -432,6 +436,8 @@ export type BasecampAccountConfig = {
   oauthClientId?: string;
   /** Per-account OAuth client secret override. */
   oauthClientSecret?: string;
+  /** Group history window for inbound turns (SDK account schema part). Overrides the channel-level value. */
+  historyLimit?: number;
 };
 
 /**
@@ -447,6 +453,8 @@ export type BasecampVirtualAccountConfig = {
  * Top-level channels.basecamp config section.
  */
 export type BasecampChannelConfig = {
+  /** Display name for the default account (written at the channel root by the SDK setup flow). */
+  name?: string;
   enabled?: boolean;
   accounts?: Record<string, BasecampAccountConfig>;
   virtualAccounts?: Record<string, BasecampVirtualAccountConfig>;
@@ -461,8 +469,18 @@ export type BasecampChannelConfig = {
    *   disabled — DMs completely blocked
    */
   dmPolicy?: "pairing" | "allowlist" | "open" | "disabled";
+  /** Group sender policy for Campfires/comments; open by default (project membership gates access). */
+  groupPolicy?: "allowlist" | "open" | "disabled";
+  /** Person IDs admitted to group surfaces under groupPolicy: allowlist. */
+  groupAllowFrom?: Array<string | number>;
   /** Allowed sender person IDs for DM allowlist. */
   allowFrom?: Array<string | number>;
+  /**
+   * Group history window for inbound turns (recent session transcript turns
+   * surfaced as chat-window context). Falls back to
+   * `messages.groupChat.historyLimit`, then the SDK default (50).
+   */
+  historyLimit?: number;
   /** Per-bucket behavior overrides. Key is bucket ID or "*" for wildcard. */
   buckets?: Record<string, BasecampBucketConfig>;
   /**
@@ -528,6 +546,8 @@ export type BasecampChannelConfig = {
  */
 export type ResolvedBasecampAccount = {
   accountId: string;
+  /** Concrete account behind a virtualAccounts alias; equals accountId otherwise. */
+  backingAccountId?: string;
   enabled: boolean;
   displayName?: string;
   personId: string;

@@ -7,8 +7,13 @@
  *
  * BasecampError is NEVER retried here — that would compound retries
  * (SDK 3 × plugin 3 = 9 attempts).
+ *
+ * Backoff scheduling delegates to the SDK's `retryAsync` (SPEC §2.25); this
+ * module keeps the TypeError-only network classifier and the circuit breaker
+ * wrapper, which have no SDK equivalent.
  */
 
+import { retryAsync } from "openclaw/plugin-sdk/runtime-env";
 import type { CircuitBreaker } from "./circuit-breaker.js";
 
 export interface RetryOptions {
@@ -17,10 +22,6 @@ export interface RetryOptions {
   maxDelayMs?: number;
   jitter?: boolean;
   retryable?: (err: unknown) => boolean;
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /**
@@ -45,31 +46,20 @@ export function isRetryableError(err: unknown): boolean {
 
 /**
  * Retry wrapper for SDK calls. Only retries transport-level TypeErrors.
+ *
+ * Exponential backoff (baseDelayMs · 2^attempt, capped at maxDelayMs) with
+ * optional ±25% jitter, scheduled by the SDK's `retryAsync`.
  */
 export async function withRetry<T>(fn: () => Promise<T>, opts?: RetryOptions): Promise<T> {
-  const maxAttempts = opts?.maxAttempts ?? 3;
-  const baseDelayMs = opts?.baseDelayMs ?? 1000;
-  const maxDelayMs = opts?.maxDelayMs ?? 30000;
-  const jitter = opts?.jitter ?? true;
   const classify = opts?.retryable ?? isRetryableError;
-
-  let lastError: unknown;
-  for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    try {
-      return await fn();
-    } catch (err) {
-      lastError = err;
-      if (!classify(err)) throw err;
-      if (attempt + 1 >= maxAttempts) break;
-
-      let delay = Math.min(baseDelayMs * 2 ** attempt, maxDelayMs);
-      if (jitter) {
-        delay -= delay * Math.random() * 0.25;
-      }
-      await sleep(delay);
-    }
-  }
-  throw lastError;
+  return retryAsync(fn, {
+    attempts: opts?.maxAttempts ?? 3,
+    minDelayMs: opts?.baseDelayMs ?? 1000,
+    maxDelayMs: opts?.maxDelayMs ?? 30000,
+    jitter: (opts?.jitter ?? true) ? 0.25 : 0,
+    shouldRetry: (err) => classify(err),
+    random: () => Math.random(),
+  });
 }
 
 /**

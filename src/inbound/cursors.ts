@@ -4,13 +4,12 @@
  * Cursors track the position of each polling source (activity feed page,
  * readings timestamp) so we can resume from where we left off after restart.
  *
- * Storage location: resolved via runtime.state.resolveStateDir()
+ * Storage: SDK atomic JSON (SPEC §2.15) under the plugin state dir.
  * File format: cursors-<accountId>.json
  */
 
-import crypto from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
+import { readJsonFileWithFallback, writeJsonFileAtomically } from "openclaw/plugin-sdk/json-store";
 
 export interface PollCursors {
   /** ISO timestamp of the most recent activity feed event processed. */
@@ -38,16 +37,8 @@ export class CursorStore {
 
   /** Load cursors from disk. Returns empty cursors if file doesn't exist. */
   async load(): Promise<PollCursors> {
-    try {
-      const raw = await readFile(this.filePath, "utf-8");
-      this.cursors = JSON.parse(raw) as PollCursors;
-    } catch (err: unknown) {
-      if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-        this.cursors = {};
-      } else {
-        throw err;
-      }
-    }
+    const { value } = await readJsonFileWithFallback<PollCursors>(this.filePath, {});
+    this.cursors = value;
     this.dirty = false;
     return this.cursors;
   }
@@ -61,18 +52,10 @@ export class CursorStore {
     this.abandoned = true;
   }
 
-  /** Persist cursors to disk if any changes were made. */
+  /** Persist cursors to disk if any changes were made (atomic replace). */
   async save(): Promise<void> {
     if (!this.dirty || this.abandoned) return;
-
-    // Ensure directory exists
-    const dir = dirname(this.filePath);
-    await mkdir(dir, { recursive: true });
-
-    // Atomic write: temp file + rename to prevent partial writes on crash
-    const tmp = join(dir, `.cursors-${crypto.randomUUID()}.tmp`);
-    await writeFile(tmp, JSON.stringify(this.cursors, null, 2), { encoding: "utf-8", flag: "wx" });
-    await rename(tmp, this.filePath);
+    await writeJsonFileAtomically(this.filePath, this.cursors);
     this.dirty = false;
   }
 

@@ -9,7 +9,7 @@
  *   - Direct CB state machine + metrics sync (DF-018, DF-019, DF-020)
  *   - Full dispatch pipeline with failure attribution (DF-021)
  */
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CircuitBreaker } from "../../src/circuit-breaker.js";
 import { dispatchBasecampEvent } from "../../src/dispatch.js";
 import {
@@ -18,25 +18,13 @@ import {
   recordCircuitBreakerState,
   recordDispatchFailure,
 } from "../../src/metrics.js";
+import { clearBasecampRuntime, setBasecampRuntime } from "../../src/runtime.js";
 import type { BasecampInboundMessage, ResolvedBasecampAccount } from "../../src/types.js";
+import { createFakeKernel, type FakeKernel } from "../dispatch-helpers.js";
 
 // ---------------------------------------------------------------------------
 // Mocks — only needed for DF-021 (full dispatch pipeline)
 // ---------------------------------------------------------------------------
-
-const mockLoadConfig = vi.fn();
-const mockResolveRoute = vi.fn();
-const mockDispatchReply = vi.fn();
-
-vi.mock("../../src/runtime.js", () => ({
-  getBasecampRuntime: vi.fn(() => ({
-    config: { loadConfig: mockLoadConfig },
-    channel: {
-      routing: { resolveAgentRoute: (...args: unknown[]) => mockResolveRoute(...args) },
-      reply: { dispatchReplyWithBufferedBlockDispatcher: (...args: unknown[]) => mockDispatchReply(...args) },
-    },
-  })),
-}));
 
 const mockResolvePersona = vi.fn(() => undefined);
 const mockResolveAccount = vi.fn();
@@ -47,6 +35,9 @@ vi.mock("../../src/config.js", () => ({
   resolveBasecampAllowFrom: vi.fn(() => []),
   resolveCircuitBreakerConfig: vi.fn(() => ({ threshold: 2, cooldownMs: 50 })),
   resolveBasecampBucketAllowFrom: vi.fn(() => undefined),
+  resolveBasecampHistoryLimit: vi.fn(() => 50),
+  resolveBasecampGroupPolicy: vi.fn(() => "open"),
+  resolveBasecampGroupAllowFrom: vi.fn(() => []),
 }));
 
 const mockPostReply = vi.fn();
@@ -223,33 +214,28 @@ describe("dogfooding — outbound circuit breaker state machine", () => {
 // ---------------------------------------------------------------------------
 
 describe("dogfooding — outbound failure attribution", () => {
+  let kernel: FakeKernel;
+
   beforeEach(() => {
     vi.clearAllMocks();
     clearMetrics();
 
-    mockResolveRoute.mockReturnValue({
+    kernel = createFakeKernel();
+    setBasecampRuntime(kernel.runtime as any);
+    // Drive each dispatched plan's delivery with an agent reply so failures
+    // route through the plan's onError, as the real kernel does.
+    kernel.setAgentReply("agent reply");
+
+    kernel.runtime.channel.routing.resolveAgentRoute.mockReturnValue({
       agentId: "agent-1",
-      matchedBy: "peer",
+      matchedBy: "binding.peer",
       sessionKey: "sess-1",
     });
     mockResolveAccount.mockReturnValue(inboundAccount);
-    mockLoadConfig.mockReturnValue({
-      channels: {
-        basecamp: {
-          accounts: { "acct-a": { personId: "999", basecampAccountId: "11111" } },
-          circuitBreaker: { threshold: 2, cooldownMs: 50 },
-        },
-      },
-    });
+  });
 
-    // Wire dispatch to call deliver → onError
-    mockDispatchReply.mockImplementation(async (opts: any) => {
-      try {
-        await opts.dispatcherOptions.deliver({ text: "agent reply" }, {});
-      } catch (err) {
-        opts.dispatcherOptions.onError(err);
-      }
-    });
+  afterEach(() => {
+    clearBasecampRuntime();
   });
 
   // DF-021: persona routes outbound to different account — failure attributed correctly
@@ -259,7 +245,7 @@ describe("dogfooding — outbound failure attribution", () => {
       if (id === "acct-b") return personaAccount;
       return inboundAccount;
     });
-    mockLoadConfig.mockReturnValue({
+    const cfg = {
       channels: {
         basecamp: {
           accounts: {
@@ -270,11 +256,11 @@ describe("dogfooding — outbound failure attribution", () => {
           circuitBreaker: { threshold: 2, cooldownMs: 50 },
         },
       },
-    });
+    } as any;
 
     mockPostReply.mockResolvedValue({ ok: false, error: "503 Unavailable" });
 
-    await dispatchBasecampEvent(makeMsg(30), { account: inboundAccount });
+    await dispatchBasecampEvent(makeMsg(30), { account: inboundAccount, cfg });
 
     // dispatchFailureCount should be on acct-b (outbound persona), NOT acct-a (inbound)
     const metricsB = getAccountMetrics("acct-b");

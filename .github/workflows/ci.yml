@@ -64,17 +64,21 @@ jobs:
           advanced-security: false
 
   test:
-    name: Test
+    name: Test (Node ${{ matrix.node }})
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 22
+          node-version: ${{ matrix.node }}
           cache: npm
       - run: npm ci
       - run: npm test -- --coverage
@@ -82,21 +86,25 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
-          name: coverage
+          name: coverage-node${{ matrix.node }}
           path: coverage/
 
   build:
-    name: Build
+    name: Build (Node ${{ matrix.node }})
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 22
+          node-version: ${{ matrix.node }}
           cache: npm
       - run: npm ci
       - run: npm run build
@@ -104,9 +112,49 @@ jobs:
         run: |
           test -f dist/index.js || { echo "::error::dist/index.js not found"; exit 1; }
           test -f dist/index.d.ts || { echo "::error::dist/index.d.ts not found"; exit 1; }
+          test -f dist/setup-entry.js || { echo "::error::dist/setup-entry.js not found"; exit 1; }
 
       - name: Verify package artifact
         run: bash scripts/verify-pack.sh
+
+  pack-install-smoke:
+    name: Pack-install smoke (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - name: Pack
+        run: |
+          mkdir -p /tmp/pack
+          npm pack --pack-destination /tmp/pack
+      - name: Install from pack into a scratch state dir
+        run: |
+          OPENCLAW_STATE_DIR="$(mktemp -d)"
+          export OPENCLAW_STATE_DIR
+          echo "OPENCLAW_STATE_DIR=$OPENCLAW_STATE_DIR" >> "$GITHUB_ENV"
+          tgz=(/tmp/pack/*.tgz)
+          npx openclaw plugins install "npm-pack:${tgz[0]}" --force --accept-capabilities
+      - name: Inspect installed plugin
+        run: |
+          npx openclaw plugins inspect basecamp --runtime --json > /tmp/inspect.json
+          node -e '
+            const d = JSON.parse(require("fs").readFileSync("/tmp/inspect.json", "utf8"));
+            if (d.plugin?.id !== "basecamp") throw new Error("unexpected plugin id: " + d.plugin?.id);
+            if (!d.plugin?.channelIds?.includes("basecamp")) throw new Error("channel basecamp not registered");
+            console.log("pack-install smoke OK:", d.plugin.id, d.plugin.status);
+          '
 
   dependency-review:
     name: Dependency Review

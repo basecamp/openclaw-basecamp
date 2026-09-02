@@ -1,13 +1,13 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { clearBasecampRuntime, setBasecampRuntime } from "../src/runtime.js";
 
-vi.mock("openclaw/plugin-sdk", () => ({
-  DEFAULT_ACCOUNT_ID: "default",
-  normalizeAccountId: (value: string | undefined | null): string => {
-    const trimmed = (value ?? "").trim();
-    return trimmed || "default";
-  },
-  buildChannelConfigSchema: (schema: unknown) => schema,
-}));
+beforeEach(() => {
+  setBasecampRuntime({} as any);
+});
+
+afterEach(() => {
+  clearBasecampRuntime();
+});
 
 vi.mock("../src/basecamp-cli.js", () => ({}));
 
@@ -23,10 +23,6 @@ vi.mock("../src/config.js", () => ({
   resolveDefaultBasecampAccountId: vi.fn(),
 }));
 
-vi.mock("../src/runtime.js", () => ({
-  getBasecampRuntime: vi.fn(),
-}));
-
 vi.mock("../src/outbound/send.js", () => ({
   sendBasecampText: vi.fn(),
 }));
@@ -37,10 +33,6 @@ vi.mock("../src/dispatch.js", () => ({
 
 vi.mock("../src/adapters/onboarding.js", () => ({
   basecampSetupWizard: {},
-}));
-
-vi.mock("../src/adapters/setup.js", () => ({
-  basecampSetupAdapter: {},
 }));
 
 vi.mock("../src/adapters/status.js", () => ({

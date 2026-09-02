@@ -106,8 +106,8 @@ vi.mock("../src/inbound/normalize.js", () => ({
 }));
 
 import { CursorStore } from "../src/inbound/cursors.js";
-import { closeAccountDedup } from "../src/inbound/dedup-registry.js";
 import { startCompositePoller } from "../src/inbound/poller.js";
+import { resetReplayGuard } from "../src/inbound/replay-guard.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -174,12 +174,15 @@ describe("poller dispatch flow", () => {
     assignmentsEvents = [];
     assignmentsKnownIds = new Set();
     vi.clearAllMocks();
-    // Close any cached dedup for isolation
-    closeAccountDedup(baseAccount.accountId);
+    // Fresh replay-guard state per test: point the shared plugin-state store
+    // at this test's temp dir and drop process-local caches.
+    process.env.OPENCLAW_STATE_DIR = tmpDir;
+    resetReplayGuard();
   });
 
   afterEach(async () => {
-    closeAccountDedup(baseAccount.accountId);
+    resetReplayGuard();
+    delete process.env.OPENCLAW_STATE_DIR;
     await rm(tmpDir, { recursive: true, force: true });
   });
 

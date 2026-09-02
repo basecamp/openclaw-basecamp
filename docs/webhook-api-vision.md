@@ -43,7 +43,7 @@ A supplementary **webhook handler** receives per-project webhook payloads at `/w
 
 The plugin currently maintains:
 
-- **`EventDedup`** -- rolling 24-hour window with primary + secondary key maps, periodic pruning, persistent JSON file store for restart safety
+- **Replay guard** (`src/inbound/replay-guard.ts`) -- rolling 24-hour window with primary + cross-source secondary keys, claim/commit semantics around dispatch, persisted through OpenClaw's `persistent-dedupe` plugin-state store for restart safety
 - **`CursorStore`** -- per-account timestamp cursors for activity feed and readings, plus a custom key for the assignment ID set
 - **`CompositePoller`** -- orchestrator running three independent poll loops with per-source exponential backoff (max 5 min), abort signal coordination, and cursor persistence with retry
 - **Cross-source dedup** -- secondary keys (`recording:action:timestamp`) to collapse the same Basecamp event seen from both the activity feed and the readings inbox
@@ -230,7 +230,7 @@ Replay is available for at least 72 hours. After that, events are garbage-collec
 4. Client calls `GET /events.json?since_sequence=42&limit=100`
 5. Replays missed events, advances high-water mark to 45
 
-This eliminates the need for the plugin's bespoke rolling-window, cross-source deduplication layer: `EventDedup`, secondary key maps, and `JsonFileDedupStore` all become unnecessary. Clients instead rely on ordered delivery via `sequence` plus simple idempotency using `event_id`.
+This eliminates the need for the plugin's rolling-window, cross-source replay guard: secondary keys and the 24h claim/commit window become unnecessary. Clients instead rely on ordered delivery via `sequence` plus simple idempotency using `event_id`.
 
 ### 3.4 Assignment Lifecycle Events
 
@@ -968,8 +968,7 @@ The event stream API would dramatically simplify the OpenClaw Basecamp plugin. H
 | `src/inbound/activity.ts` | Activity feed polling via `basecamp timeline` | Events pushed via subscription |
 | `src/inbound/readings.ts` | Hey! Readings polling via `basecamp readings` | `recording.read` events pushed |
 | `src/inbound/assignments.ts` | Assignment set-diff polling via `basecamp assignments` | `todo.assigned`/`todo.unassigned` events pushed |
-| `src/inbound/dedup.ts` | Rolling-window dedup with primary + secondary keys | Replaced by `event_id` dedup (trivial set lookup) |
-| `src/inbound/dedup-store.ts` | JSON file persistence for dedup state | Replaced by sequence number high-water mark (single integer) |
+| `src/inbound/replay-guard.ts` | Rolling-window replay guard with primary + secondary keys (persistent-dedupe backed) | Replaced by `event_id` dedup (trivial set lookup) plus a sequence number high-water mark (single integer) |
 | `src/inbound/cursors.ts` | Per-source timestamp cursor persistence | Replaced by single sequence number |
 
 ### 7.2 Components simplified
@@ -1067,5 +1066,5 @@ The event stream API would dramatically simplify the OpenClaw Basecamp plugin. H
 
 1. **Phase 1**: Add event stream subscription handler alongside existing composite poller. Run both in parallel, compare event delivery for parity validation.
 2. **Phase 2**: Once parity is confirmed, disable composite poller. Use event stream as sole inbound source with sequence-based replay for gap recovery.
-3. **Phase 3**: Remove polling code (`activity.ts`, `readings.ts`, `assignments.ts`, `poller.ts`, `dedup.ts`, `dedup-store.ts`, `cursors.ts`).
+3. **Phase 3**: Remove polling code (`activity.ts`, `readings.ts`, `assignments.ts`, `poller.ts`, `cursors.ts`) and shrink `replay-guard.ts` to an `event_id` set.
 4. **Phase 4**: Add SSE stream for Campfire real-time delivery.

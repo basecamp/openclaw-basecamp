@@ -1,14 +1,13 @@
-import type { PluginRuntime } from "openclaw/plugin-sdk";
+import { createPluginRuntimeStore, type PluginRuntime } from "openclaw/plugin-sdk/runtime-store";
 
-let runtime: PluginRuntime | null = null;
+// Global named slot keyed by plugin id so duplicate SDK module instances
+// (managed per-plugin npm projects) share the same runtime.
+const store = createPluginRuntimeStore<PluginRuntime>({
+  pluginId: "basecamp",
+  errorMessage: "Basecamp runtime not initialized",
+});
 
-export function setBasecampRuntime(next: PluginRuntime) {
-  runtime = next;
-}
-
-export function getBasecampRuntime(): PluginRuntime {
-  if (!runtime) {
-    throw new Error("Basecamp runtime not initialized");
-  }
-  return runtime;
-}
+export const setBasecampRuntime = store.setRuntime;
+export const getBasecampRuntime = store.getRuntime;
+export const tryGetBasecampRuntime = store.tryGetRuntime;
+export const clearBasecampRuntime = store.clearRuntime;

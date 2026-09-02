@@ -63,12 +63,14 @@ export function markdownToBasecampHtml(md: string): string {
     // Check if the second row is a separator (contains only |, -, :, spaces)
     if (!/^[\s|:-]+$/.test(rows[1]!)) return _match;
 
+    // Split on unescaped pipes only, then unescape "\|" and "\\" inside cells
+    // (the inverse of the presentation renderer's escapeTableCell).
     const parseRow = (row: string) =>
       row
         .replace(/^\|/, "")
         .replace(/\|$/, "")
-        .split("|")
-        .map((cell) => cell.trim());
+        .split(/(?<!\\)(?:\\\\)*\|/)
+        .map((cell) => cell.replace(/\\([\\|])/g, "$1").trim());
 
     const headerCells = parseRow(rows[0]!);
     const thead = `<thead><tr>${headerCells.map((c) => `<th>${c}</th>`).join("")}</tr></thead>`;

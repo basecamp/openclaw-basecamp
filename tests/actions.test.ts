@@ -1,10 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("openclaw/plugin-sdk", () => ({
-  DEFAULT_ACCOUNT_ID: "default",
-  normalizeAccountId: (v: string | undefined | null) => (v ?? "").trim() || "default",
-}));
-
 vi.mock("openclaw/plugin-sdk/param-readers", () => ({
   readStringParam: (params: Record<string, unknown>, key: string, opts?: { required?: boolean; label?: string }) => {
     const val = params[key];
@@ -89,6 +84,11 @@ describe("actions.describeMessageTool", () => {
   it("returns supported action names", () => {
     const discovery = basecampActionsAdapter.describeMessageTool!({ cfg: {} } as any);
     expect(discovery?.actions).toEqual(["send", "react"]);
+  });
+
+  it("advertises the presentation capability (SPEC §2.7)", () => {
+    const discovery = basecampActionsAdapter.describeMessageTool!({ cfg: {} } as any);
+    expect(discovery?.capabilities).toEqual(["presentation"]);
   });
 });
 

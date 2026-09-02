@@ -16,20 +16,6 @@ const mockDispatch = vi.fn().mockResolvedValue(true);
 vi.mock("../../src/dispatch.js", () => ({
   dispatchBasecampEvent: (...args: unknown[]) => mockDispatch(...args),
 }));
-vi.mock("../../src/runtime.js", () => ({
-  getBasecampRuntime: vi.fn(() => ({
-    config: {
-      loadConfig: () => ({
-        channels: {
-          basecamp: {
-            accounts: { default: { personId: "1" } },
-            webhookSecret: "tok-qp",
-          },
-        },
-      }),
-    },
-  })),
-}));
 vi.mock("../../src/config.js", () => ({
   resolveBasecampAccount: vi.fn(() => ({
     accountId: "default",
@@ -77,35 +63,13 @@ vi.mock("../../src/inbound/state-dir.js", () => ({
   resolvePluginStateDir: vi.fn(() => _testStateDir),
 }));
 
-vi.mock("../../src/inbound/dedup-registry.js", () => {
-  // Lightweight in-memory dedup mock — no SQLite dependency
-  const seen = new Set<string>();
-  return {
-    getAccountDedup: vi.fn(() => ({
-      isDuplicate: (key: string) => {
-        if (seen.has(key)) return true;
-        seen.add(key);
-        return false;
-      },
-      flush: vi.fn(),
-      size: seen.size,
-    })),
-    closeAccountDedup: vi.fn(() => {
-      seen.clear();
-    }),
-    closeAllAccountDedup: vi.fn(() => {
-      seen.clear();
-    }),
-    flushAccountDedup: vi.fn(),
-  };
-});
-
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { closeAllAccountDedup } from "../../src/inbound/dedup-registry.js";
-import { handleBasecampWebhook, Semaphore } from "../../src/inbound/webhooks.js";
+import { resetReplayGuard } from "../../src/inbound/replay-guard.js";
+import { handleBasecampWebhook } from "../../src/inbound/webhooks.js";
 import { clearMetrics, getAccountMetrics } from "../../src/metrics.js";
+import { clearBasecampRuntime, setBasecampRuntime } from "../../src/runtime.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -122,6 +86,7 @@ function makeReq(body: string, token = "tok-qp"): IncomingMessage {
   req.method = "POST";
   req.url = `/webhooks/basecamp?token=${token}`;
   req.headers = { host: "localhost", "content-type": "application/json" };
+  (req as any).socket = { destroyed: false, writableEnded: false };
   return req;
 }
 
@@ -159,11 +124,27 @@ describe("dogfooding — queue pressure", () => {
     clearMetrics();
     dedupSeq = 0;
     _testStateDir = mkdtempSync(join(tmpdir(), "dogfood-qp-"));
-    closeAllAccountDedup();
+    process.env.OPENCLAW_STATE_DIR = _testStateDir;
+    resetReplayGuard();
+
+    setBasecampRuntime({
+      config: {
+        current: () => ({
+          channels: {
+            basecamp: {
+              accounts: { default: { personId: "1" } },
+              webhookSecret: "tok-qp",
+            },
+          },
+        }),
+      },
+    } as any);
   });
 
   afterEach(() => {
-    closeAllAccountDedup();
+    clearBasecampRuntime();
+    resetReplayGuard();
+    delete process.env.OPENCLAW_STATE_DIR;
     rmSync(_testStateDir, { recursive: true, force: true });
   });
 

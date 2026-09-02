@@ -63,6 +63,21 @@ Held under separate authorization. Do **not** run these as part of merging this 
    mise exec -- npm publish --access public   # granular automation token or 2FA
    ```
 
+   Before `npm publish`, prove the packed artifact installs into a real host
+   (the same smoke CI runs on Node 22 and 24):
+
+   ```bash
+   mise exec -- npm pack --pack-destination /tmp/pack
+   TGZ="$(ls /tmp/pack/37signals-openclaw-basecamp-*.tgz)"   # the npm-pack: prefix blocks shell globbing
+   export OPENCLAW_STATE_DIR="$(mktemp -d)"
+   mise exec -- npx openclaw plugins install "npm-pack:$TGZ" --force --accept-capabilities
+   mise exec -- npx openclaw plugins inspect basecamp --runtime --json
+   ```
+
+   `plugin.id` must be `basecamp` and `channelIds` must include `basecamp`.
+   `--force` confirms the non-catalog source; `--accept-capabilities` consents
+   to the declared channel + `contracts.tools`.
+
    This **only creates the package** on npm. It does not validate OIDC.
 7. **Configure the npm trusted publisher** (GitHub Actions OIDC): this repo, the
    `release.yml` workflow, and the `release` environment. Verify with (needs
@@ -83,10 +98,25 @@ Held under separate authorization. Do **not** run these as part of merging this 
 
 ## Notes
 
-- `openclaw.plugin.json` also carries a `version` field, kept in sync with
-  `package.json` manually. `release.yml` only checks `package.json` against the
-  tag.
+- `openclaw.plugin.json` is generated (`npm run manifest:gen`) and carries its
+  own `version`. `tests/manifest-contract.test.ts` fails when it drifts from
+  `package.json` or from the code schema, so regenerate after bumping the
+  version. `release.yml` only checks `package.json` against the tag.
+- **Re-consent on update.** The capability-consent token hashes the manifest's
+  declared surface (`channels`, `contracts.tools`, hooks, ...). A release that
+  widens it — a new `basecamp_*` tool, a second channel id — makes every
+  enabled install re-prompt on `openclaw plugins update` (or require
+  `--accept-capabilities` non-interactively). Call it out in the release notes;
+  narrowing or unchanged surfaces update silently.
+- **Host bumps move four fields together**: `devDependencies.openclaw`,
+  `peerDependencies.openclaw`, `openclaw.compat.pluginApi`, and
+  `openclaw.build.{openclawVersion,pluginSdkVersion}` (plus
+  `openclaw.install.minHostVersion` when the floor rises). `compat`/`install`
+  are enforced at install and discovery; `build` is a ClawHub publish
+  prerequisite. Dependabot keeps `openclaw` out of the auto-merged group
+  because its calendar versions read as semver-minor.
 - The dev toolchain (`.mise.toml`) and the `publish` job both run on Node 24
-  (latest LTS; bundles npm ≥ 11.16 for OIDC trusted publishing). The CI
-  `test`/`security` jobs stay on Node 22 to exercise the package's runtime floor
-  (`engines.node >= 22.5`).
+  (latest LTS; bundles npm ≥ 11.16 for OIDC trusted publishing). CI `test`,
+  `build`, and `pack-install-smoke` run on Node 22 and 24 to exercise the
+  package's supported range, `engines.node`:
+  `>=22.22.3 <23 || >=24.15.0 <25 || >=25.9.0` (the OpenClaw host string).

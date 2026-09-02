@@ -12,7 +12,7 @@ import type {
   ChannelMessageActionAdapter,
   ChannelMessageActionContext,
   ChannelMessageActionName,
-} from "openclaw/plugin-sdk";
+} from "openclaw/plugin-sdk/channel-contract";
 import { readStringParam } from "openclaw/plugin-sdk/param-readers";
 import type { ChannelToolSend } from "openclaw/plugin-sdk/tool-send";
 import { getClient, numId } from "../basecamp-client.js";
@@ -44,7 +44,8 @@ const SUPPORTED_ACTIONS: ChannelMessageActionName[] = ["send", "react"];
 // ---------------------------------------------------------------------------
 
 export const basecampActionsAdapter: ChannelMessageActionAdapter = {
-  describeMessageTool: () => ({ actions: SUPPORTED_ACTIONS }),
+  // "presentation" advertises the renderPresentation path (SPEC §2.7/§3.1).
+  describeMessageTool: () => ({ actions: SUPPORTED_ACTIONS, capabilities: ["presentation"] }),
 
   supportsAction: ({ action }) => SUPPORTED_ACTIONS.includes(action),
 

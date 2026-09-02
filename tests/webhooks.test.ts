@@ -4,20 +4,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("../src/dispatch.js", () => ({
   dispatchBasecampEvent: vi.fn().mockResolvedValue(true),
 }));
-vi.mock("../src/runtime.js", () => ({
-  getBasecampRuntime: vi.fn(() => ({
-    config: {
-      loadConfig: () => ({
-        channels: {
-          basecamp: {
-            accounts: { default: { personId: "1" } },
-            webhookSecret: "test-secret-123",
-          },
-        },
-      }),
+const webhookTestCfg = {
+  channels: {
+    basecamp: {
+      accounts: { default: { personId: "1" } },
+      webhookSecret: "test-secret-123",
     },
-  })),
-}));
+  },
+};
 vi.mock("../src/config.js", () => ({
   resolveBasecampAccount: vi.fn(() => ({
     accountId: "default",
@@ -64,7 +58,7 @@ vi.mock("../src/inbound/normalize.js", () => ({
   isSelfMessage: vi.fn(() => false),
 }));
 
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -74,137 +68,67 @@ import {
   resolveWebhookSecret,
 } from "../src/config.js";
 import { dispatchBasecampEvent } from "../src/dispatch.js";
-import { closeAllAccountDedup } from "../src/inbound/dedup-registry.js";
-import { handleBasecampWebhook, Semaphore } from "../src/inbound/webhooks.js";
+import { resetReplayGuard } from "../src/inbound/replay-guard.js";
+import {
+  closeWebhookSecretRegistry,
+  flushWebhookSecrets,
+  getWebhookSecretRegistry,
+  handleBasecampWebhook,
+  webhookInFlightLimiter,
+} from "../src/inbound/webhooks.js";
 import { clearMetrics, getAccountMetrics } from "../src/metrics.js";
+import { clearBasecampRuntime, setBasecampRuntime } from "../src/runtime.js";
 
 beforeEach(() => {
   vi.clearAllMocks();
   _whTestStateDir = mkdtempSync(join(tmpdir(), "wh-test-"));
-  closeAllAccountDedup();
+  process.env.OPENCLAW_STATE_DIR = _whTestStateDir;
+  resetReplayGuard();
+  setBasecampRuntime({ config: { current: () => webhookTestCfg } } as any);
   vi.mocked(resolveWebhookSecret).mockReturnValue("test-secret-123");
 });
 
 afterEach(() => {
-  closeAllAccountDedup();
+  clearBasecampRuntime();
+  resetReplayGuard();
+  delete process.env.OPENCLAW_STATE_DIR;
   rmSync(_whTestStateDir, { recursive: true, force: true });
 });
 
 // ---------------------------------------------------------------------------
-// L3: Semaphore concurrency limiter
+// L3: In-flight concurrency limiter (SDK webhook guard)
 // ---------------------------------------------------------------------------
 
-describe("Semaphore", () => {
-  it("acquires up to max concurrent", async () => {
-    const sem = new Semaphore(3);
-
-    await sem.acquire();
-    await sem.acquire();
-    await sem.acquire();
-
-    // All 3 acquired, pending queue should be empty
-    expect(sem.pending).toBe(0);
+describe("webhookInFlightLimiter", () => {
+  afterEach(() => {
+    webhookInFlightLimiter.clear();
   });
 
-  it("queues when at max", async () => {
-    const sem = new Semaphore(2);
-
-    await sem.acquire();
-    await sem.acquire();
-
-    // This should queue
-    let resolved = false;
-    const p = sem.acquire().then(() => {
-      resolved = true;
-    });
-
-    // Give microtask a chance
-    await Promise.resolve();
-    expect(resolved).toBe(false);
-    expect(sem.pending).toBe(1);
-
-    // Release one to unblock
-    sem.release();
-    await p;
-    expect(resolved).toBe(true);
-    expect(sem.pending).toBe(0);
-  });
-
-  it("release unblocks queued in FIFO order", async () => {
-    const sem = new Semaphore(1);
-    const order: number[] = [];
-
-    await sem.acquire();
-
-    const p1 = sem.acquire().then(() => {
-      order.push(1);
-    });
-    const p2 = sem.acquire().then(() => {
-      order.push(2);
-    });
-
-    expect(sem.pending).toBe(2);
-
-    // Release first queued
-    sem.release();
-    await p1;
-    expect(order).toEqual([1]);
-
-    // Release second queued
-    sem.release();
-    await p2;
-    expect(order).toEqual([1, 2]);
-  });
-
-  it("pending count is correct through lifecycle", async () => {
-    const sem = new Semaphore(1);
-
-    expect(sem.pending).toBe(0);
-
-    await sem.acquire();
-    expect(sem.pending).toBe(0);
-
-    const p1 = sem.acquire();
-    expect(sem.pending).toBe(1);
-
-    const p2 = sem.acquire();
-    expect(sem.pending).toBe(2);
-
-    sem.release();
-    await p1;
-    expect(sem.pending).toBe(1);
-
-    sem.release();
-    await p2;
-    expect(sem.pending).toBe(0);
-  });
-
-  it("handles rapid acquire/release cycles", async () => {
-    const sem = new Semaphore(3);
-
-    // Rapidly acquire and release 20 times
-    for (let i = 0; i < 20; i++) {
-      await sem.acquire();
-      sem.release();
+  it("acquires up to the per-key cap and rejects beyond it", () => {
+    for (let i = 0; i < 10; i++) {
+      expect(webhookInFlightLimiter.tryAcquire("acct")).toBe(true);
     }
-
-    expect(sem.pending).toBe(0);
-
-    // Can still acquire after rapid cycling
-    await sem.acquire();
-    await sem.acquire();
-    await sem.acquire();
-    expect(sem.pending).toBe(0);
-
-    sem.release();
-    sem.release();
-    sem.release();
+    expect(webhookInFlightLimiter.tryAcquire("acct")).toBe(false);
   });
 
-  it("throws when release() is called without matching acquire()", () => {
-    const sem = new Semaphore(2);
+  it("release frees a slot for the same key", () => {
+    for (let i = 0; i < 10; i++) webhookInFlightLimiter.tryAcquire("acct");
+    expect(webhookInFlightLimiter.tryAcquire("acct")).toBe(false);
+    webhookInFlightLimiter.release("acct");
+    expect(webhookInFlightLimiter.tryAcquire("acct")).toBe(true);
+  });
 
-    expect(() => sem.release()).toThrow("release() called without matching acquire()");
+  it("keys are independent", () => {
+    for (let i = 0; i < 10; i++) webhookInFlightLimiter.tryAcquire("a");
+    expect(webhookInFlightLimiter.tryAcquire("a")).toBe(false);
+    expect(webhookInFlightLimiter.tryAcquire("b")).toBe(true);
+  });
+
+  it("clear drops all retained state", () => {
+    webhookInFlightLimiter.tryAcquire("acct");
+    expect(webhookInFlightLimiter.size()).toBeGreaterThan(0);
+    webhookInFlightLimiter.clear();
+    expect(webhookInFlightLimiter.size()).toBe(0);
   });
 });
 
@@ -223,6 +147,7 @@ function mockReq(method: string, url: string, body?: string): IncomingMessage {
   req.method = method;
   req.url = url;
   req.headers = { host: "localhost:18789" };
+  (req as any).socket = { destroyed: false, writableEnded: false };
   return req;
 }
 
@@ -372,33 +297,50 @@ describe("handleBasecampWebhook — hardening", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Webhook dedup via shared registry
+// Webhook dedup via the shared replay guard
 // ---------------------------------------------------------------------------
 
-describe("webhook dedup via shared registry", () => {
-  afterEach(() => {
-    closeAllAccountDedup();
-  });
+describe("webhook dedup via replay guard", () => {
+  it("dedupes a repeated delivery of the same webhook event", async () => {
+    const { normalizeWebhookPayload } = await import("../src/inbound/normalize.js");
+    const fixedMsg = {
+      channel: "basecamp",
+      accountId: "default",
+      peer: { kind: "group", id: "recording:777" },
+      sender: { id: "2", name: "Tester" },
+      text: "hi",
+      html: "<p>hi</p>",
+      meta: {
+        bucketId: "1",
+        recordingId: "777",
+        recordableType: "Chat::Line",
+        eventKind: "created",
+        mentions: [],
+        mentionsAgent: false,
+        attachments: [],
+        sources: ["webhook"],
+      },
+      dedupKey: "webhook:fixed-777",
+      createdAt: "2025-01-01T00:00:00Z",
+    };
+    vi.mocked(normalizeWebhookPayload).mockResolvedValue(fixedMsg as any);
 
-  it("closeAllAccountDedup does not throw when registry is empty", () => {
-    expect(() => closeAllAccountDedup()).not.toThrow();
-  });
-
-  it("creates persistent dedup via shared registry on webhook dispatch", async () => {
-    // Process a webhook to trigger dedup creation via getAccountDedup
     const payload = JSON.stringify({
       kind: "comment_created",
       created_at: "2025-01-01T00:00:00Z",
-      recording: { id: 1, type: "Comment", bucket: { id: 100, name: "Test" } },
+      recording: { id: 777, type: "Comment", bucket: { id: 100, name: "Test" } },
       creator: { id: 2, name: "Tester" },
     });
-    const req = mockReq("POST", "/webhooks/basecamp?token=test-secret-123", payload);
-    const res = mockRes();
-    await handleBasecampWebhook(req, res);
-    expect(res.status).toBe(200);
 
-    // Flush via closeAll — should not throw even if SQLite fallback is in-memory
-    closeAllAccountDedup();
+    for (const _ of [0, 1]) {
+      const req = mockReq("POST", "/webhooks/basecamp?token=test-secret-123", payload);
+      const res = mockRes();
+      await handleBasecampWebhook(req, res);
+      expect(res.status).toBe(200);
+    }
+
+    // Both deliveries acknowledged, but the agent dispatch ran exactly once.
+    expect(dispatchBasecampEvent).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -505,5 +447,20 @@ describe("handleBasecampWebhook — metrics", () => {
     expect(metrics!.webhook.receivedCount).toBe(1);
     expect(metrics!.webhook.errorCount).toBe(1);
     expect(metrics!.webhook.dispatchedCount).toBe(0);
+  });
+});
+
+describe("closeWebhookSecretRegistry", () => {
+  it("drops the cached registry so a later flush cannot resurrect a removed account's secrets", () => {
+    const registry = getWebhookSecretRegistry("gone");
+    registry.set("100", { webhookId: "w1", secret: "s", payloadUrl: "https://x/webhooks/basecamp", types: [] });
+    const file = join(_whTestStateDir, "webhook-secrets-gone.json");
+    expect(existsSync(file)).toBe(true); // set() auto-saves
+    // Mirror onAccountRemoved: evict the cached registry, then delete the file.
+    closeWebhookSecretRegistry("gone");
+    rmSync(file, { force: true });
+    flushWebhookSecrets();
+    expect(existsSync(file)).toBe(false);
+    expect(getWebhookSecretRegistry("gone").size).toBe(0);
   });
 });

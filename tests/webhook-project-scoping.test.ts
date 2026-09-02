@@ -1,13 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("openclaw/plugin-sdk", () => ({
-  DEFAULT_ACCOUNT_ID: "default",
-  normalizeAccountId: (value: string | undefined | null): string => {
-    const trimmed = (value ?? "").trim();
-    return trimmed || "default";
-  },
-}));
-
 import { scopeWebhookProjects } from "../src/config.js";
 
 // ---------------------------------------------------------------------------

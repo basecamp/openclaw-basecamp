@@ -2,7 +2,7 @@
  * Reconciliation pass — detect gaps in event delivery.
  *
  * Periodically fetches recent activity via client.reports.progress() and
- * checks each event against the dedup store using hasSeen(). Events that
+ * checks each event against the replay guard using hasRecent(). Events that
  * were NOT seen indicate a delivery gap.
  *
  * Gap counts per recordable type drive promotion of safety-net direct polling:
@@ -14,8 +14,9 @@
 
 import type { BasecampClient } from "../basecamp-client.js";
 import type { BasecampActivityEvent, BasecampRecordableType, ResolvedBasecampAccount } from "../types.js";
-import { EventDedup } from "./dedup.js";
 import { isNormalizableKind, recordableTypeForKind, resolveEventKind } from "./normalize.js";
+import type { ReplayGuard } from "./replay-guard.js";
+import { replaySecondaryKey } from "./replay-guard.js";
 
 // Which recordable types can be promoted to safety-net direct polling
 const PROMOTABLE_TYPES: Partial<Record<BasecampRecordableType, string>> = {
@@ -70,7 +71,7 @@ export interface ReconciliationResult {
 export interface ReconciliationOptions {
   account: ResolvedBasecampAccount;
   client: BasecampClient;
-  dedup: EventDedup;
+  guard: ReplayGuard;
   maxItems?: number;
   windowMs?: number;
   gapThreshold?: number;
@@ -86,7 +87,7 @@ export interface ReconciliationOptions {
 export async function runReconciliation(opts: ReconciliationOptions): Promise<ReconciliationResult> {
   // maxItems caps SDK pagination (v0.4.0+). 250 covers a typical 24h window
   // while preventing runaway pagination on high-activity accounts.
-  const { account, client, dedup, log, maxItems = 250, windowMs = 24 * 60 * 60 * 1000, gapThreshold = 3 } = opts;
+  const { account, client, guard, log, maxItems = 250, windowMs = 24 * 60 * 60 * 1000, gapThreshold = 3 } = opts;
 
   const cutoff = new Date(Date.now() - windowMs).toISOString();
 
@@ -133,10 +134,11 @@ export async function runReconciliation(opts: ReconciliationOptions): Promise<Re
     const primaryKey = `activity:${event.id}`;
     const recordingId = event.recording?.id;
     const secondaryKey = recordingId
-      ? EventDedup.secondaryKey(String(recordingId), resolveEventKind(event.kind), event.created_at)
+      ? replaySecondaryKey(String(recordingId), resolveEventKind(event.kind), event.created_at)
       : undefined;
 
-    if (!dedup.hasSeen(primaryKey, secondaryKey)) {
+    const seen = await guard.hasRecent({ accountId: account.accountId, primaryKey, secondaryKey });
+    if (!seen) {
       unseen++;
       gapsByType[recordableType] = (gapsByType[recordableType] ?? 0) + 1;
     }

@@ -1,236 +1,243 @@
-import { describe, expect, it, vi } from "vitest";
-
-vi.mock("openclaw/plugin-sdk", () => ({
-  DEFAULT_ACCOUNT_ID: "default",
-  normalizeAccountId: (value: string | undefined | null): string => {
-    const trimmed = (value ?? "").trim();
-    return trimmed || "default";
-  },
-}));
-
-vi.mock("../src/config.js", () => ({
-  resolveBasecampDmPolicy: (cfg: any) => {
-    const section = cfg?.channels?.basecamp;
-    return section?.dmPolicy ?? "allowlist";
-  },
-}));
+/**
+ * Tests: basecampSecurityAdapter (SPEC §2.10, §2.23)
+ *
+ * DM policy resolution via the SDK scoped resolver (per-account overrides,
+ * config paths) and structured SecurityAuditFinding[] collection.
+ */
+import { describe, expect, it } from "vitest";
 
 import { basecampSecurityAdapter } from "../src/adapters/security.js";
+import { resolveBasecampAccount } from "../src/config.js";
 
 function cfg(basecamp?: Record<string, unknown>) {
   if (!basecamp) return {} as any;
   return { channels: { basecamp } } as any;
 }
 
-const stubAccount = { accountId: "test", personId: "42" } as any;
+function dmPolicyFor(config: any, accountId?: string) {
+  return basecampSecurityAdapter.resolveDmPolicy!({
+    cfg: config,
+    accountId,
+    account: resolveBasecampAccount(config, accountId),
+  })!;
+}
 
 // ---------------------------------------------------------------------------
 // resolveDmPolicy
 // ---------------------------------------------------------------------------
 
 describe("security.resolveDmPolicy", () => {
-  it("defaults to allowlist when no dmPolicy is set", () => {
-    const result = basecampSecurityAdapter.resolveDmPolicy({ cfg: cfg({}), account: stubAccount });
-    expect(result.policy).toBe("allowlist");
+  it("defaults to pairing when no dmPolicy is set", () => {
+    expect(dmPolicyFor(cfg({})).policy).toBe("pairing");
   });
 
-  it("returns configured dmPolicy", () => {
-    const result = basecampSecurityAdapter.resolveDmPolicy({
-      cfg: cfg({ dmPolicy: "open" }),
-      account: stubAccount,
-    });
-    expect(result.policy).toBe("open");
+  it("returns configured channel-level dmPolicy", () => {
+    expect(dmPolicyFor(cfg({ dmPolicy: "open" })).policy).toBe("open");
   });
 
-  it("uses channel-level path for default account", () => {
-    const result = basecampSecurityAdapter.resolveDmPolicy({
-      cfg: cfg({}),
-      accountId: "default",
-      account: stubAccount,
+  it("per-account dmPolicy overrides channel-level policy", () => {
+    const config = cfg({
+      dmPolicy: "open",
+      accounts: { work: { personId: "1", token: "t", dmPolicy: "disabled" } },
     });
+    expect(dmPolicyFor(config, "work").policy).toBe("disabled");
+  });
+
+  it("named account without overrides inherits channel-level policy", () => {
+    const config = cfg({
+      dmPolicy: "disabled",
+      accounts: { work: { personId: "1", token: "t" } },
+    });
+    expect(dmPolicyFor(config, "work").policy).toBe("disabled");
+  });
+
+  it("uses channel-level paths when policy lives at the channel root", () => {
+    const result = dmPolicyFor(cfg({ dmPolicy: "open", allowFrom: ["*"] }), "default");
     expect(result.policyPath).toBe("channels.basecamp.dmPolicy");
-    expect(result.allowFromPath).toBe("channels.basecamp.");
+    expect(result.allowFromPath).toBe("channels.basecamp.allowFrom");
   });
 
-  it("uses channel-level path for named account (dmPolicy is channel-wide)", () => {
-    const result = basecampSecurityAdapter.resolveDmPolicy({
-      cfg: cfg({}),
-      accountId: "work",
-      account: stubAccount,
+  it("uses per-account paths when the account declares its own policy", () => {
+    const config = cfg({
+      accounts: { work: { personId: "1", token: "t", dmPolicy: "allowlist", allowFrom: ["7"] } },
     });
-    expect(result.policyPath).toBe("channels.basecamp.dmPolicy");
-    expect(result.allowFromPath).toBe("channels.basecamp.");
+    const result = dmPolicyFor(config, "work");
+    expect(result.policyPath).toBe("channels.basecamp.accounts.work.dmPolicy");
+    expect(result.allowFromPath).toBe("channels.basecamp.accounts.work.allowFrom");
   });
 
-  it("returns allowFrom entries", () => {
-    const result = basecampSecurityAdapter.resolveDmPolicy({
-      cfg: cfg({ allowFrom: [42, "99"] }),
-      account: stubAccount,
+  it("returns channel-level allowFrom entries", () => {
+    const result = dmPolicyFor(cfg({ allowFrom: [42, "99"] }));
+    expect(result.allowFrom.map(String)).toEqual(["42", "99"]);
+  });
+
+  it("per-account allowFrom overrides channel-level entries", () => {
+    const config = cfg({
+      allowFrom: ["1"],
+      accounts: { work: { personId: "1", token: "t", allowFrom: ["7", "8"] } },
     });
-    expect(result.allowFrom).toEqual([42, "99"]);
+    expect(dmPolicyFor(config, "work").allowFrom.map(String)).toEqual(["7", "8"]);
+  });
+
+  it("provides an approve hint naming the allowFrom config", () => {
+    expect(dmPolicyFor(cfg({})).approveHint).toContain("allowFrom");
   });
 });
 
 // ---------------------------------------------------------------------------
-// collectWarnings
+// collectWarnings — structured findings
 // ---------------------------------------------------------------------------
+
+const stubAccount = { accountId: "test", personId: "42" } as any;
+
+async function collect(config: any) {
+  return (await basecampSecurityAdapter.collectWarnings!({
+    cfg: config,
+    account: stubAccount,
+  })) as Array<{ checkId: string; severity: string; title: string; detail: string }>;
+}
 
 describe("security.collectWarnings", () => {
   it("returns empty for missing config", async () => {
-    const warnings = await basecampSecurityAdapter.collectWarnings({ cfg: {} as any, account: stubAccount });
-    expect(warnings).toEqual([]);
+    expect(await collect({} as any)).toEqual([]);
   });
 
   it("returns empty for healthy config", async () => {
-    const warnings = await basecampSecurityAdapter.collectWarnings({
-      cfg: cfg({
+    const findings = await collect(
+      cfg({
         dmPolicy: "pairing",
         allowFrom: [42],
         accounts: {
           main: { personId: "42", token: "tok" },
         },
       }),
-      account: stubAccount,
-    });
-    expect(warnings).toEqual([]);
+    );
+    expect(findings).toEqual([]);
   });
 
-  it("warns on open dmPolicy with no allowFrom", async () => {
-    const warnings = await basecampSecurityAdapter.collectWarnings({
-      cfg: cfg({ dmPolicy: "open" }),
-      account: stubAccount,
+  it("emits a critical finding for open dmPolicy with no allowFrom", async () => {
+    const findings = await collect(cfg({ dmPolicy: "open" }));
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toMatchObject({
+      checkId: "basecamp.dm.open-without-allowfrom",
+      severity: "critical",
     });
-    expect(warnings).toHaveLength(1);
-    expect(warnings[0]).toContain("open");
-    expect(warnings[0]).toContain("allowFrom");
+    expect(findings[0]!.detail).toContain("open");
+    expect(findings[0]!.detail).toContain("allowFrom");
   });
 
-  it("does not warn on open dmPolicy when allowFrom has entries", async () => {
-    const warnings = await basecampSecurityAdapter.collectWarnings({
-      cfg: cfg({ dmPolicy: "open", allowFrom: [42] }),
-      account: stubAccount,
-    });
-    expect(warnings).toEqual([]);
+  it("does not flag open dmPolicy when allowFrom has entries", async () => {
+    expect(await collect(cfg({ dmPolicy: "open", allowFrom: [42] }))).toEqual([]);
   });
 
-  it("warns on persona referencing non-existent account", async () => {
-    const warnings = await basecampSecurityAdapter.collectWarnings({
-      cfg: cfg({
-        accounts: { main: { personId: "42", cliProfile: "default" } },
+  it("flags persona referencing non-existent account", async () => {
+    const findings = await collect(
+      cfg({
+        accounts: { main: { personId: "42", token: "tok" } },
         personas: { "agent-1": "missing" },
       }),
-      account: stubAccount,
-    });
-    expect(warnings).toContainEqual(expect.stringContaining("agent-1"));
-    expect(warnings).toContainEqual(expect.stringContaining("missing"));
+    );
+    const personaFindings = findings.filter((f) => f.checkId === "basecamp.personas.dangling");
+    expect(personaFindings).toHaveLength(1);
+    expect(personaFindings[0]!.detail).toContain("agent-1");
+    expect(personaFindings[0]!.detail).toContain("missing");
   });
 
-  it("does not warn on persona referencing existing account", async () => {
-    const warnings = await basecampSecurityAdapter.collectWarnings({
-      cfg: cfg({
-        accounts: { main: { personId: "42", cliProfile: "default" } },
+  it("does not flag persona referencing existing account", async () => {
+    const findings = await collect(
+      cfg({
+        accounts: { main: { personId: "42", token: "tok" } },
         personas: { "agent-1": "main" },
       }),
-      account: stubAccount,
-    });
-    const personaWarnings = warnings.filter((w) => w.includes("Persona"));
-    expect(personaWarnings).toHaveLength(0);
+    );
+    expect(findings.filter((f) => f.checkId === "basecamp.personas.dangling")).toEqual([]);
   });
 
-  it("warns on virtual account referencing non-existent backing account", async () => {
-    const warnings = await basecampSecurityAdapter.collectWarnings({
-      cfg: cfg({
-        accounts: { main: { personId: "42", cliProfile: "default" } },
-        virtualAccounts: { "project-x": { accountId: "ghost", bucketId: "123" } },
+  it("flags virtual account referencing non-existent backing account", async () => {
+    const findings = await collect(
+      cfg({
+        accounts: { main: { personId: "42", token: "tok" } },
+        virtualAccounts: { scope1: { accountId: "ghost", bucketId: "123" } },
       }),
-      account: stubAccount,
-    });
-    expect(warnings).toContainEqual(expect.stringContaining("project-x"));
-    expect(warnings).toContainEqual(expect.stringContaining("ghost"));
+    );
+    const vaFindings = findings.filter((f) => f.checkId === "basecamp.virtual-accounts.dangling");
+    expect(vaFindings).toHaveLength(1);
+    expect(vaFindings[0]!.detail).toContain("scope1");
+    expect(vaFindings[0]!.detail).toContain("ghost");
   });
 
-  it("warns on duplicate personId across accounts", async () => {
-    const warnings = await basecampSecurityAdapter.collectWarnings({
-      cfg: cfg({
+  it("flags duplicate personId across accounts", async () => {
+    const findings = await collect(
+      cfg({
         accounts: {
-          alpha: { personId: "42", cliProfile: "default" },
-          beta: { personId: "42", token: "tok" },
+          a: { personId: "42", token: "t1" },
+          b: { personId: "42", token: "t2" },
         },
       }),
-      account: stubAccount,
-    });
-    expect(warnings).toContainEqual(expect.stringContaining("Person ID 42"));
-    expect(warnings).toContainEqual(expect.stringContaining("alpha"));
-    expect(warnings).toContainEqual(expect.stringContaining("beta"));
+    );
+    const dupFindings = findings.filter((f) => f.checkId === "basecamp.accounts.duplicate-person-id");
+    expect(dupFindings).toHaveLength(1);
+    expect(dupFindings[0]!.detail).toContain("42");
+    expect(dupFindings[0]!.detail).toContain("a");
+    expect(dupFindings[0]!.detail).toContain("b");
   });
 
-  it("warns on account with no auth configured", async () => {
-    const warnings = await basecampSecurityAdapter.collectWarnings({
-      cfg: cfg({
-        accounts: {
-          broken: { personId: "42" },
-        },
+  it("flags account with no auth configured", async () => {
+    const findings = await collect(
+      cfg({
+        accounts: { broken: { personId: "42" } },
       }),
-      account: stubAccount,
-    });
-    expect(warnings).toContainEqual(expect.stringContaining("broken"));
-    expect(warnings).toContainEqual(expect.stringContaining("no token"));
+    );
+    const authFindings = findings.filter((f) => f.checkId === "basecamp.accounts.no-auth");
+    expect(authFindings).toHaveLength(1);
+    expect(authFindings[0]!.detail).toContain("broken");
   });
 
-  it("warns on account with only cliProfile (no runtime auth)", async () => {
-    const warnings = await basecampSecurityAdapter.collectWarnings({
-      cfg: cfg({
-        accounts: {
-          legacy: { personId: "42", cliProfile: "default" },
-        },
+  it("flags account with only cliProfile (no runtime auth)", async () => {
+    const findings = await collect(
+      cfg({
+        accounts: { dev: { personId: "42", cliProfile: "dev" } },
       }),
-      account: stubAccount,
-    });
-    const authWarnings = warnings.filter((w) => w.includes("no token"));
-    expect(authWarnings).toHaveLength(1);
-    expect(authWarnings[0]).toContain("legacy");
+    );
+    expect(findings.filter((f) => f.checkId === "basecamp.accounts.no-auth")).toHaveLength(1);
   });
 
-  it("does not warn on account with oauthTokenFile", async () => {
-    const warnings = await basecampSecurityAdapter.collectWarnings({
-      cfg: cfg({
-        accounts: {
-          good: { personId: "42", oauthTokenFile: "/tmp/tokens/good.json" },
-        },
-      }),
-      account: stubAccount,
-    });
-    const authWarnings = warnings.filter((w) => w.includes("no token"));
-    expect(authWarnings).toHaveLength(0);
+  it("flags non-numeric allowFrom entries", async () => {
+    const findings = await collect(cfg({ allowFrom: ["42", "not-a-number"] }));
+    const formatFindings = findings.filter((f) => f.checkId === "basecamp.allowfrom.non-numeric");
+    expect(formatFindings).toHaveLength(1);
+    expect(formatFindings[0]!.detail).toContain("not-a-number");
+    expect(formatFindings[0]!.severity).toBe("info");
   });
 
-  it("warns on non-numeric allowFrom entries", async () => {
-    const warnings = await basecampSecurityAdapter.collectWarnings({
-      cfg: cfg({
-        allowFrom: [42, "not-a-number", "99"],
-      }),
-      account: stubAccount,
-    });
-    expect(warnings).toContainEqual(expect.stringContaining("not-a-number"));
-    // Only one bad entry
-    const formatWarnings = warnings.filter((w) => w.includes("does not look like"));
-    expect(formatWarnings).toHaveLength(1);
+  it("does not flag the wildcard allowFrom entry", async () => {
+    const findings = await collect(cfg({ dmPolicy: "open", allowFrom: ["*"] }));
+    expect(findings).toEqual([]);
   });
+});
 
-  it("detects multiple warning types simultaneously", async () => {
-    const warnings = await basecampSecurityAdapter.collectWarnings({
-      cfg: cfg({
-        dmPolicy: "open",
-        accounts: {
-          main: { personId: "42" },
-        },
-        personas: { "agent-1": "ghost" },
-        allowFrom: ["abc"],
-      }),
-      account: stubAccount,
+// ---------------------------------------------------------------------------
+// collectAuditFindings
+// ---------------------------------------------------------------------------
+
+describe("security.collectAuditFindings", () => {
+  it("returns the same structured findings as collectWarnings", async () => {
+    const config = cfg({
+      accounts: { main: { personId: "42", token: "tok" } },
+      personas: { "agent-1": "missing" },
     });
-    // Should have: no-auth on main, bad persona, bad allowFrom
-    // (open+allowFrom present = no open-policy warning)
-    expect(warnings.length).toBeGreaterThanOrEqual(3);
+    const findings = await basecampSecurityAdapter.collectAuditFindings!({
+      cfg: config,
+      account: stubAccount,
+      sourceConfig: config,
+      orderedAccountIds: ["main"],
+      hasExplicitAccountPath: true,
+    });
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toMatchObject({
+      checkId: "basecamp.personas.dangling",
+      severity: "warn",
+      title: expect.any(String),
+    });
   });
 });

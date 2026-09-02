@@ -22,7 +22,6 @@ import type {
   BasecampRecordableType,
   ResolvedBasecampAccount,
 } from "../types.js";
-import { EventDedup } from "./dedup.js";
 import { invalidateDockCache, resolveDockToolIds } from "./dock-cache.js";
 
 function isStaleResourceError(err: unknown): boolean {

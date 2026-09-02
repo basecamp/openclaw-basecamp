@@ -1,41 +1,48 @@
-import type { ChannelPlugin } from "openclaw/plugin-sdk";
-import { buildChannelConfigSchema } from "openclaw/plugin-sdk/channel-config-schema";
-import { deleteAccountFromConfigSection, setAccountEnabledInConfigSection } from "openclaw/plugin-sdk/core";
+import { buildDmGroupAccountAllowlistAdapter } from "openclaw/plugin-sdk/allowlist-config-edit";
+import { type ChannelPlugin, createChannelPluginBase, createChatChannelPlugin } from "openclaw/plugin-sdk/channel-core";
+import { createChannelMessageAdapterFromOutbound } from "openclaw/plugin-sdk/channel-outbound";
+import { channelBlockedPatch, channelReadyPatch, channelStoppedPatch } from "openclaw/plugin-sdk/gateway-runtime";
 import { basecampActionsAdapter } from "./adapters/actions.js";
 import { basecampAgentPromptAdapter } from "./adapters/agent-prompt.js";
-import { basecampAgentTools } from "./adapters/agent-tools.js";
+import { basecampBindingsProvider } from "./adapters/bindings.js";
 import { basecampDirectoryAdapter } from "./adapters/directory.js";
+import { basecampDoctorAdapter } from "./adapters/doctor.js";
 import { basecampGroupAdapter } from "./adapters/groups.js";
 import { basecampHeartbeatAdapter } from "./adapters/heartbeat.js";
+import { basecampLifecycleAdapter } from "./adapters/lifecycle.js";
 import { basecampMentionAdapter } from "./adapters/mentions.js";
 import { basecampMessagingAdapter } from "./adapters/messaging.js";
 import { basecampSetupWizard } from "./adapters/onboarding.js";
-import { BASECAMP_TEXT_CHUNK_LIMIT, chunkMarkdownText, resolveOutboundTarget } from "./adapters/outbound.js";
+import { BASECAMP_TEXT_CHUNK_LIMIT, resolveOutboundTarget } from "./adapters/outbound.js";
 import { basecampPairingAdapter } from "./adapters/pairing.js";
 import { basecampResolverAdapter } from "./adapters/resolver.js";
 import { basecampSecurityAdapter } from "./adapters/security.js";
-import { basecampSetupAdapter } from "./adapters/setup.js";
 import type { BasecampAudit, BasecampProbe } from "./adapters/status.js";
 import { basecampStatusAdapter } from "./adapters/status.js";
 import { clearClient } from "./basecamp-client.js";
 import {
-  BasecampConfigSchema,
-  listBasecampAccountIds,
-  resolveAccountForBucket,
+  basecampChannelCapabilities,
+  basecampChannelMeta,
+  basecampConfigAdapter,
+  basecampConfigSchema,
+  basecampSecrets,
+  basecampSetupContract,
+} from "./channel-setup.js";
+import {
   resolveBasecampAccount,
   resolveBasecampAccountAsync,
   resolveBasecampAllowFrom,
-  resolveDefaultBasecampAccountId,
   resolveWebhooksConfig,
   scopeWebhookProjects,
 } from "./config.js";
 import { dispatchBasecampEvent } from "./dispatch.js";
-import { closeAccountDedup } from "./inbound/dedup-registry.js";
+import { closeRecordingIndex } from "./inbound/recording-index.js";
 import { resolvePluginStateDir } from "./inbound/state-dir.js";
 import { deactivateWebhooks, reconcileWebhooks } from "./inbound/webhook-lifecycle.js";
 import { flushWebhookSecrets, getWebhookSecretRegistry } from "./inbound/webhooks.js";
+import { recordIngressAvailable, recordIngressUnavailable } from "./metrics.js";
+import { BASECAMP_PRESENTATION_CAPABILITIES, renderBasecampPresentationMarkdown } from "./outbound/presentation.js";
 import { sendBasecampMedia, sendBasecampText } from "./outbound/send.js";
-import { getBasecampRuntime } from "./runtime.js";
 import type { BasecampChannelConfig, BasecampInboundMessage, ResolvedBasecampAccount } from "./types.js";
 import { withTimeout } from "./util.js";
 
@@ -48,34 +55,71 @@ export function _resetValidationState(): void {
   lastValidatedConfigJson = undefined;
 }
 
-export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampProbe, BasecampAudit> = {
-  id: "basecamp",
-
-  meta: {
+/**
+ * Base plugin surface (SPEC §2.1): everything outside the four
+ * createChatChannelPlugin slots (security, pairing, threading, outbound).
+ * WP0 lays this skeleton; WP2–WP5 fill the remaining slots idiomatically.
+ */
+const basecampChannelBase = {
+  ...createChannelPluginBase<ResolvedBasecampAccount>({
     id: "basecamp",
-    label: "Basecamp",
-    selectionLabel: "Basecamp (Campfire, Cards, Todos, Check-ins, Pings)",
-    docsPath: "/channels/basecamp",
-    docsLabel: "basecamp",
-    blurb:
-      "Campfire chats, card tables, to-do lists, check-ins, pings — every Basecamp surface as a live agent interaction point.",
-    systemImage: "building.2",
-  },
 
-  capabilities: {
-    chatTypes: ["direct", "group"],
-    threads: false,
-    reactions: true,
-    media: false,
-    nativeCommands: false,
-    blockStreaming: false,
-  },
+    meta: basecampChannelMeta,
 
-  setupWizard: basecampSetupWizard,
+    setupWizard: basecampSetupWizard,
 
-  pairing: basecampPairingAdapter,
+    commands: {
+      enforceOwnerForCommands: true,
+      skipWhenConfigEmpty: true,
+    },
 
-  setup: basecampSetupAdapter,
+    agentPrompt: basecampAgentPromptAdapter,
+
+    reload: { configPrefixes: ["channels.basecamp"] },
+
+    configSchema: basecampConfigSchema,
+
+    security: basecampSecurityAdapter,
+
+    setupContract: basecampSetupContract,
+
+    doctor: basecampDoctorAdapter,
+
+    groups: basecampGroupAdapter,
+  }),
+
+  capabilities: basecampChannelCapabilities,
+
+  config: basecampConfigAdapter,
+
+  secrets: basecampSecrets,
+
+  // Bucket/recording bindings are project-level, not conversation-level (SPEC §2.21).
+  conversationBindings: { supportsCurrentConversationBinding: false },
+
+  // Configured `agents.bindings[]` rules: a `bucket:<id>` binding covers every
+  // recording inside the project; exact recording bindings outrank it.
+  bindings: basecampBindingsProvider,
+
+  // Allowlist adapter (SPEC §2.22): lets `openclaw allowlist` / `openclaw
+  // pairing` CLI read and edit the channel's config-backed sender lists.
+  // Per-bucket allowFrom overrides remain runtime route descriptors
+  // (dispatch.ts); they are channel-level config, not account-scoped, so
+  // they are not surfaced as group overrides here.
+  allowlist: buildDmGroupAccountAllowlistAdapter<ResolvedBasecampAccount>({
+    channelId: "basecamp",
+    resolveAccount: ({ cfg, accountId }) => resolveBasecampAccount(cfg, accountId ?? undefined),
+    normalize: ({ values }) =>
+      values
+        .map((value) =>
+          String(value)
+            .replace(/^(basecamp|bc):/i, "")
+            .trim(),
+        )
+        .filter(Boolean),
+    resolveDmAllowFrom: (account, { cfg }) => resolveBasecampAllowFrom(cfg, account.accountId),
+    resolveGroupAllowFrom: () => undefined,
+  }),
 
   status: basecampStatusAdapter,
 
@@ -87,17 +131,18 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
 
   heartbeat: basecampHeartbeatAdapter,
 
-  groups: basecampGroupAdapter,
+  lifecycle: basecampLifecycleAdapter,
 
-  agentPrompt: basecampAgentPromptAdapter,
+  mentions: basecampMentionAdapter,
+
+  actions: basecampActionsAdapter,
+
+  // Agent tools are registered via api.registerTool in the entry's
+  // registerFull (src/adapters/agent-tools.ts), not the channel slot — the
+  // tool context carries agentId, which is what persona mapping needs.
 
   elevated: {
     allowFromFallback: () => undefined,
-  },
-
-  commands: {
-    enforceOwnerForCommands: true,
-    skipWhenConfigEmpty: true,
   },
 
   auth: {
@@ -124,142 +169,19 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
     },
   },
 
-  mentions: basecampMentionAdapter,
-
-  actions: basecampActionsAdapter,
-
-  agentTools: basecampAgentTools,
-
-  reload: { configPrefixes: ["channels.basecamp"] },
-
-  configSchema: {
-    ...buildChannelConfigSchema(BasecampConfigSchema),
-    uiHints: {
-      "accounts.*.tokenFile": {
-        label: "Token file path",
-        help: "Path to file containing OAuth token",
-        sensitive: true,
-      },
-      "accounts.*.token": {
-        label: "Token",
-        help: "Inline OAuth token (prefer tokenFile)",
-        sensitive: true,
-        advanced: true,
-      },
-      "accounts.*.cliProfile": {
-        label: "Basecamp CLI profile",
-        help: "CLI profile for identity discovery during setup (not used at runtime)",
-      },
-      "accounts.*.personId": { label: "Person ID", help: "Your Basecamp person ID (numeric)" },
-      "accounts.*.basecampAccountId": {
-        label: "Basecamp Account ID",
-        help: "Numeric Basecamp account ID (auto-set during onboarding)",
-      },
-      "accounts.*.oauthTokenFile": {
-        label: "OAuth token file",
-        help: "Path to OAuth token JSON (auto-managed)",
-        sensitive: true,
-      },
-      "accounts.*.oauthClientId": {
-        label: "OAuth Client ID (override)",
-        help: "Override channel-level OAuth client ID for this account",
-      },
-      "accounts.*.oauthClientSecret": {
-        label: "OAuth Client Secret (override)",
-        help: "Override channel-level OAuth secret",
-        sensitive: true,
-      },
-      "oauth.clientId": { label: "OAuth Client ID", help: "Basecamp OAuth app client ID for browser-based login" },
-      "oauth.clientSecret": { label: "OAuth Client Secret", help: "Basecamp OAuth app secret", sensitive: true },
-      personas: {
-        label: "Agent personas",
-        help: "Maps agent IDs to Basecamp account IDs for multi-identity outbound",
-        advanced: true,
-      },
-      virtualAccounts: {
-        label: "Project scopes",
-        help: "Maps synthetic account IDs to specific projects",
-        advanced: true,
-      },
-      dmPolicy: { label: "DM policy", help: "Controls who can DM agents: pairing, allowlist, open, disabled" },
-      allowFrom: { label: "Allowed senders", help: "Basecamp person IDs allowed to message agents" },
-      engage: {
-        label: "Engagement policy",
-        help: "Event types that trigger agent response: dm, mention, assignment, checkin, conversation, activity",
-      },
-      buckets: {
-        label: "Per-project settings",
-        help: "Override engage, requireMention, and tool policies per bucket",
-        advanced: true,
-      },
-    },
-  },
-
-  config: {
-    listAccountIds: (cfg) => listBasecampAccountIds(cfg),
-    resolveAccount: (cfg, accountId) => resolveBasecampAccount(cfg, accountId),
-    defaultAccountId: (cfg) => resolveDefaultBasecampAccountId(cfg),
-    isConfigured: (account) =>
-      Boolean(account.token?.trim() || account.config.tokenFile || account.config.oauthTokenFile),
-    isEnabled: (account) => account.enabled,
-    disabledReason: () => "Manually disabled",
-    unconfiguredReason: () => "No token or OAuth token file configured",
-    describeAccount: (account) => ({
-      accountId: account.accountId,
-      name: account.displayName,
-      enabled: account.enabled,
-      configured: Boolean(account.token?.trim() || account.config.tokenFile || account.config.oauthTokenFile),
-      tokenSource: account.tokenSource,
-      cliProfile: account.cliProfile,
-    }),
-    setAccountEnabled: ({ cfg, accountId, enabled }) =>
-      setAccountEnabledInConfigSection({ cfg, sectionKey: "basecamp", accountId, enabled }),
-    deleteAccount: ({ cfg, accountId }) => {
-      const updated = deleteAccountFromConfigSection({
-        cfg,
-        sectionKey: "basecamp",
-        accountId,
-      });
-      // Clean up persona entries pointing to the deleted account
-      const section = updated.channels?.basecamp as BasecampChannelConfig | undefined;
-      if (section?.personas) {
-        const cleaned = { ...section.personas };
-        for (const [agentId, targetId] of Object.entries(cleaned)) {
-          if (targetId === accountId) delete cleaned[agentId];
-        }
-        (updated.channels!.basecamp as any).personas = cleaned;
-      }
-      return updated;
-    },
-    resolveAllowFrom: ({ cfg }) => resolveBasecampAllowFrom(cfg),
-    formatAllowFrom: ({ allowFrom }) => allowFrom.map((entry) => `Person ${entry}`),
-  },
-
-  security: basecampSecurityAdapter,
-
-  outbound: {
-    deliveryMode: "direct",
-    textChunkLimit: BASECAMP_TEXT_CHUNK_LIMIT,
-    chunkerMode: "markdown",
-    chunker: (text, limit) => chunkMarkdownText(text, limit),
-    resolveTarget: ({ to }) => {
-      const result = resolveOutboundTarget(to ?? "");
-      if (result.ok) return { ok: true, to: result.to };
-      return { ok: false, error: new Error(result.error) };
-    },
-    sendText: async ({ to, text, accountId }) => {
-      const result = await sendBasecampText({ to, text, accountId });
-      return { channel: "basecamp", messageId: result.messageId };
-    },
-    sendMedia: async ({ to, text, mediaUrl, accountId }) => {
-      const result = await sendBasecampMedia({ to, text, mediaUrl, accountId });
-      return { channel: "basecamp", messageId: result.messageId };
-    },
-  },
-
   gateway: {
     startAccount: async (ctx) => {
       const account = await resolveBasecampAccountAsync(ctx.cfg, ctx.account.accountId);
+
+      ctx.setStatus({ ...ctx.getStatus(), accountId: account.accountId, lifecycle: "starting" });
+
+      // Fatal startup failure: publish a blocked lifecycle patch and throw so
+      // the host records the reason instead of a silent not-running account.
+      const failStartup: (message: string) => never = (message) => {
+        ctx.log?.error(`[${account.accountId}] ${message}`);
+        ctx.setStatus({ ...ctx.getStatus(), ...channelBlockedPatch(message) });
+        throw new Error(message);
+      };
 
       // ----- Startup validation -----
       // Verify critical config is valid. Log warnings but don't block startup.
@@ -281,13 +203,6 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
       if (configJson !== lastValidatedConfigJson) {
         lastValidatedConfigJson = configJson;
         if (startupSection?.personas) {
-          // Warn about persona limitation with agent tools
-          if (Object.keys(startupSection.personas).length > 0) {
-            ctx.log?.warn(
-              "Agent tools execute under the default account; " +
-                "persona-mapped accounts are not yet supported for tool calls",
-            );
-          }
           for (const [agentId, targetAccountId] of Object.entries(startupSection.personas)) {
             const targetAccounts = startupSection.accounts ?? {};
             if (!targetAccounts[targetAccountId]) {
@@ -312,21 +227,16 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
           const tm = createTokenManager(account);
           await tm.getToken(); // validates + refreshes if needed
         } catch (err) {
-          ctx.log?.error(`[${account.accountId}] cannot start: OAuth token invalid: ${String(err)}`);
-          return;
+          failStartup(`cannot start: OAuth token invalid: ${String(err)}`);
         }
       }
 
       if (account.tokenSource === "none") {
-        ctx.log?.error(`[${account.accountId}] cannot start: no authentication configured`);
-        return;
+        failStartup("cannot start: no authentication configured");
       }
 
       if (!account.token && account.tokenSource !== "oauth") {
-        ctx.log?.error(
-          `[${account.accountId}] cannot start: no token (check tokenFile or token config) and no oauthTokenFile`,
-        );
-        return;
+        failStartup("cannot start: no token (check tokenFile or token config) and no oauthTokenFile");
       }
 
       // Resolve the numeric Basecamp account ID for API calls.
@@ -351,13 +261,10 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
         const pollerMod = await import("./inbound/poller.js");
         startCompositePoller = pollerMod.startCompositePoller;
       } catch (err) {
-        ctx.log?.error(`[${account.accountId}] failed to load poller module: ${String(err)}`);
-        return;
+        failStartup(`failed to load poller module: ${String(err)}`);
       }
 
-      // Resolve state directory for cursor + dedup persistence.
-      // Single source of truth: resolvePluginStateDir() is used by both the
-      // poller (cursors via stateDir) and dedup-registry (SQLite via same fn).
+      // Resolve state directory for cursor + recording-index persistence.
       const stateDir = resolvePluginStateDir();
 
       // Auto-register webhooks for configured projects
@@ -403,9 +310,13 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
           const active = [...result.created, ...result.existing, ...result.recovered];
           if (active.length > 0) {
             webhookActiveProjects = new Set(active);
+            recordIngressAvailable(account.accountId);
+          } else {
+            recordIngressUnavailable(account.accountId, "webhook reconciliation left no active webhooks");
           }
         } catch (err) {
           ctx.log?.error(`[${account.accountId}] webhook reconciliation failed: ${String(err)}`);
+          recordIngressUnavailable(account.accountId, `webhook reconciliation failed: ${String(err)}`);
         }
       }
 
@@ -420,15 +331,19 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
 
         return dispatchBasecampEvent(msg, {
           account,
+          cfg: ctx.cfg,
           log: ctx.log as any,
+          // Host-injected channel runtime surface (preferred inbound kernel
+          // entry when populated — verified structurally in dispatch).
+          channelRuntime: (ctx as { channelRuntime?: unknown }).channelRuntime,
         });
       };
 
-      // Mark channel as running
+      // Mark channel as running + ready
       ctx.setStatus({
+        ...ctx.getStatus(),
         accountId: account.accountId,
-        running: true,
-        lastStartAt: Date.now(),
+        ...channelReadyPatch({ lastStartAt: Date.now() }),
       });
 
       // Start the composite poller (activity feed + readings)
@@ -481,10 +396,12 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
           );
         }
 
-        // Close account dedup (flush + close SQLite) + flush secret stores (with timeout)
+        // Flush recording index + secret stores (with timeout). Replay-guard
+        // state is committed per event in the shared plugin-state store —
+        // nothing to flush.
         await withTimeout(
-          Promise.resolve().then(() => {
-            closeAccountDedup(account.accountId);
+          Promise.resolve().then(async () => {
+            await closeRecordingIndex(account.accountId);
             flushWebhookSecrets();
           }),
           5000,
@@ -493,11 +410,22 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
         );
 
         ctx.setStatus({
+          ...ctx.getStatus(),
           accountId: account.accountId,
-          running: false,
-          lastStopAt: Date.now(),
+          ...channelStoppedPatch({ lastStopAt: Date.now() }),
         });
       }
+    },
+    stopAccount: async (ctx) => {
+      const accountId = ctx.accountId;
+
+      // Idempotent with startAccount's finally block — an orderly stop may
+      // run both paths; each flush/close tolerates repeats. Replay-guard
+      // state is process-wide and TTL-bound; nothing per-account to close.
+      flushWebhookSecrets();
+      await closeRecordingIndex(accountId);
+
+      ctx.setStatus({ ...ctx.getStatus(), accountId, ...channelStoppedPatch({ lastStopAt: Date.now() }) });
     },
     logoutAccount: async ({ accountId, cfg }) => {
       const account = resolveBasecampAccount(cfg, accountId);
@@ -525,10 +453,74 @@ export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampPro
       clearTokenManager(accountId);
       clearClient(accountId);
 
-      // Close account dedup DB
-      closeAccountDedup(accountId);
+      // Flush + drop the account's recording index
+      await closeRecordingIndex(accountId);
 
       return { cleared, loggedOut: cleared };
     },
   },
+} satisfies Partial<ChannelPlugin<ResolvedBasecampAccount, BasecampProbe, BasecampAudit>>;
+
+const composedChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampProbe, BasecampAudit> = createChatChannelPlugin<
+  ResolvedBasecampAccount,
+  BasecampProbe,
+  BasecampAudit
+>({
+  base: basecampChannelBase,
+
+  pairing: basecampPairingAdapter,
+
+  outbound: {
+    base: {
+      deliveryMode: "direct",
+      textChunkLimit: BASECAMP_TEXT_CHUNK_LIMIT,
+      // SDK core chunker (fence/table-aware); no custom chunker (SPEC §2.8).
+      chunkerMode: "markdown",
+      presentationCapabilities: BASECAMP_PRESENTATION_CAPABILITIES,
+      // Text posts are single, atomic API writes with a returned recording
+      // id. Media is not durable-final: chat targets only get a link, so
+      // only `text` is declared (SPEC §2.5).
+      deliveryCapabilities: { durableFinal: { text: true } },
+      renderPresentation: ({ payload, presentation }) => {
+        const text = renderBasecampPresentationMarkdown(presentation);
+        return text === null ? null : { ...payload, text };
+      },
+      resolveTarget: ({ to }) => {
+        const result = resolveOutboundTarget(to ?? "");
+        if (result.ok) return { ok: true, to: result.to };
+        return { ok: false, error: new Error(result.error) };
+      },
+    },
+    attachedResults: {
+      channel: "basecamp",
+      sendText: ({ cfg, to, text, accountId }) => sendBasecampText({ cfg, to, text, accountId }),
+      sendMedia: ({ cfg, to, text, mediaUrl, accountId, mediaReadFile }) =>
+        sendBasecampMedia({ cfg, to, text, mediaUrl, accountId, mediaReadFile }),
+    },
+  },
+});
+
+const composedOutbound = composedChannel.outbound;
+if (!composedOutbound) throw new Error("basecamp channel: createChatChannelPlugin produced no outbound adapter");
+
+/**
+ * Message adapter (SPEC §2.6): the typed send surface core uses for the
+ * shared `message` tool, queued/durable-final sends, and receipts. Bridged
+ * from the SAME outbound adapter createChatChannelPlugin composed, so target
+ * grammar, chunking, presentation rendering, attached results, and the
+ * durable-final declaration (text only — media posts a link, SPEC §2.5)
+ * stay single-sourced. Room-event turns (SPEC §2.4) can only speak here.
+ */
+export const basecampChannel: ChannelPlugin<ResolvedBasecampAccount, BasecampProbe, BasecampAudit> = {
+  ...composedChannel,
+  message: createChannelMessageAdapterFromOutbound({
+    id: "basecamp",
+    outbound: composedOutbound,
+    receive: {
+      // Inbound events are acknowledged once the agent turn is dispatched;
+      // the poller/webhook replay guard already makes redelivery idempotent.
+      defaultAckPolicy: "after_agent_dispatch",
+      supportedAckPolicies: ["after_agent_dispatch"],
+    },
+  }),
 };

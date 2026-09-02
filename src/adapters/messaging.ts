@@ -1,42 +1,82 @@
 /**
- * Basecamp messaging adapter — target normalization and display formatting.
+ * Basecamp messaging adapter — target grammar and session routing (SPEC §2.20).
  *
- * Implements ChannelMessagingAdapter for normalizing Basecamp peer IDs
- * (recording:<id>, bucket:<id>, ping:<id>) and formatting them for display.
+ * Peer IDs stay `recording:<id>` / `bucket:<id>` / `ping:<id>` (PLAN peer
+ * model). The adapter declares the channel's target prefixes, infers chat
+ * type before directory lookup, resolves session conversations with
+ * bucket-parent candidates (via the recording index), and builds outbound
+ * session routes with the canonical SDK helper.
  */
 
-import type { ChannelMessagingAdapter } from "openclaw/plugin-sdk/channel-runtime";
+import { buildChannelOutboundSessionRoute, stripChannelTargetPrefix } from "openclaw/plugin-sdk/channel-core";
+import { findRecordingEntrySync } from "../inbound/recording-index.js";
+import type { ChannelMessagingAdapter } from "../sdk-types.js";
 
 const PEER_PATTERN = /^(recording|bucket|ping):\d+$/;
 
+/** Normalize a raw target to canonical peer form, or undefined when invalid. */
+function normalizeBasecampTarget(raw: string): string | undefined {
+  const stripped = stripChannelTargetPrefix(raw.trim(), "basecamp", "bc");
+  if (PEER_PATTERN.test(stripped)) return stripped;
+  // Bare numeric → recording:<id>
+  if (/^\d+$/.test(stripped)) return `recording:${stripped}`;
+  return undefined;
+}
+
+/**
+ * Observed chat kind for a Ping conversation: Circle membership decides
+ * direct vs group, which outbound cannot query synchronously. Inbound
+ * normalization records the observed kind in the recording index; fall back
+ * to direct for pings never seen inbound (1:1 is the overwhelming case).
+ */
+function pingChatKind(pingId: string): "direct" | "group" {
+  return findRecordingEntrySync(pingId)?.chatKind ?? "direct";
+}
+
 export const basecampMessagingAdapter: ChannelMessagingAdapter = {
-  normalizeTarget: (raw) => {
-    // Already in canonical form
-    if (PEER_PATTERN.test(raw)) return raw;
+  /** Provider prefixes accepted in explicit targets (SPEC §2.20). */
+  targetPrefixes: ["basecamp", "bc"],
 
-    // Bare numeric → recording:<id>
-    if (/^\d+$/.test(raw)) return `recording:${raw}`;
+  // Basecamp rich text accepts <table> (probed against a sandbox project,
+  // SPEC §8 Q4), so agent tables render natively instead of degrading.
+  defaultMarkdownTableMode: "block",
 
-    // Strip basecamp: prefix and recurse
-    if (raw.startsWith("basecamp:")) {
-      const stripped = raw.slice("basecamp:".length);
-      if (PEER_PATTERN.test(stripped)) return stripped;
-      if (/^\d+$/.test(stripped)) return `recording:${stripped}`;
-    }
+  normalizeTarget: (raw) => normalizeBasecampTarget(raw),
 
-    return undefined;
+  /**
+   * Chat-type inference before directory lookup: pings are direct
+   * conversations, recordings and buckets are group surfaces.
+   */
+  inferTargetChatType: ({ to }) => {
+    const normalized = normalizeBasecampTarget(to);
+    if (!normalized) return undefined;
+    return normalized.startsWith("ping:") ? pingChatKind(normalized) : "group";
+  },
+
+  /**
+   * Canonical session-conversation grammar: a recording conversation's parent
+   * is its owning bucket (project), resolved through the recording index so
+   * project-level bindings and inheritance work for any recording the inbound
+   * fabric has seen. Candidates are ordered narrowest → broadest.
+   */
+  resolveSessionConversation: ({ rawId }) => {
+    const normalized = normalizeBasecampTarget(rawId) ?? rawId;
+    const match = normalized.match(/^recording:(\d+)$/);
+    if (!match) return { id: normalized };
+
+    const entry = findRecordingEntrySync(match[1]);
+    if (!entry) return { id: normalized };
+
+    const bucketConversationId = `bucket:${entry.bucketId}`;
+    return {
+      id: normalized,
+      baseConversationId: bucketConversationId,
+      parentConversationCandidates: [bucketConversationId],
+    };
   },
 
   targetResolver: {
-    looksLikeId: (raw) => {
-      if (PEER_PATTERN.test(raw)) return true;
-      if (/^\d+$/.test(raw)) return true;
-      if (raw.startsWith("basecamp:")) {
-        const stripped = raw.slice("basecamp:".length);
-        return PEER_PATTERN.test(stripped) || /^\d+$/.test(stripped);
-      }
-      return false;
-    },
+    looksLikeId: (raw) => normalizeBasecampTarget(raw) !== undefined,
     hint: "recording:<id> | bucket:<id> | ping:<id>",
   },
 
@@ -55,5 +95,28 @@ export const basecampMessagingAdapter: ChannelMessagingAdapter = {
       default:
         return target;
     }
+  },
+
+  /**
+   * Provider session-route builder (SPEC §2.20): pings route as direct
+   * conversations, recordings/buckets as groups. Inbound delivery uses the
+   * same canonical peer IDs, so the recipient session is exact.
+   */
+  resolveOutboundSessionRoute: ({ cfg, agentId, accountId, target }) => {
+    const normalized = normalizeBasecampTarget(target);
+    if (!normalized) return null;
+
+    const chatType = normalized.startsWith("ping:") ? pingChatKind(normalized) : ("group" as const);
+    return buildChannelOutboundSessionRoute({
+      cfg,
+      agentId,
+      channel: "basecamp",
+      accountId,
+      recipientSessionExact: true,
+      peer: { kind: chatType, id: normalized },
+      chatType,
+      from: `basecamp:${normalized}`,
+      to: normalized,
+    });
   },
 };

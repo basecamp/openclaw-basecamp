@@ -5,14 +5,29 @@
  * them to BasecampInboundMessage, and dispatches to agents. Supplements
  * the polling-based inbound pipeline with real-time delivery.
  *
- * Webhook events share a per-account EventDedup instance with the poller
- * via the dedup registry. Cross-source dedup relies on the secondary key
- * (recording:id:kind:ts) which both sources generate for the same event.
+ * Request hygiene uses the SDK webhook guards (SPEC §2.17):
+ * - readWebhookBodyOrReject: bounded body read (raw body needed for HMAC)
+ * - createWebhookInFlightLimiter: per-account concurrency cap
+ * - runDetachedWebhookWork: post-ack processing visible to gateway drain
+ * - safeEqualSecret: constant-time secret comparison
+ * HMAC verification itself stays plugin-owned (Basecamp's Stripe-style
+ * signed-payload protocol is channel-specific).
+ *
+ * Webhook events share the process-wide replay guard with the poller.
+ * Cross-source dedup relies on the secondary key (recordingId:action:ts)
+ * which both sources generate for the same event.
  */
 
 import crypto from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { join } from "node:path";
+import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
+import { safeEqualSecret } from "openclaw/plugin-sdk/security-runtime";
+import {
+  createWebhookInFlightLimiter,
+  readWebhookBodyOrReject,
+  runDetachedWebhookWork,
+} from "openclaw/plugin-sdk/webhook-request-guards";
 import {
   listBasecampAccountIds,
   resolveAccountForBucket,
@@ -23,9 +38,9 @@ import {
 import { dispatchBasecampEvent } from "../dispatch.js";
 import { createConsoleStructuredLog } from "../logging.js";
 import {
+  recordIngressAvailable,
   recordQueueFullDrop,
   recordWebhookAuthMethod,
-  recordWebhookDedupSize,
   recordWebhookDispatched,
   recordWebhookDropped,
   recordWebhookError,
@@ -33,59 +48,22 @@ import {
 } from "../metrics.js";
 import { getBasecampRuntime } from "../runtime.js";
 import type { BasecampWebhookPayload, ResolvedBasecampAccount } from "../types.js";
-import { EventDedup } from "./dedup.js";
-import { getAccountDedup } from "./dedup-registry.js";
 import { isSelfMessage, normalizeWebhookPayload } from "./normalize.js";
+import { getRecordingIndex, recordInboundMessageMappings } from "./recording-index.js";
+import { getReplayGuard, replaySecondaryKey } from "./replay-guard.js";
 import { resolvePluginStateDir } from "./state-dir.js";
 import { JsonFileWebhookSecretStore, WebhookSecretRegistry } from "./webhook-secrets.js";
 
 // ---------------------------------------------------------------------------
-// Concurrency limiter
+// Concurrency limiter — per-account in-flight cap (no unbounded queue)
 // ---------------------------------------------------------------------------
 
-export class Semaphore {
-  private current = 0;
-  private queue: Array<() => void> = [];
-
-  constructor(private readonly max: number) {}
-
-  async acquire(): Promise<void> {
-    if (this.current < this.max) {
-      this.current++;
-      return;
-    }
-    return new Promise<void>((resolve) => {
-      this.queue.push(resolve);
-    });
-  }
-
-  release(): void {
-    if (this.current <= 0) {
-      throw new Error("Semaphore release() called without matching acquire()");
-    }
-    this.current--;
-    const next = this.queue.shift();
-    if (next) {
-      this.current++;
-      next();
-    }
-  }
-
-  get pending(): number {
-    return this.queue.length;
-  }
-}
-
-/** Max concurrent webhook dispatches. */
+/** Max concurrent webhook dispatches per account. */
 const MAX_CONCURRENT_DISPATCHES = 10;
-/** Max queued dispatches before dropping. */
-const MAX_QUEUED_DISPATCHES = 100;
 
-export const dispatchSemaphore = new Semaphore(MAX_CONCURRENT_DISPATCHES);
-
-// ---------------------------------------------------------------------------
-// Dedup — shared per-account instance via dedup-registry.ts
-// ---------------------------------------------------------------------------
+export const webhookInFlightLimiter = createWebhookInFlightLimiter({
+  maxInFlightPerKey: MAX_CONCURRENT_DISPATCHES,
+});
 
 // ---------------------------------------------------------------------------
 // HMAC-SHA256 verification (Stripe-style: X-Basecamp-Signature + Timestamp)
@@ -148,18 +126,19 @@ export function verifyWebhookSignature(params: {
 
   const signedPayload = `${timestamp}.${rawBody}`;
 
-  for (const secret of secrets) {
+  return secrets.some((secret) => {
     const expected = "sha256=" + crypto.createHmac("sha256", secret).update(signedPayload).digest("hex");
+    return safeEqualSecret(signature, expected);
+  });
+}
 
-    // Timing-safe comparison
-    if (expected.length === signature.length) {
-      const a = Buffer.from(expected);
-      const b = Buffer.from(signature);
-      if (crypto.timingSafeEqual(a, b)) return true;
-    }
-  }
-
-  return false;
+/**
+ * Drop an account's in-memory secret registry without flushing. Used when the
+ * account is removed: a later flushWebhookSecrets() must not resurrect the
+ * deleted secrets file from the cached snapshot.
+ */
+export function closeWebhookSecretRegistry(accountId: string): void {
+  secretRegistries.delete(accountId);
 }
 
 /**
@@ -173,48 +152,14 @@ export function flushWebhookSecrets(): void {
 
 /** Maximum allowed webhook request body size (1 MiB). */
 const MAX_WEBHOOK_BODY_BYTES = 1 * 1024 * 1024;
-
-/**
- * Read the full request body as a string.
- * Rejects if the body exceeds MAX_WEBHOOK_BODY_BYTES.
- */
-function readBody(req: IncomingMessage): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    let receivedBytes = 0;
-    let finished = false;
-
-    req.on("data", (chunk: Buffer) => {
-      if (finished) return;
-      receivedBytes += chunk.length;
-      if (receivedBytes > MAX_WEBHOOK_BODY_BYTES) {
-        finished = true;
-        req.destroy(new Error("Request body too large"));
-        reject(new Error("Request body too large"));
-        return;
-      }
-      chunks.push(chunk);
-    });
-
-    req.on("end", () => {
-      if (finished) return;
-      finished = true;
-      resolve(Buffer.concat(chunks).toString("utf-8"));
-    });
-
-    req.on("error", (err) => {
-      if (finished) return;
-      finished = true;
-      reject(err);
-    });
-  });
-}
+/** Body read timeout. */
+const WEBHOOK_BODY_TIMEOUT_MS = 10_000;
 
 /**
  * Basecamp webhook HTTP handler.
  *
- * Returns 200 immediately to acknowledge receipt, then processes
- * the event asynchronously to avoid webhook timeout.
+ * Returns 200 immediately to acknowledge receipt, then processes the event
+ * on a detached gateway work root (visible to shutdown drain).
  */
 export async function handleBasecampWebhook(req: IncomingMessage, res: ServerResponse): Promise<void> {
   // Only accept POST
@@ -225,10 +170,11 @@ export async function handleBasecampWebhook(req: IncomingMessage, res: ServerRes
   }
 
   // ----- Load config -----
-  let cfg;
+  // config.current() returns a DeepReadonly snapshot; widen at this boundary.
+  let cfg: OpenClawConfig;
   try {
     const runtime = getBasecampRuntime();
-    cfg = runtime.config.loadConfig();
+    cfg = runtime.config.current() as OpenClawConfig;
   } catch (err) {
     console.error("[basecamp:webhook] failed to load config:", err);
     res.writeHead(500, { "Content-Type": "application/json" });
@@ -236,15 +182,19 @@ export async function handleBasecampWebhook(req: IncomingMessage, res: ServerRes
     return;
   }
 
-  // ----- Read body first (needed for both HMAC and JSON parsing) -----
-  let rawBody: string;
-  try {
-    rawBody = await readBody(req);
-  } catch {
-    res.writeHead(400, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: "Invalid request body" }));
-    return;
-  }
+  // ----- Read body first (raw string needed for both HMAC and JSON parsing) -----
+  // Pre-auth read with bounded size/time; the guard writes the rejection
+  // response itself on failure.
+  const bodyRead = await readWebhookBodyOrReject({
+    req,
+    res,
+    maxBytes: MAX_WEBHOOK_BODY_BYTES,
+    timeoutMs: WEBHOOK_BODY_TIMEOUT_MS,
+    profile: "pre-auth",
+    invalidBodyMessage: "Invalid request body",
+  });
+  if (!bodyRead.ok) return;
+  const rawBody = bodyRead.value;
 
   // ----- Authentication -----
   // Try query-string token first (?token=<secret>), then fall back to HMAC
@@ -259,7 +209,7 @@ export async function handleBasecampWebhook(req: IncomingMessage, res: ServerRes
   if (webhookSecret) {
     const urlObj = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
     const providedToken = urlObj.searchParams.get("token");
-    if (providedToken && providedToken === webhookSecret) {
+    if (providedToken && safeEqualSecret(providedToken, webhookSecret)) {
       authenticated = true;
       authMethod = "token";
     }
@@ -344,16 +294,29 @@ export async function handleBasecampWebhook(req: IncomingMessage, res: ServerRes
     return;
   }
 
-  // Return 200 immediately — process async
+  // Return 200 immediately — process on a detached gateway work root so the
+  // continuation stays admitted (and drain-aware) after this request settles.
+  // Started synchronously while the request is still admitted.
+  const detached = runDetachedWebhookWork(() => processWebhookPayload(payload, cfg, authMethod));
+
   res.writeHead(200, { "Content-Type": "application/json" });
   res.end(JSON.stringify({ ok: true }));
 
+  await detached;
+}
+
+/** Post-ack webhook processing: account resolution → normalize → guard → dispatch. */
+async function processWebhookPayload(
+  payload: BasecampWebhookPayload,
+  cfg: OpenClawConfig,
+  authMethod: "token" | "hmac" | undefined,
+): Promise<void> {
   // Resolve account from bucket ID in the webhook payload.
   // Check virtualAccounts for a scope mapping. Reject unmapped buckets
   // in multi-account mode to prevent dispatching under the wrong identity.
   let account: ResolvedBasecampAccount;
   try {
-    const bucketId = String(payload.recording.bucket.id);
+    const bucketId = String(payload.recording!.bucket!.id);
     const scopeAccountId = resolveAccountForBucket(cfg, bucketId);
     if (!scopeAccountId) {
       // No virtualAccount mapping for this bucket. In multi-account mode
@@ -389,8 +352,33 @@ export async function handleBasecampWebhook(req: IncomingMessage, res: ServerRes
   recordWebhookReceived(account.accountId);
   if (authMethod) recordWebhookAuthMethod(account.accountId, authMethod);
 
+  // In-flight cap per account, acquired before normalization: normalize can
+  // hit the Basecamp API (Circle lookups), so a burst must be bounded from
+  // here, not just around the final dispatch.
+  if (!webhookInFlightLimiter.tryAcquire(account.accountId)) {
+    slog.error("queue_full");
+    recordWebhookDropped(account.accountId);
+    recordQueueFullDrop(account.accountId);
+    return;
+  }
+
+  try {
+    await processAuthorizedWebhook({ payload, cfg, account, slog });
+  } finally {
+    webhookInFlightLimiter.release(account.accountId);
+  }
+}
+
+async function processAuthorizedWebhook(params: {
+  payload: BasecampWebhookPayload;
+  cfg: OpenClawConfig;
+  account: ResolvedBasecampAccount;
+  slog: ReturnType<typeof createConsoleStructuredLog>;
+}): Promise<void> {
+  const { payload, cfg, account, slog } = params;
+
   // Normalize
-  let msg;
+  let msg: Awaited<ReturnType<typeof normalizeWebhookPayload>>;
   try {
     msg = await normalizeWebhookPayload(payload, account);
   } catch (err) {
@@ -405,49 +393,48 @@ export async function handleBasecampWebhook(req: IncomingMessage, res: ServerRes
     return;
   }
 
-  // Self-message filter
+  // Populate the recording→bucket index so outbound cold sends can resolve
+  // recordings seen only via webhooks (SPEC §2.15).
+  try {
+    const index = await getRecordingIndex(account.accountId);
+    recordInboundMessageMappings(
+      index,
+      msg,
+      (payload.recording as { parent?: { id: string | number; type?: string } }).parent,
+    );
+  } catch {
+    // Index population is best-effort; outbound resolution reports misses.
+  }
+
+  // Self-message filter (belt-and-braces — dispatch also checks)
   if (isSelfMessage(msg.sender.id, account)) {
     recordWebhookDropped(account.accountId);
     return;
   }
 
-  // Dedup (shared per-account instance — cross-source with poller)
-  const dedup = getAccountDedup(account.accountId);
-  const secondaryKey = msg.meta.recordingId
-    ? EventDedup.secondaryKey(msg.meta.recordingId, msg.meta.eventKind, msg.createdAt)
-    : undefined;
-  if (dedup.isDuplicate(msg.dedupKey, secondaryKey)) {
-    recordWebhookDropped(account.accountId);
-    recordWebhookDedupSize(account.accountId, dedup.size);
-    return;
-  }
-
-  // Check backpressure before processing
-  if (dispatchSemaphore.pending >= MAX_QUEUED_DISPATCHES) {
-    slog.error("queue_full");
-    recordWebhookDropped(account.accountId);
-    recordQueueFullDrop(account.accountId);
-    recordWebhookDedupSize(account.accountId, dedup.size);
-    return;
-  }
-  if (dispatchSemaphore.pending > 0) {
-    slog.warn("backpressure", { queued: dispatchSemaphore.pending });
-  }
-
-  // Dispatch with concurrency limit
-  await dispatchSemaphore.acquire();
   try {
-    const delivered = await dispatchBasecampEvent(msg, { account });
-    if (delivered) {
+    // Replay guard (shared with poller — cross-source secondary key)
+    const secondaryKey = msg.meta.recordingId
+      ? replaySecondaryKey(msg.meta.recordingId, msg.meta.eventKind, msg.createdAt)
+      : undefined;
+    const inbound = msg;
+    const result = await getReplayGuard().processGuarded(
+      { accountId: account.accountId, primaryKey: msg.dedupKey, secondaryKey },
+      async () => dispatchBasecampEvent(inbound, { account, cfg }),
+    );
+
+    if (result.kind !== "processed") {
+      recordWebhookDropped(account.accountId);
+    } else if (result.value) {
       recordWebhookDispatched(account.accountId);
+      // A delivered webhook proves the ingress route works — clear a stale
+      // ingressUnavailable from failed startup reconciliation.
+      recordIngressAvailable(account.accountId);
     } else {
       recordWebhookDropped(account.accountId);
     }
   } catch (err) {
     slog.error("dispatch_error", { error: String(err), stack: err instanceof Error ? err.stack : undefined });
     recordWebhookError(account.accountId);
-  } finally {
-    recordWebhookDedupSize(account.accountId, dedup.size);
-    dispatchSemaphore.release();
   }
 }

@@ -5,20 +5,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("../src/dispatch.js", () => ({
   dispatchBasecampEvent: vi.fn().mockResolvedValue(true),
 }));
-vi.mock("../src/runtime.js", () => ({
-  getBasecampRuntime: vi.fn(() => ({
-    config: {
-      loadConfig: () => ({
-        channels: {
-          basecamp: {
-            accounts: { default: { personId: "1" } },
-            // No webhookSecret — HMAC-only mode
-          },
-        },
-      }),
+const hmacTestCfg = {
+  channels: {
+    basecamp: {
+      accounts: { default: { personId: "1" } },
+      // No webhookSecret — HMAC-only mode
     },
-  })),
-}));
+  },
+};
 vi.mock("../src/config.js", () => ({
   resolveBasecampAccount: vi.fn(() => ({
     accountId: "default",
@@ -69,9 +63,10 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolveAccountForBucket } from "../src/config.js";
-import { closeAllAccountDedup } from "../src/inbound/dedup-registry.js";
+import { resetReplayGuard } from "../src/inbound/replay-guard.js";
 import { JsonFileWebhookSecretStore, WebhookSecretRegistry } from "../src/inbound/webhook-secrets.js";
 import { getWebhookSecretRegistry, handleBasecampWebhook, verifyWebhookSignature } from "../src/inbound/webhooks.js";
+import { clearBasecampRuntime, setBasecampRuntime } from "../src/runtime.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -92,6 +87,7 @@ function mockReq(method: string, url: string, body?: string, headers?: Record<st
   req.method = method;
   req.url = url;
   req.headers = { host: "localhost:18789", ...headers };
+  (req as any).socket = { destroyed: false, writableEnded: false };
   return req;
 }
 
@@ -312,7 +308,10 @@ describe("handleBasecampWebhook — HMAC authentication", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    setBasecampRuntime({ config: { current: () => hmacTestCfg } } as any);
     _hmacTestStateDir = mkdtempSync(join(tmpdir(), "hmac-test-"));
+    process.env.OPENCLAW_STATE_DIR = _hmacTestStateDir;
+    resetReplayGuard();
     // Seed a webhook secret into the registry so HMAC verification can find it
     const reg = getWebhookSecretRegistry("default");
     reg.set("100", {
@@ -324,7 +323,9 @@ describe("handleBasecampWebhook — HMAC authentication", () => {
   });
 
   afterEach(() => {
-    closeAllAccountDedup();
+    clearBasecampRuntime();
+    resetReplayGuard();
+    delete process.env.OPENCLAW_STATE_DIR;
     rmSync(_hmacTestStateDir, { recursive: true, force: true });
   });
 

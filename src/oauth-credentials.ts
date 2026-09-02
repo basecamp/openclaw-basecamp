@@ -10,7 +10,7 @@
  * that PR lands.
  */
 
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import {
@@ -20,22 +20,16 @@ import {
   refreshToken as sdkRefreshToken,
   TokenManager,
 } from "@37signals/basecamp/oauth";
+import { resolvePluginStateDir } from "./inbound/state-dir.js";
 import type { ResolvedBasecampAccount } from "./types.js";
 
 const LAUNCHPAD_TOKEN_ENDPOINT = "https://launchpad.37signals.com/authorization/token";
 
-/** Guidance note shown before prompting for OAuth client credentials. */
-export const OAUTH_SETUP_GUIDANCE =
-  "You'll need a Basecamp OAuth app. Register one at:\n" +
-  "https://launchpad.37signals.com/integrations\n\n" +
-  "When creating the app, set the redirect URI to:\n" +
-  "http://localhost:14923/callback\n\n" +
-  "You can leave the other fields as defaults.";
+// Definitions live in oauth-lite.ts (import-light for the setup-entry graph);
+// re-exported here to keep this module's public API stable.
+import { isValidLaunchpadClientId } from "./oauth-lite.js";
 
-/** Valid Launchpad OAuth client IDs are 40-character lowercase hex (SHA-1). */
-export function isValidLaunchpadClientId(id: string | undefined): id is string {
-  return !!id && /^[0-9a-f]{40}$/.test(id);
-}
+export { isValidLaunchpadClientId, OAUTH_SETUP_GUIDANCE } from "./oauth-lite.js";
 
 /**
  * Resolve a valid OAuth client ID/secret pair.
@@ -83,17 +77,65 @@ function resolveOAuthClient(
 // Token file path resolution
 // ---------------------------------------------------------------------------
 
-const DEFAULT_TOKEN_DIR = join(homedir(), ".local", "share", "openclaw", "basecamp", "tokens");
+/**
+ * Pre-2.0 default token directory, consulted by the courtesy migration below.
+ * Overridable for tests so they never touch a developer's real token files.
+ */
+function legacyTokenDir(): string {
+  return (
+    process.env.OPENCLAW_BASECAMP_LEGACY_TOKEN_DIR ||
+    join(homedir(), ".local", "share", "openclaw", "basecamp", "tokens")
+  );
+}
+
+/**
+ * Default token directory (SPEC decision 4): under the plugin state dir so
+ * `openclaw backup` covers tokens via `backupResources`. Falls back to the
+ * legacy home-dir path when the runtime is unavailable (e.g. setup-only
+ * contexts before setRuntime has run).
+ */
+function defaultTokenDir(): string {
+  // resolvePluginStateDir works with or without the runtime, so setup-time
+  // OAuth logins persist under the backed-up plugin state dir too; the
+  // legacy home path survives only as a one-time migration source.
+  return join(resolvePluginStateDir(), "tokens");
+}
+
+/**
+ * One-time courtesy migration for the dogfooding deployment: when a token
+ * exists at the legacy default path but not at the new state-dir path, copy
+ * it (and its companion .client.json) to the new location. Best-effort.
+ */
+function migrateLegacyTokenFile(accountId: string, newPath: string): void {
+  try {
+    if (existsSync(newPath)) return;
+    const legacyPath = join(legacyTokenDir(), `${accountId}.json`);
+    if (legacyPath === newPath || !existsSync(legacyPath)) return;
+    mkdirSync(dirname(newPath), { recursive: true, mode: 0o700 });
+    copyFileSync(legacyPath, newPath);
+    const legacyClient = resolveClientFilePath(legacyPath);
+    if (existsSync(legacyClient)) {
+      copyFileSync(legacyClient, resolveClientFilePath(newPath));
+    }
+  } catch {
+    // Best-effort — a failed copy just means login is required again.
+  }
+}
 
 /**
  * Resolve the path for an OAuth token file.
  *
  * When `stateDir` is provided: `{stateDir}/tokens/{accountId}.json`
- * Otherwise: `~/.local/share/openclaw/basecamp/tokens/{accountId}.json`
+ * Otherwise: `{pluginStateDir}/tokens/{accountId}.json`, falling back to the
+ * legacy `~/.local/share/openclaw/basecamp/tokens/` when no runtime is set.
  */
 export function resolveTokenFilePath(accountId: string, stateDir?: string): string {
-  const dir = stateDir ? join(stateDir, "tokens") : DEFAULT_TOKEN_DIR;
-  return join(dir, `${accountId}.json`);
+  if (stateDir) {
+    return join(stateDir, "tokens", `${accountId}.json`);
+  }
+  const filePath = join(defaultTokenDir(), `${accountId}.json`);
+  migrateLegacyTokenFile(accountId, filePath);
+  return filePath;
 }
 
 // ---------------------------------------------------------------------------
@@ -201,7 +243,12 @@ export function clearTokenManager(accountId: string): void {
  */
 export async function interactiveLogin(
   account: ResolvedBasecampAccount,
-  overrides?: { clientId?: string; clientSecret?: string },
+  overrides?: {
+    clientId?: string;
+    clientSecret?: string;
+    /** Preferred browser opener (e.g. WizardPrompter.openUrl). Falls back to a local opener. */
+    openUrl?: (url: string) => Promise<void>;
+  },
 ): Promise<OAuthToken> {
   const oauthClient = resolveOAuthClient(account, overrides);
 
@@ -209,8 +256,14 @@ export async function interactiveLogin(
 
   const store = new FileTokenStore(tokenFilePath);
 
-  // Open browser: use the `open` package if available, fall back to platform command
+  // Open browser: prefer a caller-supplied opener (wizard prompters can route
+  // the URL to the controlling client), then the `open` package, then a
+  // platform-native command.
   const openBrowser = async (url: string): Promise<void> => {
+    if (overrides?.openUrl) {
+      await overrides.openUrl(url);
+      return;
+    }
     try {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const open = (await import(/* @vite-ignore */ "open" as string)).default as (url: string) => Promise<unknown>;

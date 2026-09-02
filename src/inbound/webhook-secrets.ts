@@ -8,9 +8,7 @@
  * Format: { [projectId]: { webhookId, secret, payloadUrl, types } }
  */
 
-import crypto from "node:crypto";
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { loadJsonFile, saveJsonFile } from "openclaw/plugin-sdk/json-store";
 
 export interface WebhookSecretEntry {
   webhookId: string;
@@ -31,32 +29,24 @@ export interface WebhookSecretStore {
 /**
  * JSON file-backed webhook secret store.
  *
- * Atomic writes via temp+rename. Best-effort persistence — if the write
- * fails, the in-memory state is still authoritative.
+ * SDK atomic JSON (SPEC §2.15): temp+rename replacement with restrictive
+ * permissions. Best-effort persistence — if the write fails, the in-memory
+ * state is still authoritative.
  */
 export class JsonFileWebhookSecretStore implements WebhookSecretStore {
   constructor(private readonly filePath: string) {}
 
   load(): WebhookSecretSnapshot {
-    try {
-      const raw = readFileSync(this.filePath, "utf-8");
-      const data = JSON.parse(raw);
-      if (data && typeof data === "object" && !Array.isArray(data)) {
-        return data as WebhookSecretSnapshot;
-      }
-    } catch {
-      // File doesn't exist or is malformed — start fresh
+    const data = loadJsonFile<unknown>(this.filePath);
+    if (data && typeof data === "object" && !Array.isArray(data)) {
+      return data as WebhookSecretSnapshot;
     }
     return {};
   }
 
   save(snapshot: WebhookSecretSnapshot): void {
     try {
-      const dir = dirname(this.filePath);
-      mkdirSync(dir, { recursive: true });
-      const tmp = join(dir, `.webhook-secrets-${crypto.randomUUID()}.tmp`);
-      writeFileSync(tmp, JSON.stringify(snapshot, null, 2), "utf-8");
-      renameSync(tmp, this.filePath);
+      saveJsonFile(this.filePath, snapshot);
     } catch {
       // Best-effort persistence
     }

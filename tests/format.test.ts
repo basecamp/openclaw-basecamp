@@ -194,6 +194,13 @@ describe("markdownToBasecampHtml", () => {
     expect(result).toContain("<code>code</code>");
   });
 
+  it("splits cells on unescaped pipes only and unescapes \\| and \\\\", () => {
+    const result = markdownToBasecampHtml("| Cmd | Path |\n| --- | --- |\n| a \\| b | C:\\\\ |");
+    expect(result).toContain("<td>a | b</td>");
+    expect(result).toContain("<td>C:\\</td>");
+    expect(result).not.toContain("<td>a </td>");
+  });
+
   it("converts a table with empty cells", () => {
     const md = "| A | B |\n|---|---|\n|   | x |";
     const result = markdownToBasecampHtml(md);
