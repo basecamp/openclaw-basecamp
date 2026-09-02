@@ -313,12 +313,14 @@ export async function postReplyToEvent(params: {
 // Default project chat (Campfire) resolution — for bucket:<id> targets
 // ---------------------------------------------------------------------------
 
-const defaultChatCache = new LruCache<string, string>(PING_CACHE_MAX);
+const defaultChatCache = new LruCache<string, { chatId: string; cachedAt: number }>(PING_CACHE_MAX);
+/** Positive dock entries expire so a disabled/recreated Chat tool is re-read without a restart. */
+const DEFAULT_CHAT_TTL_MS = 5 * 60 * 1000;
 
 /**
  * Resolve a project's default chat (Campfire) transcript ID from its dock.
  * Mirrors src/inbound/dock-cache.ts (which is scoped to safety-net tool IDs
- * and does not expose the chat tool). Cached per account:bucket.
+ * and does not expose the chat tool). Cached per account:bucket with a TTL.
  */
 export async function resolveDefaultChatCached(
   bucketId: string,
@@ -326,7 +328,7 @@ export async function resolveDefaultChatCached(
 ): Promise<string | undefined> {
   const key = circleCacheKey(bucketId, account.accountId);
   const cached = defaultChatCache.get(key);
-  if (cached) return cached;
+  if (cached && Date.now() - cached.cachedAt < DEFAULT_CHAT_TTL_MS) return cached.chatId;
   try {
     const client = getClient(account);
     const project = await client.projects.get(numId("project", bucketId));
@@ -334,7 +336,7 @@ export async function resolveDefaultChatCached(
     const chat = dock.find((item) => item.name === "chat" && item.enabled !== false);
     if (!chat) return undefined;
     const chatId = String(chat.id);
-    defaultChatCache.set(key, chatId);
+    defaultChatCache.set(key, { chatId, cachedAt: Date.now() });
     return chatId;
   } catch {
     return undefined;
@@ -621,9 +623,15 @@ async function loadMediaBytes(params: {
         notDispatched(`Media from ${mediaUrl} exceeds the ${Math.floor(maxBytes / 1024 / 1024)} MB limit`);
       }
       if (err instanceof MediaFetchError && err.code === "http_error") {
-        notDispatched(`Failed to fetch media from ${mediaUrl}: HTTP ${err.status ?? "error"}`, { retryable: true });
+        // Only transient statuses warrant a retry; a 400/404 will never heal.
+        const retryable = err.status === 408 || err.status === 429 || (err.status !== undefined && err.status >= 500);
+        notDispatched(`Failed to fetch media from ${mediaUrl}: HTTP ${err.status ?? "error"}`, { retryable });
       }
-      notDispatched(`Failed to fetch media from ${mediaUrl}: ${String(err)}`, { retryable: true });
+      if (err instanceof MediaFetchError && err.code === "fetch_failed") {
+        notDispatched(`Failed to fetch media from ${mediaUrl}: ${String(err)}`, { retryable: true });
+      }
+      // URL-shape and SSRF-policy rejections are deterministic — not retryable.
+      notDispatched(`Failed to fetch media from ${mediaUrl}: ${String(err)}`);
     }
   }
   const buffer = mediaReadFile

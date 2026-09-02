@@ -467,6 +467,53 @@ describe("outbound.sendBasecampMedia", () => {
     }
   });
 
+  it("re-reads the project dock after the default-chat cache TTL expires", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
+      const accountId = nextAccountId();
+      mockClient.projects.get.mockResolvedValue({ dock: [{ name: "chat", id: 42, enabled: true }] });
+      mockClient.campfires.createLine.mockResolvedValue({ id: 1 });
+
+      await sendBasecampText({ cfg: makeCfg(accountId), to: "bucket:77", text: "a", accountId });
+      await sendBasecampText({ cfg: makeCfg(accountId), to: "bucket:77", text: "b", accountId });
+      expect(mockClient.projects.get).toHaveBeenCalledTimes(1);
+
+      vi.setSystemTime(new Date("2026-01-01T00:06:00Z"));
+      mockClient.projects.get.mockResolvedValue({ dock: [{ name: "chat", id: 43, enabled: true }] });
+      await sendBasecampText({ cfg: makeCfg(accountId), to: "bucket:77", text: "c", accountId });
+      expect(mockClient.projects.get).toHaveBeenCalledTimes(2);
+      expect(mockClient.campfires.createLine).toHaveBeenLastCalledWith(43, expect.anything());
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("marks permanent media fetch failures non-retryable and 5xx retryable", async () => {
+    const accountId = nextAccountId();
+    const index = await getRecordingIndex(accountId, stateDir);
+    index.record("782", { bucketId: "10", recordableType: "Todo" });
+    const send = (status: number) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => new Response("nope", { status })),
+      );
+      return sendBasecampMedia({
+        cfg: makeCfg(accountId),
+        to: "recording:782",
+        text: "x",
+        mediaUrl: "https://example.com/gone.png",
+        accountId,
+      });
+    };
+    try {
+      await expect(send(404)).rejects.toMatchObject({ retryable: false });
+      await expect(send(503)).rejects.toMatchObject({ retryable: true });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("rejects loopback media URLs (SSRF guard)", async () => {
     const accountId = nextAccountId();
     const index = await getRecordingIndex(accountId, stateDir);
