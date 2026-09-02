@@ -41,8 +41,8 @@
     "prepack": "npm run build"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.5.7",
-    "@vitest/coverage-v8": "^4.1.10",
+    "@biomejs/biome": "2.5.11",
+    "@vitest/coverage-v8": "^4.1.11",
     "openclaw": "2026.8.1",
     "typescript": "^7.0.2",
     "vitest": "^4.1.10"
@@ -151,9 +151,9 @@
     "setupEntry": "./dist/setup-entry.js"
   },
   "dependencies": {
-    "@37signals/basecamp": "0.13.0",
-    "zod": "4.4.3",
-    "typebox": "1.3.16"
+    "@37signals/basecamp": "0.15.0",
+    "zod": "4.5.4",
+    "typebox": "1.3.23"
   },
   "peerDependencies": {
     "openclaw": ">=2026.8.1"
