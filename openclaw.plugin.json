@@ -110,13 +110,9 @@
           "groupAllowFrom": {
             "type": "array",
             "items": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "number"
-                }
+              "type": [
+                "string",
+                "number"
               ]
             }
           },
@@ -126,13 +122,9 @@
           "allowFrom": {
             "type": "array",
             "items": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "number"
-                }
+              "type": [
+                "string",
+                "number"
               ]
             }
           },
@@ -186,13 +178,9 @@
                 "allowFrom": {
                   "type": "array",
                   "items": {
-                    "anyOf": [
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "type": "number"
-                      }
+                    "type": [
+                      "string",
+                      "number"
                     ]
                   }
                 },
@@ -202,13 +190,9 @@
                 "groupAllowFrom": {
                   "type": "array",
                   "items": {
-                    "anyOf": [
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "type": "number"
-                      }
+                    "type": [
+                      "string",
+                      "number"
                     ]
                   }
                 },
@@ -724,13 +708,9 @@
                 "allowFrom": {
                   "type": "array",
                   "items": {
-                    "anyOf": [
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "type": "number"
-                      }
+                    "type": [
+                      "string",
+                      "number"
                     ]
                   }
                 }
